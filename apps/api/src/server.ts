@@ -1,5 +1,7 @@
 import { createServer } from "node:http";
 import { dashboardHtml } from "./dashboard.js";
+import { buildContext } from "./context.js";
+import { createApiRouter } from "./routes.js";
 
 type TelemetryEvent = {
   requestId: string;
@@ -118,8 +120,15 @@ function sendJson(res: import("node:http").ServerResponse, status: number, body:
   res.end(JSON.stringify(body));
 }
 
+const context = buildContext();
+const apiRouter = createApiRouter(context);
+
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", "http://127.0.0.1");
+
+  // The self-serve API (signup, accounts, metering, payment, admin) handles its
+  // own routes first; telemetry and the dashboard below handle the rest.
+  if (await apiRouter.handle(req, res, url)) return;
 
   if (req.method === "GET" && url.pathname === "/health") {
     sendJson(res, 200, { ok: true, service: "mesh-api" });

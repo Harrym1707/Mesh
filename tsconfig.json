@@ -11,6 +11,9 @@
       "path": "./packages/sdk-js"
     },
     {
+      "path": "./packages/signal"
+    },
+    {
       "path": "./apps/api"
     }
   ]

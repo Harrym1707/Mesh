@@ -52,7 +52,7 @@ describe("mesh dashboard (subprocess, isolated HOME + ledger)", () => {
     const data = await (await fetch(`${base}/data`, { cache: "no-store" })).json() as {
       savings: { netUsd: number; verdict: string };
       theo: { active: unknown[]; withheld: unknown[]; qualityCeilingPercent: number };
-      chainOk: boolean; proxyUp: boolean; lineItems: unknown[];
+      chainOk: boolean; proxyUp: boolean; lineItems: unknown[]; workflows: unknown[];
     };
     expect(data.savings.netUsd).toBe(0);
     expect(data.savings.verdict).toBe("do_not_charge");
@@ -61,9 +61,12 @@ describe("mesh dashboard (subprocess, isolated HOME + ledger)", () => {
     expect(typeof data.theo.qualityCeilingPercent).toBe("number");
     expect(data.chainOk).toBe(true);
     expect(data.proxyUp).toBe(false); // --proxy-port 1 is dead
+    expect(Array.isArray(data.workflows)).toBe(true); // per-session breakdown (empty ledger → [])
+    expect(data.workflows).toHaveLength(0);
 
     const html = await (await fetch(`${base}/`)).text();
     expect(html.toLowerCase()).toContain("mesh");
     expect(html).toContain("/data"); // the page polls this endpoint
+    expect(html).toContain("Workflows"); // the per-session panel is present
   });
 });

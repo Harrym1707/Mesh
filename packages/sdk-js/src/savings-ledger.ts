@@ -12,6 +12,7 @@ import {
   type LedgerUsage,
 } from "../../core/dist/src/savings-ledger.js";
 import type { MeshRequestEvent, MeshSavingsLedgerConfig } from "./types.js";
+import { LedgerMirror } from "./ledger-mirror.js";
 
 /**
  * The opt-in savings meter: turns each MeshRequestEvent into one append-only
@@ -295,6 +296,9 @@ export function createSavingsLedger(config: MeshSavingsLedgerConfig): SavingsLed
   const tail = resumeChainTail(config.path);
   let previous = tail.previous;
   let disabled = tail.disabled;
+  // Optional mirror to the Mesh metering API; best-effort and fully detached
+  // from the request path. The local spool above stays authoritative.
+  const mirror = config.mirror ? new LedgerMirror(config.mirror) : undefined;
 
   return {
     path: config.path,
@@ -306,6 +310,8 @@ export function createSavingsLedger(config: MeshSavingsLedgerConfig): SavingsLed
         mkdirSync(dirname(config.path), { recursive: true, mode: 0o700 });
         appendFileSync(config.path, `${JSON.stringify(record)}\n`, { encoding: "utf8", mode: 0o600 });
         previous = record;
+        // Only mirror AFTER the authoritative local append succeeds.
+        mirror?.enqueue(record);
       } catch {
         // The meter must never throw into the request path; a failed append
         // disables it so the on-disk chain stays internally consistent.

@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsc -b",
     "dev:api": "node --import tsx apps/api/src/server.ts",
-    "start:api": "node apps/api/dist/src/server.js",
+    "start:api": "node --import tsx apps/api/src/server.ts",
     "example": "node --env-file=.env --import tsx examples/openai-drop-in.ts",
     "example:mock": "node --import tsx examples/mock-drop-in.ts",
     "example:reduce": "node --import tsx examples/reduce-drop-in.ts",
@@ -39,7 +39,8 @@
     "test:watch": "vitest",
     "lint": "eslint .",
     "typecheck": "tsc -b --pretty false",
-    "build:cli": "node --import tsx scripts/build-cli-package.ts"
+    "build:cli": "node --import tsx scripts/build-cli-package.ts",
+    "bill:worker": "node --import tsx scripts/mesh-bill-worker.ts"
   },
   "dependencies": {
     "@harrym1707/sdk": "workspace:*",

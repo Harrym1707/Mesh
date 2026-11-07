@@ -1,0 +1,33 @@
+{
+  "ranAt": "2026-11-07T02:14:25.361Z",
+  "spoolSize": 8,
+  "unattendedRun": true,
+  "provider": "local-stub",
+  "qualityVerifiedAgainstRealModel": false,
+  "providerCalls": 24,
+  "maximumQualityDrop": 0.02,
+  "approvedCandidate": "gated-full",
+  "candidates": [
+    {
+      "label": "lossless-auto",
+      "approved": true,
+      "meanQualityDelta": 0,
+      "lower95QualityDelta": 0,
+      "tokenSavingPercent": 5.78,
+      "costSavingPercent": 5.22,
+      "rejectionReason": null
+    },
+    {
+      "label": "gated-full",
+      "approved": true,
+      "meanQualityDelta": 0,
+      "lower95QualityDelta": 0,
+      "tokenSavingPercent": 33.82,
+      "costSavingPercent": 30.53,
+      "rejectionReason": null
+    }
+  ],
+  "notes": [
+    "LOCAL STUB MODEL: token savings are measured and real; the quality verdict is plumbing-only. Set ANTHROPIC_API_KEY or MESH_REPLAY_ENDPOINT+MESH_REPLAY_API_KEY to verify quality — no code change."
+  ]
+}

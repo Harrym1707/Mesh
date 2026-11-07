@@ -33,6 +33,9 @@ import { join } from "node:path";
 import { recomputeInvoice, verifyLedgerChain, type LedgerRecord } from "../../core/src/savings-ledger.js";
 import { startMeshProxy } from "../../sdk-js/src/proxy.js";
 import { defaultPolicy, policyToReductionConfig, withheldLevers, type TheoPolicy } from "../../sdk-js/src/theo-policy.js";
+// Pure formatter module (no core imports) — reused so the signup URL and the
+// README badge have one source of truth across the proxy, SDK and this CLI.
+import { MESH_SIGNUP_URL, savingsBadge, type SavingsSnapshot } from "../../sdk-js/src/cta.js";
 import { pullNewerRuntime } from "./update.js";
 
 declare const __MESH_BUILD_COMMIT__: string | undefined;
@@ -191,6 +194,24 @@ export function summariseLedger(ledgerDir: string): LedgerSummary {
   };
 }
 
+/** Build the snapshot the CTA/badge read, from the same verified ledger. */
+export function snapshotLedger(ledgerDir: string): SavingsSnapshot {
+  const { records, chainOk } = readLedger(ledgerDir);
+  if (records.length === 0) {
+    return { requests: 0, savedUsd: 0, spendUsd: 0, verdict: "do_not_charge", chainOk };
+  }
+  const events = records.map((r) => r.event);
+  const invoice = recomputeInvoice(events);
+  const spendUsd = events.reduce((sum, e) => sum + (e.actualUsd ?? 0), 0);
+  return {
+    requests: records.length,
+    savedUsd: invoice.netVerifiedSavingsUsd,
+    spendUsd,
+    verdict: invoice.verdict,
+    chainOk,
+  };
+}
+
 const T = "⬢ theo"; // the hex mark, Theo's sign-off
 
 /** Start the proxy with Theo's current policy + blind stream. Shared by start/serve. */
@@ -325,13 +346,20 @@ export async function runStart(argv: string[]): Promise<void> {
     if (closing) return;
     closing = true;
     clearInterval(monitor);
-    const s = summariseLedger(args.ledgerDir);
+    const snap = snapshotLedger(args.ledgerDir);
     restore();
     await proxy.close();
     console.log("");
-    if (s.events > 0) {
-      console.log(`  ${T} — session done: ${s.events} request${s.events === 1 ? "" : "s"}, $${s.savedUsd.toFixed(4)} verified saved.`);
+    if (snap.requests > 0) {
+      console.log(`  ${T} — session done: ${snap.requests} request${snap.requests === 1 ? "" : "s"}, $${snap.savedUsd.toFixed(4)} verified saved.`);
       console.log(`  ${T}   Recompute it yourself any time: mesh verify`);
+      // The signup ask — only when there's a real, verified saving to claim.
+      if (snap.chainOk && snap.verdict === "charge" && snap.savedUsd > 0) {
+        console.log("");
+        console.log(`  ${T} — keep these savings metered: ${MESH_SIGNUP_URL}`);
+        console.log(`  ${T}   show it off — paste this badge into your README:`);
+        console.log(`     ${savingsBadge(snap).markdown}`);
+      }
     } else {
       console.log(`  ${T} — no requests ran through MESH this session.`);
     }

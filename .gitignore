@@ -9,6 +9,8 @@ packages/sdk-js/pkg/
 .env.*
 !.env.example
 .mesh-captures/
+# Self-serve account + ledger data the API writes at runtime (never committed).
+.mesh-data/
 coverage
 .DS_Store
 
