@@ -6,7 +6,11 @@ founder's act, not an agent's.**
 
 | File | What it is |
 |---|---|
-| [runbook.md](./runbook.md) | The one-page pilot runbook: what a partner does, day 0 to day 14, and what MESH never does. |
+| [onboarding.md](./onboarding.md) | **Start here.** The one canonical way to set a design partner up (proxy mode), with the Claude Code and build-from-source alternatives. |
+| [runbook.md](./runbook.md) | The one-page partner runbook (day 0 → day 14) **and** the step-by-step [Operator playbook](./runbook.md#operator-playbook--manual-billing) for manual billing. |
+| [PILOT_PLAN.md](./PILOT_PLAN.md) | The pilot plan: target ICP, cohort size, success metric, timeline, and what we measure. |
+| [pilot-agreement.md](./pilot-agreement.md) | Draft lightweight pilot agreement + onboarding email (keys never held, data kept/where, fee basis, no-charge-if-no-savings) — flags that real ToS/DPA are still needed. |
+| [VERIFICATION.md](./VERIFICATION.md) | VERIFIED/BROKEN summary of the happy path, run end-to-end on `main` 2026-11-07. |
 | [data-handling.md](./data-handling.md) | The data-handling answer, verbatim-usable, sourced to the code paths it describes. |
 | [outreach-litellm.md](./outreach-litellm.md) | Draft letter 1: LiteLLM proxy operator (spend logs ready to triage). |
 | [outreach-helicone.md](./outreach-helicone.md) | Draft letter 2: Helicone user re-evaluating their stack. |
