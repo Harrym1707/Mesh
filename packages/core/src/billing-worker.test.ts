@@ -98,11 +98,12 @@ describe("decideBilling (pure branching)", () => {
     expect(decision).toMatchObject({ action: "skip", reason: expect.stringContaining("mandate") });
   });
 
-  it("bills a direct-debit account with an active mandate, carrying the mandate payment method", () => {
+  it("bills a direct-debit account with an active mandate once the advance notice gate is satisfied", () => {
     const decision = decideBilling(
       account({ paymentChoice: "direct_debit", directDebitMandate: { status: "active", paymentMethodId: "pm_123" } }),
       invoice(),
       true,
+      { advanceNoticeIssued: true },
     );
     expect(decision).toMatchObject({ action: "bill", rail: "direct_debit", amountCents: 13, mandatePaymentMethodId: "pm_123" });
     if (decision.action === "bill") {
@@ -120,6 +121,7 @@ describe("runAccountBilling (rail execution)", () => {
       account({ paymentChoice: "direct_debit", directDebitMandate: { status: "active", paymentMethodId: "pm_123" } }),
       invoice(),
       true,
+      { advanceNoticeIssued: true },
     );
     expect(outcome.status).toBe("billed");
     if (outcome.status !== "billed") return;

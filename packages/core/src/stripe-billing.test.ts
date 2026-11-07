@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildStripeInvoicePlan, type StripeBillingOptions } from "./stripe-billing.js";
+import { buildStripeInvoicePlan, checkLiveChargeConfirmation, type StripeBillingOptions } from "./stripe-billing.js";
 import type { Invoice } from "./savings-ledger.js";
 
 function invoice(overrides: Partial<Invoice> = {}): Invoice {
@@ -110,5 +110,33 @@ describe("buildStripeInvoicePlan", () => {
     if (draft.action !== "bill" || fin.action !== "bill") throw new Error("expected bill");
     expect(draft.finalize).toBe(false);
     expect(fin.finalize).toBe(true);
+  });
+});
+
+describe("Fix 6 — checkLiveChargeConfirmation (live amount re-type gate)", () => {
+  it("lets test-mode charges through without any confirmation", () => {
+    expect(checkLiveChargeConfirmation({ isLive: false, requestedLive: false, amountCents: 1234 })).toEqual({ ok: true });
+  });
+
+  it("refuses a live key unless --live is passed", () => {
+    const gate = checkLiveChargeConfirmation({ isLive: true, requestedLive: false, amountCents: 1234 });
+    expect(gate.ok).toBe(false);
+    if (!gate.ok) expect(gate.reason).toMatch(/LIVE/);
+  });
+
+  it("refuses a --live charge with no amount re-type", () => {
+    const gate = checkLiveChargeConfirmation({ isLive: true, requestedLive: true, amountCents: 1234 });
+    expect(gate.ok).toBe(false);
+    if (!gate.ok) expect(gate.reason).toMatch(/re-typing|--confirm-amount-cents 1234/);
+  });
+
+  it("refuses a --live charge when the re-typed amount does not match the plan", () => {
+    const gate = checkLiveChargeConfirmation({ isLive: true, requestedLive: true, amountCents: 1234, confirmAmountCents: 1200 });
+    expect(gate.ok).toBe(false);
+    if (!gate.ok) expect(gate.reason).toMatch(/mismatch/);
+  });
+
+  it("allows a --live charge only when the re-typed amount matches exactly", () => {
+    expect(checkLiveChargeConfirmation({ isLive: true, requestedLive: true, amountCents: 1234, confirmAmountCents: 1234 })).toEqual({ ok: true });
   });
 });
