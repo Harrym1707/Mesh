@@ -43,6 +43,24 @@ export type CachePolicy = {
   writeMultiplier: number;
   /** Charge for reading a cached prefix, as a multiple of the base input rate. */
   readMultiplier: number;
+  /**
+   * Seconds between a request that WRITES a prefix being sent and that
+   * entry becoming visible to any other request. The documented provider
+   * rule is that a cache entry exists only once the write's own response
+   * has started (its headers have arrived) — not at the moment the write
+   * was sent — so a request dispatched before that moment cannot see it and
+   * must write the same prefix again, at the write rate, not read it.
+   *
+   * Omitted (the default on every policy below) means the old, instant-
+   * availability assumption: every published figure measured before
+   * tonight used that assumption, and every revisit gap in the catalogue
+   * (>= 20s) is far above any realistic value this function would return,
+   * so leaving it unset reproduces them exactly. Set it only to model a
+   * workload where requests can genuinely race — concurrent sub-agent
+   * fan-out dispatched within the same event-loop tick is the case that
+   * matters; nothing else in the catalogue is fast enough to trigger it.
+   */
+  writeAvailabilityLatencySeconds?: (writtenPrefixTokens: number) => number;
 };
 
 /** Automatic, no write premium, hits in 128-token steps. */
@@ -110,7 +128,7 @@ export type SimulatedCall = {
   outputTokens: number;
   costUsd: number;
   /** Why nothing was cached, when nothing was. */
-  missReason?: "below-minimum" | "no-matching-prefix" | "expired" | "first-request";
+  missReason?: "below-minimum" | "no-matching-prefix" | "expired" | "first-request" | "racing-write";
 };
 
 export type SimulationResult = {
@@ -129,7 +147,7 @@ export type SimulationResult = {
   missReasons: Record<string, number>;
 };
 
-type Entry = { prompt: string; lastUsedAt: number };
+type Entry = { prompt: string; lastUsedAt: number; availableAt: number };
 
 function commonPrefixLength(left: string, right: string): number {
   const limit = Math.min(left.length, right.length);
@@ -182,13 +200,22 @@ export function simulateCache(
     let cachedInputTokens = 0;
     let missReason: SimulatedCall["missReason"] | undefined;
 
-    if (entries.length === 0) {
-      missReason = calls.length === 0 ? "first-request" : "expired";
+    // Only entries already VISIBLE at this request's send time are usable —
+    // an entry whose write has not yet reached first-response-start cannot
+    // be read by a concurrent racer, however identical its prefix.
+    const visibleEntries = entries.filter((entry) => entry.availableAt <= request.atSeconds);
+
+    if (visibleEntries.length === 0) {
+      missReason = entries.length === 0
+        ? (calls.length === 0 ? "first-request" : "expired")
+        // Entries exist (so this is not a cold start) but none has reached
+        // first-response-start yet: a genuine racer, distinct from "expired".
+        : "racing-write";
     } else {
-      // Longest exact prefix across live entries, as the providers describe.
+      // Longest exact prefix across live, visible entries, as the providers describe.
       let bestChars = 0;
       let bestEntry: Entry | undefined;
-      for (const entry of entries) {
+      for (const entry of visibleEntries) {
         const shared = commonPrefixLength(entry.prompt, request.prompt);
         if (shared > bestChars) {
           bestChars = shared;
@@ -232,7 +259,14 @@ export function simulateCache(
       ...(missReason === undefined ? {} : { missReason }),
     });
 
-    entries.push({ prompt: request.prompt, lastUsedAt: request.atSeconds });
+    // A written entry becomes visible to other requests only after its own
+    // write latency; an entry nothing was written for (e.g. a pure read, or
+    // a below-minimum prompt that can never cache) is available at once —
+    // there is no write in flight for anyone else to race against.
+    const availableAt = writtenInputTokens > 0
+      ? request.atSeconds + (policy.writeAvailabilityLatencySeconds?.(writtenInputTokens) ?? 0)
+      : request.atSeconds;
+    entries.push({ prompt: request.prompt, lastUsedAt: request.atSeconds, availableAt });
     // Providers keep a bounded cache; holding every prompt forever would
     // overstate hit rates on long runs.
     if (entries.length > 64) entries.shift();

@@ -460,3 +460,150 @@ describe("MESH proxy — provably-blind learning stream", () => {
     expect(() => readFileSync(join(dir, "plain-anthropic.features.jsonl"), "utf8")).toThrow();
   });
 });
+
+describe("MESH proxy — shared-prefix fan-out serialization", () => {
+  /**
+   * A stub whose /v1/messages holds the FIRST request it sees for 150ms
+   * before answering (modelling a real cache write's time to first byte),
+   * then answers every later request immediately. Each request's own
+   * arrival order is recorded so a test can assert on who was held.
+   */
+  function slowFirstUpstream(arrivals: number[]): Promise<{ server: Server; url: string }> {
+    let first = true;
+    const server = createServer((req, res) => {
+      arrivals.push(Date.now());
+      const chunks: Buffer[] = [];
+      req.on("data", (c: Buffer) => chunks.push(c));
+      req.on("end", () => {
+        const respond = (): void => {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({
+            id: "msg_stub",
+            content: [{ type: "text", text: "ok" }],
+            usage: { input_tokens: 100, output_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+          }));
+        };
+        if (first) {
+          first = false;
+          setTimeout(respond, 150);
+        } else {
+          respond();
+        }
+      });
+    });
+    return new Promise((resolve) => {
+      server.listen(0, "127.0.0.1", () => {
+        const port = (server.address() as { port: number }).port;
+        resolve({ server, url: `http://127.0.0.1:${port}` });
+      });
+    });
+  }
+
+  const requestFor = (tag: string): AnyObject => ({
+    model: "claude-sonnet-5-5-20260514",
+    max_tokens: 10,
+    system: "shared system prompt",
+    tools: [{ name: "t", description: "d", input_schema: { type: "object" } }],
+    messages: [{ role: "user", content: `agent ${tag}` }],
+  });
+
+  it("holds concurrent same-prefix requests until the first upstream call is sent, when enabled", async () => {
+    const arrivals: number[] = [];
+    const slow = await slowFirstUpstream(arrivals);
+    const dir = mkdtempSync(join(tmpdir(), "mesh-fanout-on-"));
+    const p = await startMeshProxy({
+      ledgerDirectory: dir,
+      anthropicUpstream: slow.url,
+      openaiUpstream: slow.url,
+      serializeFanoutWrites: true,
+    });
+
+    const sendAt: number[] = [];
+    const post = (tag: string): Promise<Response> => {
+      sendAt.push(Date.now());
+      return fetch(`${p.url}/v1/messages`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-api-key": "k" },
+        body: JSON.stringify(requestFor(tag)),
+      });
+    };
+
+    // Five requests sharing the same model+tools+system, dispatched together.
+    const responses = await Promise.all(["a", "b", "c", "d", "e"].map((tag) => post(tag)));
+    for (const response of responses) expect(response.status).toBe(200);
+
+    await p.close();
+    slow.server.close();
+
+    // The upstream saw all five eventually, but not within the hold window:
+    // the held four must not have reached the upstream until at least the
+    // 150ms the first request's response was delayed by.
+    expect(arrivals).toHaveLength(5);
+    const first = arrivals[0]!;
+    const held = arrivals.slice(1);
+    for (const arrival of held) {
+      expect(arrival - first).toBeGreaterThanOrEqual(140); // small margin for timer jitter
+    }
+  });
+
+  it("does not hold anything when the flag is off (today's behaviour, unchanged)", async () => {
+    const arrivals: number[] = [];
+    const slow = await slowFirstUpstream(arrivals);
+    const dir = mkdtempSync(join(tmpdir(), "mesh-fanout-off-"));
+    const p = await startMeshProxy({
+      ledgerDirectory: dir,
+      anthropicUpstream: slow.url,
+      openaiUpstream: slow.url,
+      // serializeFanoutWrites omitted: default off.
+    });
+
+    const post = (tag: string): Promise<Response> =>
+      fetch(`${p.url}/v1/messages`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-api-key": "k" },
+        body: JSON.stringify(requestFor(tag)),
+      });
+
+    const dispatchedAt = Date.now();
+    const responses = await Promise.all(["a", "b", "c", "d", "e"].map((tag) => post(tag)));
+    for (const response of responses) expect(response.status).toBe(200);
+    await p.close();
+    slow.server.close();
+
+    // All five reached the upstream essentially at once — no hold applied.
+    expect(arrivals).toHaveLength(5);
+    for (const arrival of arrivals) {
+      expect(arrival - dispatchedAt).toBeLessThan(100);
+    }
+  });
+
+  it("releases held requests even when the first upstream call errors (fails open)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mesh-fanout-err-"));
+    // No server listening on this port: every request's fetch rejects.
+    const deadPort = "http://127.0.0.1:1";
+    const p = await startMeshProxy({
+      ledgerDirectory: dir,
+      anthropicUpstream: deadPort,
+      openaiUpstream: deadPort,
+      serializeFanoutWrites: true,
+      fanoutHoldCapMs: 2_000,
+    });
+
+    const post = (tag: string): Promise<Response> =>
+      fetch(`${p.url}/v1/messages`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-api-key": "k" },
+        body: JSON.stringify(requestFor(tag)),
+      });
+
+    const startedAt = Date.now();
+    const responses = await Promise.all(["a", "b"].map((tag) => post(tag)));
+    const elapsedMs = Date.now() - startedAt;
+    await p.close();
+
+    // Both error out as 502s (upstream unreachable), and the second request
+    // was released by the first's error path, not stuck until the 2s cap.
+    for (const response of responses) expect(response.status).toBe(502);
+    expect(elapsedMs).toBeLessThan(1_500);
+  });
+});

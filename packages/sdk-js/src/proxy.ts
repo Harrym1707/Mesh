@@ -9,6 +9,7 @@ import { collectRequestText, measureOutputReEmission } from "../../core/dist/src
 import { normalizeProviderUsage, responseServiceTier } from "../../core/dist/src/provider-usage.js";
 import { responseText } from "./replay-gate.js";
 import { CachePrefixVolatilityGuard } from "./cache-volatility-guard.js";
+import { FanoutSerializer, cacheablePrefixKey } from "./fanout-serializer.js";
 import { reduceRequest, type MeshTokenReductionConfig } from "./reduce-request.js";
 import { extractBlindFeatures } from "./blind-features.js";
 import { createSavingsLedger, type SavingsLedger } from "./savings-ledger.js";
@@ -57,6 +58,22 @@ export type MeshProxyOptions = {
    * sealed inside an enclave). Off when unset — no features are computed.
    */
   blindFeaturesKey?: string;
+  /**
+   * Hold concurrent requests that share an identical cacheable prefix
+   * (model + tools + system) behind the first one until its response has
+   * started, so the shared-prefix fan-out race ("simultaneous same-prefix
+   * requests all pay the cache write premium, because none of them can see
+   * a cache entry that does not exist until a response starts") converts
+   * into one write plus N-1 reads instead of N writes. Off by default:
+   * this only helps traffic that genuinely fans out several requests
+   * sharing one system+tools block within the same instant (multi-agent
+   * sub-agent dispatch); on any other traffic it adds a hold with nothing
+   * to read yet, which is why it stays opt-in rather than default-on like
+   * the lossless content reducers.
+   */
+  serializeFanoutWrites?: boolean;
+  /** Longest a request may be held waiting for a same-prefix write ahead of it. Default 5000ms. */
+  fanoutHoldCapMs?: number;
 };
 
 export type MeshProxy = {
@@ -247,6 +264,9 @@ export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
   // statement can show retry waste. Hashes only; content never stored.
   const recentRequestHashes = new Map<string, string>();
   const RECENT_HASH_CAP = 500;
+  const fanoutSerializer = options.serializeFanoutWrites
+    ? new FanoutSerializer({ maxHoldMs: options.fanoutHoldCapMs })
+    : undefined;
   const ledgerFor = (applicationId: string, provider: "anthropic" | "openai"): SavingsLedger => {
     // Key by the SANITIZED name: two raw ids that sanitize to the same spool
     // file must share one ledger instance, or their interleaved chain tails
@@ -407,6 +427,17 @@ export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
     }
 
     const startedAt = Date.now();
+    // Shared-prefix fan-out serialization: a concurrent request for the same
+    // model+tools+system is held here until the FIRST one's response starts
+    // (or errors, or the hold cap elapses) — see FanoutSerializer. `isFanoutFirst`
+    // is true for the request that must release the gate itself; a held waiter
+    // is released by that request (or the cap) and never releases the gate on
+    // its own, so one gate per key is never torn down by the wrong caller.
+    const fanoutKey = fanoutSerializer !== undefined ? cacheablePrefixKey(reducedRequest) : undefined;
+    const isFanoutFirst = fanoutKey === undefined || await fanoutSerializer!.admit(fanoutKey);
+    if (process.env.MESH_PROXY_DEBUG === "1" && fanoutKey !== undefined && !isFanoutFirst) {
+      console.warn(`[mesh-debug] fan-out hold released for prefix ${fanoutKey.slice(0, 12)} after ${Date.now() - startedAt}ms`);
+    }
     let upstreamResponse: Response;
     try {
       upstreamResponse = await fetch(`${upstreams[surface.provider]}${surface.upstreamPath}`, {
@@ -415,7 +446,9 @@ export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
         body: sendBody,
         signal: upstreamControl.signal,
       });
+      if (isFanoutFirst && fanoutKey !== undefined) fanoutSerializer!.release(fanoutKey);
     } catch (cause) {
+      if (isFanoutFirst && fanoutKey !== undefined) fanoutSerializer!.release(fanoutKey);
       clearTimeout(phaseTimer);
       if (!res.headersSent && !res.destroyed) {
         res.writeHead(502, { "content-type": "application/json" });

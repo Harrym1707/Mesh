@@ -149,6 +149,70 @@ describe("cache simulator", () => {
   });
 });
 
+describe("cache simulator: write-availability concurrency", () => {
+  // A fixed 1s latency regardless of size, so the test only has to reason
+  // about whether a request landed inside or outside that window.
+  const oneSecondLatency = { ...ANTHROPIC_CACHE_5M, writeAvailabilityLatencySeconds: () => 1 };
+
+  it("leaves every existing policy's behaviour unchanged (no latency function set)", () => {
+    const prefix = filler(3_000);
+    // Two requests at the exact same instant: the old, instant-availability
+    // assumption every published figure relies on.
+    const racers: SimulatedRequest[] = [
+      { atSeconds: 0, prompt: `${prefix}\nfirst`, outputTokens: 10 },
+      { atSeconds: 0, prompt: `${prefix}\nsecond`, outputTokens: 10 },
+    ];
+    const result = simulateCache(racers, ANTHROPIC_CACHE_5M, price);
+    expect(result.calls[1]!.cachedInputTokens).toBeGreaterThan(0);
+    expect(result.calls[1]!.missReason).toBeUndefined();
+  });
+
+  it("treats two requests dispatched before the write latency elapses as racers, not a hit", () => {
+    const prefix = filler(3_000);
+    const racers: SimulatedRequest[] = [
+      { atSeconds: 0, prompt: `${prefix}\nfirst`, outputTokens: 10 },
+      { atSeconds: 0.01, prompt: `${prefix}\nsecond`, outputTokens: 10 },
+    ];
+    const result = simulateCache(racers, oneSecondLatency, price);
+    expect(result.calls[0]!.cachedInputTokens).toBe(0);
+    expect(result.calls[0]!.writtenInputTokens).toBeGreaterThan(0);
+    // The racer: not expired, not a cold start — this request's OWN send
+    // beat the first write's availability, which is the distinguishing
+    // mis-reason from a genuinely empty cache.
+    expect(result.calls[1]!.cachedInputTokens).toBe(0);
+    expect(result.calls[1]!.missReason).toBe("racing-write");
+    expect(result.calls[1]!.writtenInputTokens).toBeGreaterThan(0);
+    // Both racers paid the write premium: no reads, so no saving over the
+    // uncached baseline, which is the "simultaneous fan-outs all pay 1.25x
+    // writes" rule this is meant to reproduce.
+    expect(result.hitRate).toBe(0);
+  });
+
+  it("lets a request sent after the latency window read the earlier write", () => {
+    const prefix = filler(3_000);
+    const stream: SimulatedRequest[] = [
+      { atSeconds: 0, prompt: `${prefix}\nfirst`, outputTokens: 10 },
+      { atSeconds: 2, prompt: `${prefix}\nthird`, outputTokens: 10 }, // after the 1s window
+    ];
+    const result = simulateCache(stream, oneSecondLatency, price);
+    expect(result.calls[1]!.cachedInputTokens).toBeGreaterThan(0);
+    expect(result.calls[1]!.missReason).toBeUndefined();
+  });
+
+  it("a losing racer still becomes visible to requests sent after ITS OWN latency window", () => {
+    const prefix = filler(3_000);
+    const stream: SimulatedRequest[] = [
+      { atSeconds: 0, prompt: `${prefix}\nfirst`, outputTokens: 10 },
+      { atSeconds: 0.01, prompt: `${prefix}\nsecond`, outputTokens: 10 }, // races, writes its own entry
+      { atSeconds: 1.02, prompt: `${prefix}\nsecond`, outputTokens: 10 }, // identical prompt, after both entries are visible
+    ];
+    const result = simulateCache(stream, oneSecondLatency, price);
+    expect(result.calls[1]!.missReason).toBe("racing-write");
+    expect(result.calls[2]!.cachedInputTokens).toBeGreaterThan(0);
+  });
+
+});
+
 describe("compaction economics", () => {
   // Anthropic 5m rates, so writes cost 1.25x and cached reads 0.1x of input.
   const anthropicPrice: TokenPrice = {
