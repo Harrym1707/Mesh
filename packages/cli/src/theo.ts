@@ -65,6 +65,8 @@ const USAGE = `Usage: mesh theo [options]
   --provider-url <u>  Send replay calls here instead of the provider's default
                         endpoint (e.g. a local mock, or your running proxy).
   --max-samples <n>   Cap how many captured requests to replay. Default 20.
+  --max-gate-calls <n> Exploration budget: the most paid provider calls one gate
+                        run may make (default 200). The sample is trimmed to fit.
   --watch <interval>  Keep running: re-run the cycle every interval (e.g. 15m,
                         30s, 1h) until you stop it with Ctrl-C — Theo never stops.
   --max-ticks <n>     In --watch mode, stop after n cycles (default: unlimited).
@@ -87,10 +89,15 @@ export type TheoRunOptions = {
   providerUrl?: string;
   maxSamples: number;
   apply: boolean;
+  /** Exploration budget: max paid provider calls per gate run. Default 200. */
+  maxGateCalls?: number;
   /** Set only by the `--watch` CLI path; the daemon drives its own interval. */
   watchMs?: number;
   maxTicks?: number;
 };
+
+/** Default exploration budget — caps a gate run's paid provider calls. */
+const DEFAULT_MAX_GATE_CALLS = 200;
 
 function parse(argv: string[]): TheoRunOptions {
   const args: TheoRunOptions = { customer: "local", ledgerDir: join(homedir(), ".mesh", "ledger"), maxSamples: 20, apply: false };
@@ -120,6 +127,12 @@ function parse(argv: string[]): TheoRunOptions {
         const n = Number(value);
         if (!Number.isInteger(n) || n < 1) throw new Error("--max-samples must be a positive integer.");
         args.maxSamples = n;
+        break;
+      }
+      case "--max-gate-calls": {
+        const n = Number(value);
+        if (!Number.isInteger(n) || n < 1) throw new Error("--max-gate-calls must be a positive integer.");
+        args.maxGateCalls = n;
         break;
       }
       case "--watch": args.watchMs = parseDuration(value); break;
@@ -328,11 +341,13 @@ export async function runTheoOnce(args: TheoRunOptions): Promise<void> {
           call: makeProviderCall(provider, args.providerUrl),
           price,
           maximumQualityDrop: memory.policy.qualityCeilingPercent / 100,
+          maxProviderCalls: args.maxGateCalls ?? DEFAULT_MAX_GATE_CALLS,
           ...(baselineResponses ? { baselineResponses } : {}),
           now,
         });
         proofs = proven.proofs;
-        const bits = [`replayed ${requests.length} request(s) in ${proven.calls} provider call(s)`];
+        const bits = [`replayed ${Math.min(requests.length, proven.calls)} request(s) in ${proven.calls} provider call(s)`];
+        if (proven.note) bits.push(proven.note);
         if (proven.proofs.length > 0) bits.push(`proved: ${proven.proofs.map((p) => p.lever).join(", ")}`);
         for (const rejection of proven.rejections) bits.push(`rejected ${rejection.lever}: ${rejection.reason}`);
         gateSummary = bits.join("\n  ");

@@ -102,6 +102,39 @@ describe("Theo gate — proving candidates on real traffic", () => {
     expect(rejections).toHaveLength(1);
   });
 
+  it("honours the exploration budget: trims the sample and still proves", async () => {
+    let calls = 0;
+    const counting = async (request: unknown): Promise<unknown> => { calls += 1; return sizedCall(request); };
+    const { proofs, calls: reported, note } = await proveCandidates({
+      levers: ["tool-schema-description-trim"],
+      requests: makeRequests(20),
+      call: counting,
+      price: PRICE,
+      maxProviderCalls: 6, // 1 candidate + 1 baseline = 2 calls/request → 3 requests
+      now: LATER,
+    });
+    expect(calls).toBeLessThanOrEqual(6);
+    expect(reported).toBeLessThanOrEqual(6);
+    expect(note).toContain("capped");
+    expect(proofs).toHaveLength(1); // still proves on the trimmed sample
+  });
+
+  it("refuses to run when the budget is smaller than one request's calls", async () => {
+    let calls = 0;
+    const counting = async (request: unknown): Promise<unknown> => { calls += 1; return sizedCall(request); };
+    const { proofs, rejections } = await proveCandidates({
+      levers: ["tool-schema-description-trim"],
+      requests: makeRequests(5),
+      call: counting,
+      price: PRICE,
+      maxProviderCalls: 1, // needs 2 calls/request
+      now: LATER,
+    });
+    expect(calls).toBe(0); // never touched the provider
+    expect(proofs).toEqual([]);
+    expect(rejections[0]!.reason).toContain("budget");
+  });
+
   it("no candidates or no sample yields no proofs rather than throwing", async () => {
     const none = await proveCandidates({ levers: [], requests: makeRequests(2), call: sizedCall, now: LATER });
     expect(none).toEqual({ proofs: [], rejections: [], calls: 0 });

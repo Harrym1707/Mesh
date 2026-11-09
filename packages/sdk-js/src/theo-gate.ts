@@ -45,6 +45,14 @@ export type ProveCandidatesOptions = {
   graderName?: string;
   /** Group correlated requests (e.g. by task) so the quality bound is not overstated. */
   groupOf?: (request: unknown, index: number) => string;
+  /**
+   * Exploration budget: the maximum number of paid provider calls this run may
+   * make. The gate sends roughly requests × (candidates + 1 baseline) calls
+   * (the baseline is free when recorded responses are supplied), so the sample
+   * is trimmed to fit. Omit for no cap. Protects against a runaway provider bill
+   * when Theo proves on its own.
+   */
+  maxProviderCalls?: number;
 };
 
 export type ProveCandidatesResult = {
@@ -54,6 +62,8 @@ export type ProveCandidatesResult = {
   rejections: Array<{ lever: string; reason: string }>;
   /** Provider calls this replay made, so its cost is visible. */
   calls: number;
+  /** Set when the exploration budget trimmed the sample. */
+  note?: string;
 };
 
 /**
@@ -77,13 +87,40 @@ export async function proveCandidates(options: ProveCandidatesOptions): Promise<
     config: leverToReductionConfig({ lever, class: "lossy" }),
   }));
 
+  // Exploration budget: trim the sample so the paid provider calls stay within
+  // maxProviderCalls. replayGate sends ~ requests × (candidates + 1 baseline);
+  // the baseline is free when recorded responses are supplied.
+  const perRequestCalls = candidates.length + (options.baselineResponses ? 0 : 1);
+  let requests = [...options.requests];
+  let baselineResponses = options.baselineResponses ? [...options.baselineResponses] : undefined;
+  let budgetNote: string | undefined;
+  if (options.maxProviderCalls !== undefined) {
+    const maxRequests = Math.floor(options.maxProviderCalls / Math.max(1, perRequestCalls));
+    if (maxRequests < 1) {
+      return {
+        proofs: [],
+        rejections: levers.map((lever) => ({
+          lever,
+          reason: `exploration budget of ${options.maxProviderCalls} call(s) is too small to prove it`,
+        })),
+        calls: 0,
+        note: `skipped: ${perRequestCalls} call(s)/request exceeds the ${options.maxProviderCalls}-call budget`,
+      };
+    }
+    if (requests.length > maxRequests) {
+      requests = requests.slice(0, maxRequests);
+      baselineResponses = baselineResponses?.slice(0, maxRequests);
+      budgetNote = `capped to ${maxRequests} request(s) to stay within the ${options.maxProviderCalls}-call budget`;
+    }
+  }
+
   const result = await replayGate({
-    requests: [...options.requests],
+    requests,
     call: options.call,
     candidates,
     grade: options.grader ?? agentGrader(),
     maximumQualityDrop: options.maximumQualityDrop ?? 0.02,
-    ...(options.baselineResponses ? { baselineResponses: [...options.baselineResponses] } : {}),
+    ...(baselineResponses ? { baselineResponses } : {}),
     ...(options.price ? { price: options.price } : {}),
     ...(options.groupOf ? { groupOf: options.groupOf } : {}),
   });
@@ -106,5 +143,5 @@ export async function proveCandidates(options: ProveCandidatesOptions): Promise<
       rejections.push({ lever: candidate.label, reason: candidate.rejectionReason ?? "not approved by the gate" });
     }
   }
-  return { proofs, rejections, calls: result.calls };
+  return { proofs, rejections, calls: result.calls, ...(budgetNote ? { note: budgetNote } : {}) };
 }
