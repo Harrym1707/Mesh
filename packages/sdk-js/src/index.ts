@@ -53,6 +53,7 @@ export {
 export { extractBlindFeatures, type BlindFeatures } from "./blind-features.js";
 export {
   policyToReductionConfig,
+  leverToReductionConfig,
   withheldLevers,
   publishLever,
   defaultPolicy,
@@ -85,6 +86,11 @@ export {
   saveTheoMemory,
   realisedFromSpoolDir,
 } from "./theo-agent-store.js";
+export {
+  proveCandidates,
+  type ProveCandidatesOptions,
+  type ProveCandidatesResult,
+} from "./theo-gate.js";
 export { compactStaleContext, reduceRequestAsync } from "./semantic-compaction.js";
 export type {
   SemanticCompactionConfig,

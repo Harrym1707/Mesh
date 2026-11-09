@@ -9,12 +9,14 @@
  *     output size and the realised, verified savings shown in the report.
  *
  * Theo then hypothesises, decides within his autonomy level, and saves his
- * memory beside the ledger. He does NOT run the replay gate here: proving a lossy
- * lever needs live traffic replayed both ways, which is the next milestone. So at
- * `test`/`optimise` he emits the gate requests (what to prove next) rather than
- * fabricating a result — the pure cycle never invents a proof.
+ * memory beside the ledger. With `--gate <capture>` he also PROVES the queued
+ * lossy levers: a sample of your own requests is replayed both ways against the
+ * provider, and the measured saving and quality decide whether a lever is
+ * proposed (recommend/test) or applied (optimise). Without `--gate` he only
+ * queues them — the pure cycle never invents a proof.
  *
- * Everything is local: no network, and no prompt content is ever read.
+ * The feature spools and the ledger never leave your machine, and the gate
+ * replays your captured requests with your own key; nothing is uploaded.
  */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
@@ -42,6 +44,7 @@ import {
   loadTheoMemory,
   saveTheoMemory,
 } from "../../sdk-js/src/theo-agent-store.js";
+import { proveCandidates } from "../../sdk-js/src/theo-gate.js";
 
 const USAGE = `Usage: mesh theo [options]
 
@@ -55,18 +58,32 @@ const USAGE = `Usage: mesh theo [options]
                         optimise  — auto-apply a lossy lever once it is proven.
   --customer <id>     Which environment's memory to use. Default: local.
   --ledger <dir>      Ledger directory to read. Default ~/.mesh/ledger.
+  --gate <file>       Prove the queued lossy levers by replaying this JSONL
+                        sample of your OWN requests through the provider. Each
+                        line is a request, or {"request":...,"response":...}.
+                        Needs ANTHROPIC_API_KEY / OPENAI_API_KEY, or --provider-url.
+  --provider-url <u>  Send replay calls here instead of the provider's default
+                        endpoint (e.g. a local mock, or your running proxy).
+  --max-samples <n>   Cap how many captured requests to replay. Default 20.
   --help              Show this message.
 
 Theo never enables a saving he has not proven on your own traffic within your
-quality ceiling. Proving lossy levers (the replay gate) is not wired into this
-command yet, so they are reported as proposals or gate requests, not applied.`;
+quality ceiling. Without --gate, lossy levers are only proposed or queued; with
+it, a proven lever is proposed (recommend/test) or applied (optimise).`;
 
 const AUTONOMY_LEVELS: readonly TheoAutonomyLevel[] = ["observe", "recommend", "test", "optimise"];
 
-type Args = { autonomy?: TheoAutonomyLevel; customer: string; ledgerDir: string };
+type Args = {
+  autonomy?: TheoAutonomyLevel;
+  customer: string;
+  ledgerDir: string;
+  gate?: string;
+  providerUrl?: string;
+  maxSamples: number;
+};
 
 function parse(argv: string[]): Args {
-  const args: Args = { customer: "local", ledgerDir: join(homedir(), ".mesh", "ledger") };
+  const args: Args = { customer: "local", ledgerDir: join(homedir(), ".mesh", "ledger"), maxSamples: 20 };
   for (let index = 0; index < argv.length; index += 1) {
     const key = argv[index]!;
     if (key === "--help" || key === "-h") {
@@ -86,6 +103,14 @@ function parse(argv: string[]): Args {
       }
       case "--customer": args.customer = value; break;
       case "--ledger": args.ledgerDir = resolve(value); break;
+      case "--gate": args.gate = resolve(value); break;
+      case "--provider-url": args.providerUrl = value; break;
+      case "--max-samples": {
+        const n = Number(value);
+        if (!Number.isInteger(n) || n < 1) throw new Error("--max-samples must be a positive integer.");
+        args.maxSamples = n;
+        break;
+      }
       default: throw new Error(`Unknown option: ${key}. See --help.`);
     }
   }
@@ -165,6 +190,58 @@ function meanOutputTokens(events: readonly BillableEvent[]): number {
   return outputs.reduce((sum, value) => sum + value, 0) / outputs.length;
 }
 
+type Capture = { requests: unknown[]; baselineResponses?: unknown[] };
+
+/** Read a replay capture: each line is a request, or {request, response?}. When
+ * every row carries a response, they are returned as recorded baselines so the
+ * baseline run need not be paid for again. */
+function readCapture(path: string, maxSamples: number): Capture {
+  const requests: unknown[] = [];
+  const responses: unknown[] = [];
+  let everyRowHasResponse = true;
+  for (const line of readFileSync(path, "utf8").trim().split(/\r?\n/)) {
+    if (line.trim() === "") continue;
+    if (requests.length >= maxSamples) break;
+    let row: unknown;
+    try { row = JSON.parse(line); } catch { continue; }
+    if (row !== null && typeof row === "object" && !Array.isArray(row) && "request" in (row as Record<string, unknown>)) {
+      const record = row as Record<string, unknown>;
+      requests.push(record.request);
+      if (record.response !== undefined) responses.push(record.response);
+      else everyRowHasResponse = false;
+    } else {
+      requests.push(row);
+      everyRowHasResponse = false;
+    }
+  }
+  return everyRowHasResponse && responses.length === requests.length && requests.length > 0
+    ? { requests, baselineResponses: responses }
+    : { requests };
+}
+
+/** The provider call the gate replays through: POST the request, return the JSON.
+ * Uses --provider-url when given (a local mock or your proxy), else the provider
+ * default endpoint, with the key read from the environment. */
+function makeProviderCall(provider: string, providerUrl: string | undefined): (request: unknown) => Promise<unknown> {
+  const anthropic = provider !== "openai";
+  const url = providerUrl ?? (anthropic
+    ? "https://api.anthropic.com/v1/messages"
+    : "https://api.openai.com/v1/chat/completions");
+  const key = anthropic ? process.env.ANTHROPIC_API_KEY : process.env.OPENAI_API_KEY;
+  return async (request: unknown): Promise<unknown> => {
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    if (anthropic) {
+      if (key) headers["x-api-key"] = key;
+      headers["anthropic-version"] = "2023-06-01";
+    } else if (key) {
+      headers.authorization = `Bearer ${key}`;
+    }
+    const response = await fetch(url, { method: "POST", headers, body: JSON.stringify(request) });
+    if (!response.ok) throw new Error(`provider replied ${response.status}`);
+    return response.json();
+  };
+}
+
 export async function runTheo(argv: string[]): Promise<void> {
   const args = parse(argv);
   const now = new Date().toISOString();
@@ -198,26 +275,58 @@ export async function runTheo(argv: string[]): Promise<void> {
     ? { ...existing, autonomy }
     : createTheoMemory(args.customer, autonomy, now);
 
-  const result = runTheoCycle(
-    memory,
-    {
-      observation: {
-        profile,
-        price,
-        ...(invoice ? { realisedSavingsUsd: invoice.netVerifiedSavingsUsd } : {}),
-      },
-    },
-    now,
-  );
+  const observation = {
+    profile,
+    price,
+    ...(invoice ? { realisedSavingsUsd: invoice.netVerifiedSavingsUsd } : {}),
+  };
+
+  // Prove the queued lossy levers if a replay capture was supplied. A dry cycle
+  // first tells us which levers are queued; those are proven on the sample, and
+  // the real cycle below then decides what to do with the proofs.
+  let proofs: Awaited<ReturnType<typeof proveCandidates>>["proofs"] = [];
+  let gateSummary: string | undefined;
+  if (args.gate) {
+    const { requests, baselineResponses } = readCapture(args.gate, args.maxSamples);
+    const haveKey = (provider === "openai" ? process.env.OPENAI_API_KEY : process.env.ANTHROPIC_API_KEY) !== undefined;
+    if (requests.length === 0) {
+      gateSummary = `No requests found in ${args.gate}; nothing to prove.`;
+    } else if (!args.providerUrl && !haveKey) {
+      gateSummary = "Set ANTHROPIC_API_KEY / OPENAI_API_KEY, or pass --provider-url, to run the gate.";
+    } else {
+      const queued = runTheoCycle(memory, { observation }, now).memory.hypotheses.map((h) => h.lever);
+      if (queued.length === 0) {
+        gateSummary = "No queued lossy levers to prove.";
+      } else {
+        const proven = await proveCandidates({
+          levers: queued,
+          requests,
+          call: makeProviderCall(provider, args.providerUrl),
+          price,
+          maximumQualityDrop: memory.policy.qualityCeilingPercent / 100,
+          ...(baselineResponses ? { baselineResponses } : {}),
+          now,
+        });
+        proofs = proven.proofs;
+        const bits = [`replayed ${requests.length} request(s) in ${proven.calls} provider call(s)`];
+        if (proven.proofs.length > 0) bits.push(`proved: ${proven.proofs.map((p) => p.lever).join(", ")}`);
+        for (const rejection of proven.rejections) bits.push(`rejected ${rejection.lever}: ${rejection.reason}`);
+        gateSummary = bits.join("\n  ");
+      }
+    }
+  }
+
+  const result = runTheoCycle(memory, { observation, proofs }, now);
 
   saveTheoMemory(memoryPath, result.memory);
 
   console.log(result.report);
   if (note) console.log(`\nNote: ${note}`);
+  if (gateSummary) console.log(`\nGate:\n  ${gateSummary}`);
 
   const gate = result.actions.find((action) => action.kind === "gate-requested");
-  if (gate && gate.kind === "gate-requested") {
-    console.log(`\nNext to prove (replay gate — not yet run from the CLI): ${gate.levers.join(", ")}.`);
+  if (!args.gate && gate && gate.kind === "gate-requested") {
+    console.log(`\nQueued to prove (re-run with --gate <capture> to prove them): ${gate.levers.join(", ")}.`);
   }
   if (result.memory.proposals.length > 0) {
     console.log("\nProposals awaiting your approval:");

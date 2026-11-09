@@ -136,6 +136,21 @@ export function policyToReductionConfig(policy: TheoPolicy): MeshTokenReductionC
   return config;
 }
 
+/**
+ * Build the reducer config for a SINGLE lever, bypassing the policy's proof gate.
+ *
+ * This exists to CONSTRUCT a candidate for the replay gate to measure — it is not
+ * an enforcement path. Production enforcement still goes only through
+ * `policyToReductionConfig`, which withholds any lossy lever that lacks a passing
+ * proof within the route's ceiling. Reuses `applyLever` so the gate measures the
+ * exact transform the proxy would later enforce.
+ */
+export function leverToReductionConfig(lever: TheoLever): MeshTokenReductionConfig {
+  const config: MeshTokenReductionConfig = {};
+  applyLever(config, lever);
+  return config;
+}
+
 /** The lossy levers present in the policy but NOT enforced, with the reason — for Theo's UX. */
 export function withheldLevers(policy: TheoPolicy): WithheldLever[] {
   const out: WithheldLever[] = [];
