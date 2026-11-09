@@ -79,20 +79,21 @@ it, a proven lever is proposed (recommend/test) or applied (optimise).`;
 
 const AUTONOMY_LEVELS: readonly TheoAutonomyLevel[] = ["observe", "recommend", "test", "optimise"];
 
-type Args = {
-  autonomy?: TheoAutonomyLevel;
-  customer: string;
+export type TheoRunOptions = {
   ledgerDir: string;
+  customer: string;
+  autonomy?: TheoAutonomyLevel;
   gate?: string;
   providerUrl?: string;
   maxSamples: number;
+  apply: boolean;
+  /** Set only by the `--watch` CLI path; the daemon drives its own interval. */
   watchMs?: number;
   maxTicks?: number;
-  apply: boolean;
 };
 
-function parse(argv: string[]): Args {
-  const args: Args = { customer: "local", ledgerDir: join(homedir(), ".mesh", "ledger"), maxSamples: 20, apply: false };
+function parse(argv: string[]): TheoRunOptions {
+  const args: TheoRunOptions = { customer: "local", ledgerDir: join(homedir(), ".mesh", "ledger"), maxSamples: 20, apply: false };
   for (let index = 0; index < argv.length; index += 1) {
     const key = argv[index]!;
     if (key === "--help" || key === "-h") {
@@ -259,7 +260,7 @@ function makeProviderCall(provider: string, providerUrl: string | undefined): (r
   };
 }
 
-async function runTheoOnce(args: Args): Promise<void> {
+export async function runTheoOnce(args: TheoRunOptions): Promise<void> {
   const now = new Date().toISOString();
   const at = now.slice(0, 10);
 
@@ -401,6 +402,28 @@ function applyPolicyToProxy(policy: unknown): string {
   const policyPath = join(dir, "theo-policy.json");
   writeFileSync(policyPath, `${JSON.stringify(policy, null, 2)}\n`, { mode: 0o600 });
   return policyPath;
+}
+
+/**
+ * Run Theo on an interval in the background, without blocking the caller (the
+ * proxy). Skips a tick if the previous one is still running, logs failures
+ * instead of throwing, and does not keep the process alive on its own. Returns a
+ * stop function. The always-on daemon uses this so `mesh install` optimises with
+ * nothing to run by hand.
+ */
+export function startBackgroundTheo(opts: TheoRunOptions, intervalMs: number): () => void {
+  let running = false;
+  const run = (): void => {
+    if (running) return;
+    running = true;
+    void runTheoOnce(opts)
+      .catch((error: unknown) => console.error(`theo cycle failed: ${error instanceof Error ? error.message : String(error)}`))
+      .finally(() => { running = false; });
+  };
+  const timer = setInterval(run, intervalMs);
+  timer.unref?.();
+  run(); // first cycle at startup
+  return () => clearInterval(timer);
 }
 
 export async function runTheo(argv: string[]): Promise<void> {

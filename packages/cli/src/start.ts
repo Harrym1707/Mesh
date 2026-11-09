@@ -34,6 +34,8 @@ import { join } from "node:path";
 import { recomputeInvoice, verifyLedgerChain, type LedgerRecord } from "../../core/src/savings-ledger.js";
 import { startMeshProxy } from "../../sdk-js/src/proxy.js";
 import { defaultPolicy, policyToReductionConfig, withheldLevers, type TheoPolicy } from "../../sdk-js/src/theo-policy.js";
+import type { TheoAutonomyLevel } from "../../sdk-js/src/theo-agent.js";
+import { parseDuration, startBackgroundTheo } from "./theo.js";
 // Pure formatter module (no core imports) — reused so the signup URL and the
 // README badge have one source of truth across the proxy, SDK and this CLI.
 import { MESH_SIGNUP_URL, savingsBadge, type SavingsSnapshot } from "../../sdk-js/src/cta.js";
@@ -70,6 +72,10 @@ type StartArgs = {
   anthropicUpstream?: string;
   openaiUpstream?: string;
   capturePath?: string;
+  autonomy?: TheoAutonomyLevel;
+  theoIntervalMs?: number;
+  theoProviderUrl?: string;
+  noTheo?: boolean;
 };
 
 function parseStart(argv: string[]): StartArgs {
@@ -93,13 +99,18 @@ function parseStart(argv: string[]): StartArgs {
           `                          any OpenAI-compatible provider (Grok, DeepSeek, Mistral, Llama, …).\n` +
           `  --anthropic-base <url>  Send Anthropic traffic to this host instead of api.anthropic.com.\n` +
           `  --capture <file>        Opt-in: record your own requests to <file> (local, owner-only) so\n` +
-          `                          \`mesh theo --gate <file>\` can prove lossy levers on real traffic.\n` +
+          `                          Theo can prove lossy levers on real traffic.\n` +
+          `  --autonomy <level>      Theo's autonomy while running alongside: observe | recommend |\n` +
+          `                          test | optimise (default recommend).\n` +
+          `  --theo-interval <dur>   How often Theo runs a cycle (e.g. 15m, 1h; default 15m).\n` +
+          `  --no-theo               Don't run Theo alongside the proxy; just serve.\n` +
           `  --no-install            Don't touch ~/.claude/settings.json; just run the proxy.\n` +
           `  --help                  Show this message.`,
       );
       process.exit(0);
     }
     if (key === "--no-install") { args.install = false; continue; }
+    if (key === "--no-theo") { args.noTheo = true; continue; }
     const value = argv[i + 1];
     if (value === undefined || value.startsWith("--")) throw new Error(`${key} needs a value.`);
     i += 1;
@@ -108,6 +119,14 @@ function parseStart(argv: string[]): StartArgs {
     else if (key === "--openai-base") args.openaiUpstream = value;
     else if (key === "--anthropic-base") args.anthropicUpstream = value;
     else if (key === "--capture") args.capturePath = value;
+    else if (key === "--autonomy") {
+      if (!["observe", "recommend", "test", "optimise"].includes(value)) {
+        throw new Error("--autonomy must be observe | recommend | test | optimise.");
+      }
+      args.autonomy = value as TheoAutonomyLevel;
+    }
+    else if (key === "--theo-interval") args.theoIntervalMs = parseDuration(value);
+    else if (key === "--theo-provider-url") args.theoProviderUrl = value;
     else throw new Error(`Unknown option: ${key}. See mesh start --help.`);
   }
   if (!Number.isInteger(args.port) || args.port < 0 || args.port > 65535) throw new Error("--port must be 0-65535.");
@@ -275,6 +294,27 @@ export async function runServe(argv: string[]): Promise<void> {
   console.log(`[${stamp()}] mesh serve · build ${BUILD_COMMIT} · proxy ${proxy.url} · ledger ${args.ledgerDir}`);
   if (args.openaiUpstream) console.log(`[${stamp()}] openai-style upstream → ${args.openaiUpstream}`);
   if (args.anthropicUpstream) console.log(`[${stamp()}] anthropic upstream → ${args.anthropicUpstream}`);
+
+  // Run Theo alongside the proxy: every interval he observes this ledger, decides
+  // within his autonomy level, and (apply) writes the policy the proxy hot-reloads
+  // — so the always-on service keeps optimising with nothing to run by hand.
+  const theoIntervalMs = args.theoIntervalMs ?? 15 * 60_000;
+  const stopTheo = args.noTheo ? undefined : startBackgroundTheo(
+    {
+      ledgerDir: args.ledgerDir,
+      customer: "local",
+      autonomy: args.autonomy ?? "recommend",
+      maxSamples: 20,
+      apply: true,
+      ...(args.capturePath ? { gate: args.capturePath } : {}),
+      ...(args.theoProviderUrl ? { providerUrl: args.theoProviderUrl } : {}),
+    },
+    theoIntervalMs,
+  );
+  if (stopTheo) {
+    console.log(`[${stamp()}] ${T} running every ${Math.round(theoIntervalMs / 1000)}s · autonomy ${args.autonomy ?? "recommend"}${args.capturePath ? " · proving on capture" : ""}`);
+  }
+
   let lastEvents = -1;
   const monitor = setInterval(() => {
     const s = summariseLedger(args.ledgerDir);
@@ -308,6 +348,7 @@ export async function runServe(argv: string[]): Promise<void> {
   const shutdown = async (): Promise<void> => {
     clearInterval(monitor);
     if (updateTimer) clearInterval(updateTimer);
+    stopTheo?.();
     await proxy.close();
     process.exit(0);
   };
