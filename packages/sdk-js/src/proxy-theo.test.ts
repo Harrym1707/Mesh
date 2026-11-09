@@ -1,5 +1,5 @@
 import { createServer, type Server } from "node:http";
-import { mkdtempSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, readFileSync, existsSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -115,6 +115,26 @@ describe("proxy — opt-in request capture for the gate", () => {
     expect(lines).toHaveLength(2); // limit respected
     const row = JSON.parse(lines[0]!) as { request?: { model?: string } };
     expect(row.request?.model).toBe("claude-sonnet-5-5-20260514"); // the ORIGINAL request body
+  });
+
+  it("bounds the capture file by maxBytes, across many requests", async () => {
+    const seen: AnyObject[] = [];
+    upstream = await stubUpstream(seen);
+    const ledgerDir = mkdtempSync(join(tmpdir(), "mesh-capbytes-"));
+    const capturePath = join(ledgerDir, "requests.jsonl");
+    proxy = await startMeshProxy({
+      ledgerDirectory: ledgerDir,
+      anthropicUpstream: upstream.url,
+      openaiUpstream: upstream.url,
+      requestCapture: { path: capturePath, limit: 100, maxBytes: 3000 },
+    });
+    for (let i = 0; i < 10; i += 1) await post(proxy, "app-cb");
+    await waitFor(() => existsSync(capturePath));
+    const size = statSync(capturePath).size;
+    const lines = readFileSync(capturePath, "utf8").trim().split("\n").filter(Boolean);
+    expect(size).toBeLessThanOrEqual(3000); // never grows past the cap
+    expect(lines.length).toBeGreaterThanOrEqual(1); // but still captured something
+    expect(lines.length).toBeLessThan(10); // and the cap stopped it well short of all 10
   });
 
   it("writes nothing when capture is not configured", async () => {

@@ -72,6 +72,7 @@ type StartArgs = {
   anthropicUpstream?: string;
   openaiUpstream?: string;
   capturePath?: string;
+  captureMaxMb?: number;
   autonomy?: TheoAutonomyLevel;
   theoIntervalMs?: number;
   theoProviderUrl?: string;
@@ -100,6 +101,7 @@ function parseStart(argv: string[]): StartArgs {
           `  --anthropic-base <url>  Send Anthropic traffic to this host instead of api.anthropic.com.\n` +
           `  --capture <file>        Opt-in: record your own requests to <file> (local, owner-only) so\n` +
           `                          Theo can prove lossy levers on real traffic.\n` +
+          `  --capture-max-mb <n>    Cap the capture file at n MB of prompt content (default 5).\n` +
           `  --autonomy <level>      Theo's autonomy while running alongside: observe | recommend |\n` +
           `                          test | optimise (default recommend).\n` +
           `  --theo-interval <dur>   How often Theo runs a cycle (e.g. 15m, 1h; default 15m).\n` +
@@ -119,6 +121,11 @@ function parseStart(argv: string[]): StartArgs {
     else if (key === "--openai-base") args.openaiUpstream = value;
     else if (key === "--anthropic-base") args.anthropicUpstream = value;
     else if (key === "--capture") args.capturePath = value;
+    else if (key === "--capture-max-mb") {
+      const n = Number(value);
+      if (!Number.isFinite(n) || n <= 0) throw new Error("--capture-max-mb must be a positive number.");
+      args.captureMaxMb = n;
+    }
     else if (key === "--autonomy") {
       if (!["observe", "recommend", "test", "optimise"].includes(value)) {
         throw new Error("--autonomy must be observe | recommend | test | optimise.");
@@ -289,7 +296,7 @@ export async function startProxyWithPolicy(
  */
 export async function runServe(argv: string[]): Promise<void> {
   const args = parseStart(argv);
-  const { proxy } = await startProxyWithPolicy(args.port, args.ledgerDir, args, args.capturePath ? { path: args.capturePath } : undefined);
+  const { proxy } = await startProxyWithPolicy(args.port, args.ledgerDir, args, args.capturePath ? { path: args.capturePath, ...(args.captureMaxMb !== undefined ? { maxBytes: Math.round(args.captureMaxMb * 1024 * 1024) } : {}) } : undefined);
   const stamp = (): string => new Date().toISOString();
   console.log(`[${stamp()}] mesh serve · build ${BUILD_COMMIT} · proxy ${proxy.url} · ledger ${args.ledgerDir}`);
   if (args.openaiUpstream) console.log(`[${stamp()}] openai-style upstream → ${args.openaiUpstream}`);
@@ -359,7 +366,7 @@ export async function runServe(argv: string[]): Promise<void> {
 
 export async function runStart(argv: string[]): Promise<void> {
   const args = parseStart(argv);
-  const { proxy, policy } = await startProxyWithPolicy(args.port, args.ledgerDir, args, args.capturePath ? { path: args.capturePath } : undefined);
+  const { proxy, policy } = await startProxyWithPolicy(args.port, args.ledgerDir, args, args.capturePath ? { path: args.capturePath, ...(args.captureMaxMb !== undefined ? { maxBytes: Math.round(args.captureMaxMb * 1024 * 1024) } : {}) } : undefined);
   const restore = args.install ? configureClaudeCode(proxy.url) : () => {};
   const withheld = withheldLevers(policy);
 

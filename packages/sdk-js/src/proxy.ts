@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { createHash, randomUUID } from "node:crypto";
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 // Import the specific core modules, not the package barrel: the barrel
 // re-exports the whole library (router, triage, observability adapters,
@@ -72,11 +72,13 @@ export type MeshProxyOptions = {
   /**
    * Opt-in local request capture for Theo's replay gate. When set, each proxied
    * request's ORIGINAL body (prompt content included) is appended as JSONL to
-   * `path`, owner-only, up to `limit` requests (default 50). This is the one
-   * place the proxy writes prompt content; it is OFF unless explicitly enabled,
-   * the file never leaves the machine, and `mesh theo --gate <path>` reads it.
+   * `path`, owner-only, up to `limit` requests (default 50) AND `maxBytes` on
+   * disk (default 5 MiB, enforced against the file's actual size so it holds
+   * across restarts). This is the one place the proxy writes prompt content; it
+   * is OFF unless explicitly enabled, the file never leaves the machine, and
+   * `mesh theo --gate <path>` reads it.
    */
-  requestCapture?: { path: string; limit?: number };
+  requestCapture?: { path: string; limit?: number; maxBytes?: number };
 };
 
 export type MeshProxy = {
@@ -331,13 +333,24 @@ export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
   // This is the only path that writes prompt content, bounded and owner-only.
   const requestCapture = options.requestCapture;
   const captureLimit = requestCapture?.limit ?? 50;
+  const captureMaxBytes = requestCapture?.maxBytes ?? 5 * 1024 * 1024;
   let capturedRequests = 0;
+  // Seed from the file's current size so the byte cap bounds prompt content on
+  // disk across restarts, not just within one process.
+  let capturedBytes = ((): number => {
+    if (requestCapture === undefined) return 0;
+    try { return existsSync(requestCapture.path) ? statSync(requestCapture.path).size : 0; } catch { return 0; }
+  })();
   const writeCapturedRequest = (body: unknown): void => {
     if (requestCapture === undefined || body === undefined || capturedRequests >= captureLimit) return;
     try {
+      const line = `${JSON.stringify({ request: body })}\n`;
+      const lineBytes = Buffer.byteLength(line);
+      if (capturedBytes + lineBytes > captureMaxBytes) return; // keep prompt content on disk bounded
       mkdirSync(dirname(requestCapture.path), { recursive: true, mode: 0o700 });
-      appendFileSync(requestCapture.path, `${JSON.stringify({ request: body })}\n`, { mode: 0o600 });
+      appendFileSync(requestCapture.path, line, { mode: 0o600 });
       capturedRequests += 1;
+      capturedBytes += lineBytes;
     } catch {
       // Capture is best-effort and must never affect the request path.
     }
