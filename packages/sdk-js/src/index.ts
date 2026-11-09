@@ -63,6 +63,28 @@ export {
   type TheoLeverClass,
   type WithheldLever,
 } from "./theo-policy.js";
+export {
+  createTheoMemory,
+  observeWorkload,
+  renderTheoReport,
+  runTheoCycle,
+  type TheoAutonomyLevel,
+  type TheoMemory,
+  type TheoHypothesis,
+  type TheoFrontierOpportunity,
+  type TheoExperiment,
+  type TheoProposal,
+  type TheoObservation,
+  type TheoProof,
+  type TheoAction,
+  type TheoCycleResult,
+} from "./theo-agent.js";
+export {
+  defaultTheoMemoryPath,
+  loadTheoMemory,
+  saveTheoMemory,
+  realisedFromSpoolDir,
+} from "./theo-agent-store.js";
 export { compactStaleContext, reduceRequestAsync } from "./semantic-compaction.js";
 export type {
   SemanticCompactionConfig,
