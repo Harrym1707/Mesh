@@ -116,6 +116,11 @@ export type TheoMemory = {
   experiments: TheoExperiment[];
   /** Open proposals the customer has not yet accepted or rejected. */
   proposals: TheoProposal[];
+  /** Per applied lossy lever: the retry rate measured when it was proven, so a
+   * later rise can be detected as quality drift. */
+  driftBaselines: Record<string, { retryRate: number; at: string }>;
+  /** Levers Theo auto-rolled-back after drift; not re-proposed this session. */
+  rolledBack: string[];
   log: TheoCycleLogEntry[];
   updatedAt: string;
 };
@@ -127,6 +132,10 @@ export type TheoObservation = {
   price: TokenPrice;
   realisedSavingsUsd?: number;
   realisedSpendUsd?: number;
+  /** Fraction of recent requests that were retries (duplicate of a prior one) —
+   * the behavioural-drift signal. When it rises after a lever is applied, Theo
+   * rolls that lever back. Omit it and the drift monitor simply does not fire. */
+  retryRate?: number;
 };
 
 /** A measured gate result the caller obtained (from `replayGate`) and hands to
@@ -146,7 +155,8 @@ export type TheoAction =
   | { kind: "policy-published"; version: number; lever: string }
   | { kind: "proposal-opened"; lever: string; savingPercent: number; qualityDeltaPercent: number }
   | { kind: "gate-requested"; levers: string[] }
-  | { kind: "proof-rejected"; lever: string; reason: string };
+  | { kind: "proof-rejected"; lever: string; reason: string }
+  | { kind: "rolled-back"; lever: string; baselineRetryRate: number; currentRetryRate: number };
 
 export type TheoCycleResult = {
   memory: TheoMemory;
@@ -178,6 +188,10 @@ const ENFORCEABLE_LOSSY = new Set(
     .filter((entry) => entry.class === "lossy")
     .map((entry) => entry.lever),
 );
+
+/** How far the retry rate may rise above an applied lever's baseline before Theo
+ * treats it as quality drift and rolls the lever back (absolute fraction). */
+const DRIFT_RISE_THRESHOLD = 0.05;
 
 function zeroSegments(): Record<WorkloadSegment, number> {
   return { toolSchemas: 0, systemPrompt: 0, retrievedContext: 0, history: 0, userTurn: 0, output: 0 };
@@ -227,6 +241,8 @@ export function createTheoMemory(
     frontier: [],
     experiments: [],
     proposals: [],
+    driftBaselines: {},
+    rolledBack: [],
     log: [],
     updatedAt: at,
   };
@@ -242,6 +258,7 @@ function hypothesise(
   profile: WorkloadProfile,
   price: TokenPrice,
   activeLossy: ReadonlySet<string>,
+  rolledBack: ReadonlySet<string>,
 ): { hypotheses: TheoHypothesis[]; frontier: TheoFrontierOpportunity[] } {
   let contributions: LeverContribution[];
   try {
@@ -267,6 +284,7 @@ function hypothesise(
       continue;
     }
     if (mapped.class === "lossless") continue; // already active in the policy.
+    if (rolledBack.has(mapped.lever)) continue; // auto-rolled-back after drift; don't re-propose
     if (activeLossy.has(mapped.lever) || seen.has(mapped.lever)) continue;
     seen.add(mapped.lever);
     hypotheses.push({
@@ -303,15 +321,51 @@ export function runTheoCycle(
   let policy = memory.policy;
   const experiments = [...memory.experiments];
   const proposals = [...memory.proposals];
+  const driftBaselines = { ...(memory.driftBaselines ?? {}) };
+  const rolledBack = [...(memory.rolledBack ?? [])];
 
   // OBSERVE
   const profile = observation.profile;
+
+  // MONITOR — auto-rollback. If the retry rate has risen materially since an
+  // applied lossy lever was proven, that is behavioural drift (users re-running
+  // because answers got worse): roll the lever back and don't re-propose it. This
+  // is the "never degrade" guarantee holding AFTER rollout, not just at the gate.
+  if (observation.retryRate !== undefined) {
+    for (const lever of policy.levers) {
+      if (lever.class !== "lossy" || lever.gate === undefined) continue;
+      const baseline = driftBaselines[lever.lever];
+      if (baseline === undefined) continue;
+      if (observation.retryRate > baseline.retryRate + DRIFT_RISE_THRESHOLD) {
+        policy = {
+          ...policy,
+          levers: policy.levers.filter((other) => other.lever !== lever.lever),
+          version: policy.version + 1,
+          updatedAt: now,
+        };
+        delete driftBaselines[lever.lever];
+        if (!rolledBack.includes(lever.lever)) rolledBack.push(lever.lever);
+        experiments.push({
+          lever: lever.lever,
+          ranAt: now,
+          passed: false,
+          note: `rolled back: retry rate rose ${(baseline.retryRate * 100).toFixed(1)}% → ${(observation.retryRate * 100).toFixed(1)}%`,
+        });
+        actions.push({
+          kind: "rolled-back",
+          lever: lever.lever,
+          baselineRetryRate: baseline.retryRate,
+          currentRetryRate: observation.retryRate,
+        });
+      }
+    }
+  }
 
   // HYPOTHESISE
   const activeLossy = new Set(
     policy.levers.filter((lever) => lever.class === "lossy" && lever.gate !== undefined).map((l) => l.lever),
   );
-  const { hypotheses, frontier } = hypothesise(profile, observation.price, activeLossy);
+  const { hypotheses, frontier } = hypothesise(profile, observation.price, activeLossy, new Set(rolledBack));
 
   // Report lossless coverage (always on; it is the day-0 default).
   const lossless = losslessLevers(policy);
@@ -321,6 +375,10 @@ export function runTheoCycle(
   for (const proof of proofs) {
     if (!ENFORCEABLE_LOSSY.has(proof.lever)) {
       actions.push({ kind: "proof-rejected", lever: proof.lever, reason: "not an enforceable lossy lever" });
+      continue;
+    }
+    if (rolledBack.includes(proof.lever)) {
+      actions.push({ kind: "proof-rejected", lever: proof.lever, reason: "auto-rolled-back earlier after quality drift" });
       continue;
     }
     const withinCeiling = Math.abs(proof.qualityDeltaPercent) <= policy.qualityCeilingPercent;
@@ -364,6 +422,8 @@ export function runTheoCycle(
         now,
       );
       actions.push({ kind: "policy-published", version: policy.version, lever: proof.lever });
+      // Record the drift baseline so a later retry-rate rise can roll it back.
+      driftBaselines[proof.lever] = { retryRate: observation.retryRate ?? 0, at: now };
     } else if (autonomy === "recommend" || autonomy === "test") {
       if (!proposals.some((existing) => existing.lever === proof.lever)) {
         proposals.push({
@@ -402,6 +462,8 @@ export function runTheoCycle(
     frontier,
     experiments,
     proposals,
+    driftBaselines,
+    rolledBack,
     log: [
       ...memory.log,
       {
@@ -447,6 +509,8 @@ export function renderTheoReport(
     lines.push(`FRONTIER: ${memory.frontier.length} opportunity(ies) needing new code — reported, not touched.`);
   }
   if (published > 0) lines.push(`APPLIED: ${published} proven lever(s) published to the policy this cycle.`);
+  const rolledBackNow = actions.filter((a) => a.kind === "rolled-back").length;
+  if (rolledBackNow > 0) lines.push(`ROLLED BACK: ${rolledBackNow} lever(s) reverted after a retry-rate rise (quality drift).`);
   if (proposed > 0) lines.push(`PROPOSED: ${proposed} proven lever(s) awaiting your approval.`);
   if (observation.realisedSavingsUsd !== undefined) {
     lines.push(`LEDGER: $${observation.realisedSavingsUsd.toFixed(2)} verified savings recorded so far.`);

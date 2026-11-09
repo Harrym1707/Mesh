@@ -284,6 +284,12 @@ export async function runTheoOnce(args: TheoRunOptions): Promise<void> {
     outputTokensMean: meanOutputTokens(events),
   });
 
+  // The behavioural-drift signal: the share of recent requests that were retries
+  // (the proxy flags byte-identical repeats). A rise after a lever is applied is
+  // how Theo detects a quality regression and rolls the lever back.
+  const retryRate = events.length > 0
+    ? events.filter((event) => event.duplicateOfRequestId !== undefined).length / events.length
+    : 0;
   const invoice = events.length > 0 ? recomputeInvoice(events, { feePercent: 1 }) : undefined;
   const memoryPath = defaultTheoMemoryPath(args.ledgerDir, args.customer);
   const existing = loadTheoMemory(memoryPath);
@@ -295,6 +301,7 @@ export async function runTheoOnce(args: TheoRunOptions): Promise<void> {
   const observation = {
     profile,
     price,
+    retryRate,
     ...(invoice ? { realisedSavingsUsd: invoice.netVerifiedSavingsUsd } : {}),
   };
 

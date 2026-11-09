@@ -160,6 +160,64 @@ describe("Theo agent — the quality ceiling and proof integrity hold in code", 
   });
 });
 
+describe("Theo agent — drift auto-rollback (never degrade, after rollout too)", () => {
+  // Apply a lossy lever at a baseline retry rate, then observe a rise.
+  function applied(baselineRetryRate: number): TheoMemory {
+    const m = createTheoMemory("acme", "optimise", AT);
+    const { memory } = runTheoCycle(
+      m,
+      { observation: { profile: PROFILE, price: PRICE, retryRate: baselineRetryRate }, proofs: [proof()] },
+      LATER,
+    );
+    expect(memory.policy.version).toBe(m.policy.version + 1); // lever applied
+    expect(memory.driftBaselines["tool-schema-description-trim"]?.retryRate).toBe(baselineRetryRate);
+    return memory;
+  }
+
+  it("rolls a lever back when the retry rate rises past the threshold", () => {
+    const appl = applied(0.10);
+    const { memory, actions } = runTheoCycle(
+      appl,
+      { observation: { profile: PROFILE, price: PRICE, retryRate: 0.20 } }, // +10pp, over the 5pp threshold
+      LATER,
+    );
+    expect(memory.policy.version).toBe(appl.policy.version + 1); // reverted = another version
+    expect(memory.policy.levers.some((l) => l.lever === "tool-schema-description-trim")).toBe(false);
+    expect(memory.rolledBack).toContain("tool-schema-description-trim");
+    expect(actions.some((a) => a.kind === "rolled-back")).toBe(true);
+  });
+
+  it("leaves the lever in place when the retry rate barely moves", () => {
+    const appl = applied(0.10);
+    const { memory, actions } = runTheoCycle(
+      appl,
+      { observation: { profile: PROFILE, price: PRICE, retryRate: 0.12 } }, // +2pp, under threshold
+      LATER,
+    );
+    expect(memory.policy.levers.some((l) => l.lever === "tool-schema-description-trim")).toBe(true);
+    expect(actions.some((a) => a.kind === "rolled-back")).toBe(false);
+  });
+
+  it("does not re-propose or re-apply a rolled-back lever", () => {
+    const appl = applied(0.10);
+    const rolled = runTheoCycle(appl, { observation: { profile: PROFILE, price: PRICE, retryRate: 0.20 } }, LATER).memory;
+    // It is gone from the candidate queue...
+    const next = runTheoCycle(rolled, { observation: { profile: PROFILE, price: PRICE, retryRate: 0.20 } }, LATER);
+    expect(next.memory.hypotheses.map((h) => h.lever)).not.toContain("tool-schema-description-trim");
+    // ...and a fresh proof for it is refused.
+    const withProof = runTheoCycle(rolled, { observation: { profile: PROFILE, price: PRICE, retryRate: 0.20 }, proofs: [proof()] }, LATER);
+    expect(withProof.memory.policy.levers.some((l) => l.lever === "tool-schema-description-trim")).toBe(false);
+    expect(withProof.actions.some((a) => a.kind === "proof-rejected")).toBe(true);
+  });
+
+  it("does nothing when no retry rate is supplied", () => {
+    const appl = applied(0.10);
+    const { memory, actions } = runTheoCycle(appl, { observation: { profile: PROFILE, price: PRICE } }, LATER);
+    expect(memory.policy.levers.some((l) => l.lever === "tool-schema-description-trim")).toBe(true);
+    expect(actions.some((a) => a.kind === "rolled-back")).toBe(false);
+  });
+});
+
 describe("Theo agent — initiating experiments", () => {
   it("from test autonomy upward, Theo emits gate requests for the next candidates", () => {
     const m = createTheoMemory("acme", "test", AT);
