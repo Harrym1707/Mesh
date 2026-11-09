@@ -19,6 +19,7 @@ import { join } from "node:path";
 import { recomputeInvoice } from "../../core/src/savings-ledger.js";
 import { groupWorkflowSessions } from "../../core/src/workflow-sessions.js";
 import { policyCoverage, withheldLevers } from "../../sdk-js/src/theo-policy.js";
+import { defaultTheoMemoryPath, loadTheoMemory } from "../../sdk-js/src/theo-agent-store.js";
 import { BUILD_COMMIT, DEFAULT_PORT, MESH_HOME, readLedger, readPolicy } from "./start.js";
 
 type DashArgs = { port: number; proxyPort: number; ledgerDir: string; open: boolean };
@@ -63,6 +64,9 @@ async function buildData(args: DashArgs): Promise<unknown> {
   const invoice = records.length ? recomputeInvoice(records.map((r) => r.event)) : null;
   const policy = readPolicy();
   const active = (policy.levers ?? []).map((l) => ({ lever: l.lever, class: l.class }));
+  // Theo's memory (proposals awaiting approval, levers auto-rolled-back on drift)
+  // lives beside the ledger; absent until Theo has run at least once.
+  const memory = loadTheoMemory(defaultTheoMemoryPath(args.ledgerDir, "local"));
   return {
     build: BUILD_COMMIT,
     updatedAt: new Date().toISOString(),
@@ -88,6 +92,8 @@ async function buildData(args: DashArgs): Promise<unknown> {
       active,
       withheld: withheldLevers(policy),
       coverage: policyCoverage(policy),
+      proposals: memory?.proposals ?? [],
+      rolledBack: memory?.rolledBack ?? [],
     },
   };
 }
@@ -226,6 +232,10 @@ const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8">
       <div id="withheld"><span class="empty">nothing held</span></div>
       <p class="sub" style="margin-top:14px">Not yet adopted</p>
       <div id="available"><span class="empty">—</span></div>
+      <p class="sub" style="margin-top:14px">Awaiting your approval</p>
+      <div id="proposals"><span class="empty">none</span></div>
+      <p class="sub" style="margin-top:14px">Auto-rolled-back after drift</p>
+      <div id="rolledback"><span class="empty">none</span></div>
       <div class="ceiling" id="ceiling"></div>
     </div>
     <div class="panel">
@@ -274,6 +284,8 @@ async function tick(){
     $('available').innerHTML=avail.length?avail.map(s=>'<span class="chip avail" title="Theo can enforce this; he has not adopted it for you yet.">'+s.label+'</span>').join(''):'<span class="empty">none — Theo has adopted every lever he can</span>';
     $('active').innerHTML=d.theo.active.length?d.theo.active.map(l=>'<span class="chip on">'+l.lever+'<span class="k"> · '+l.class+'</span></span>').join(''):'<span class="empty">none</span>';
     $('withheld').innerHTML=d.theo.withheld.length?d.theo.withheld.map(w=>'<span class="chip held" title="'+(w.reason||'')+'">'+w.lever+'</span>').join(''):'<span class="empty">nothing held</span>';
+    $('proposals').innerHTML=(d.theo.proposals&&d.theo.proposals.length)?d.theo.proposals.map(p=>'<span class="chip held" title="'+(p.message||'')+'">'+p.lever+' · ~'+p.savingPercent.toFixed(1)+'%</span>').join(''):'<span class="empty">none</span>';
+    $('rolledback').innerHTML=(d.theo.rolledBack&&d.theo.rolledBack.length)?d.theo.rolledBack.map(l=>'<span class="chip held">'+l+'</span>').join(''):'<span class="empty">none</span>';
     $('ceiling').textContent='Quality ceiling: '+d.theo.qualityCeilingPercent+'% — anything that could cost more than this stays off until a replay of your traffic proves it safe.';
     const rows=d.lineItems;
     $('levers').innerHTML=rows.length?rows.map(li=>'<tr><td>'+li.leverId+'</td><td class="k">'+li.kind+(li.basis?' · '+li.basis:'')+'</td><td class="num">'+li.events+'</td><td class="num">$'+usd(li.savedUsd)+'</td></tr>').join(''):'<tr><td colspan="4" class="empty">No billable savings yet — run Claude Code through MESH and this fills in.</td></tr>';
