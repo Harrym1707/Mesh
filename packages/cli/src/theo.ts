@@ -45,6 +45,7 @@ import {
   saveTheoMemory,
 } from "../../sdk-js/src/theo-agent-store.js";
 import { proveCandidates } from "../../sdk-js/src/theo-gate.js";
+import { effectiveQualityCeiling } from "../../sdk-js/src/theo-policy.js";
 
 const USAGE = `Usage: mesh theo [options]
 
@@ -67,6 +68,8 @@ const USAGE = `Usage: mesh theo [options]
   --max-samples <n>   Cap how many captured requests to replay. Default 20.
   --max-gate-calls <n> Exploration budget: the most paid provider calls one gate
                         run may make (default 200). The sample is trimmed to fit.
+  --quality-ceiling <p> Tighten the route's quality ceiling to p% (default 2).
+                        Lower = more cautious; a hard max caps it regardless.
   --watch <interval>  Keep running: re-run the cycle every interval (e.g. 15m,
                         30s, 1h) until you stop it with Ctrl-C — Theo never stops.
   --max-ticks <n>     In --watch mode, stop after n cycles (default: unlimited).
@@ -91,6 +94,8 @@ export type TheoRunOptions = {
   apply: boolean;
   /** Exploration budget: max paid provider calls per gate run. Default 200. */
   maxGateCalls?: number;
+  /** Override the route's quality ceiling (percent); clamped to the hard max. */
+  qualityCeilingPercent?: number;
   /** Set only by the `--watch` CLI path; the daemon drives its own interval. */
   watchMs?: number;
   maxTicks?: number;
@@ -133,6 +138,12 @@ function parse(argv: string[]): TheoRunOptions {
         const n = Number(value);
         if (!Number.isInteger(n) || n < 1) throw new Error("--max-gate-calls must be a positive integer.");
         args.maxGateCalls = n;
+        break;
+      }
+      case "--quality-ceiling": {
+        const n = Number(value);
+        if (!Number.isFinite(n) || n < 0) throw new Error("--quality-ceiling must be a non-negative percent.");
+        args.qualityCeilingPercent = n;
         break;
       }
       case "--watch": args.watchMs = parseDuration(value); break;
@@ -312,9 +323,14 @@ export async function runTheoOnce(args: TheoRunOptions): Promise<void> {
   const memoryPath = defaultTheoMemoryPath(args.ledgerDir, args.customer);
   const existing = loadTheoMemory(memoryPath);
   const autonomy: TheoAutonomyLevel = args.autonomy ?? existing?.autonomy ?? "recommend";
-  const memory = existing
+  const baseMemory = existing
     ? { ...existing, autonomy }
     : createTheoMemory(args.customer, autonomy, now);
+  // A per-environment ceiling override (tighten for critical routes); the hard
+  // cap still applies at enforcement, so this can only make Theo more cautious.
+  const memory = args.qualityCeilingPercent !== undefined
+    ? { ...baseMemory, policy: { ...baseMemory.policy, qualityCeilingPercent: effectiveQualityCeiling(args.qualityCeilingPercent) } }
+    : baseMemory;
 
   const observation = {
     profile,

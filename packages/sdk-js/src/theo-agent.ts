@@ -9,6 +9,7 @@ import {
 import type { BlindFeatures } from "./blind-features.js";
 import {
   defaultPolicy,
+  effectiveQualityCeiling,
   policyCoverage,
   publishLever,
   type TheoLeverClass,
@@ -382,7 +383,8 @@ export function runTheoCycle(
       actions.push({ kind: "proof-rejected", lever: proof.lever, reason: "auto-rolled-back earlier after quality drift" });
       continue;
     }
-    const withinCeiling = Math.abs(proof.qualityDeltaPercent) <= policy.qualityCeilingPercent;
+    const ceiling = effectiveQualityCeiling(policy.qualityCeilingPercent);
+    const withinCeiling = Math.abs(proof.qualityDeltaPercent) <= ceiling;
     const saves = proof.savingPercent > 0;
     const passed = withinCeiling && saves;
     experiments.push({
@@ -396,7 +398,7 @@ export function runTheoCycle(
         note: !saves
           ? "no saving once priced, so nothing to enable"
           : `quality drop ${Math.abs(proof.qualityDeltaPercent).toFixed(2)}% exceeds the ` +
-            `${policy.qualityCeilingPercent}% ceiling`,
+            `${ceiling}% ceiling`,
       }),
     });
     if (!passed) {

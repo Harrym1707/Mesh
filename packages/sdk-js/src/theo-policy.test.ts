@@ -30,6 +30,16 @@ describe("Theo policy", () => {
     expect(policyToReductionConfig(p).repairCachePrefix).toBe(true);
   });
 
+  it("hard-caps the quality ceiling: a lever past the max is withheld even if the policy ceiling is higher", () => {
+    const over: TheoLever = { lever: "output-effort-low", class: "lossy", gate: { savingPercent: 30, qualityDeltaPercent: -6, grader: "g", provenAt: AT } };
+    const p: TheoPolicy = { ...defaultPolicy("u", AT), qualityCeilingPercent: 20, levers: [over] };
+    expect(policyToReductionConfig(p).outputEffort).toBeUndefined(); // 6% drop > hard max, withheld
+    expect(withheldLevers(p)[0]?.reason).toContain("ceiling");
+    const under: TheoLever = { ...over, gate: { savingPercent: 30, qualityDeltaPercent: -4, grader: "g", provenAt: AT } };
+    const p2: TheoPolicy = { ...p, levers: [under] };
+    expect(policyToReductionConfig(p2).outputEffort).toBe("low"); // 4% ≤ hard max, enforced
+  });
+
   it("WITHHOLDS a lossy lever that carries no gate proof", () => {
     const p: TheoPolicy = { ...defaultPolicy("u", AT), levers: [{ lever: "output-effort-low", class: "lossy" }] };
     expect(policyToReductionConfig(p).outputEffort).toBeUndefined();

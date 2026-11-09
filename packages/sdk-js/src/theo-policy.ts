@@ -55,15 +55,29 @@ export type TheoPolicy = {
 /** Why a lever in the policy is NOT currently enforced — for Theo's transparency to the user. */
 export type WithheldLever = { lever: string; reason: string };
 
+/**
+ * Hard upper bound on any route's quality ceiling. Enforcement clamps to this, so
+ * however loose a policy's `qualityCeilingPercent` is set (by config, a tier dial,
+ * or a tampered file), a lossy lever whose measured quality drop exceeds this is
+ * never enforced. A floor under "never degrade" that no misconfiguration crosses.
+ */
+export const MAX_QUALITY_CEILING_PERCENT = 5;
+
 function num(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
-/** Whether a lossy lever's proof clears the route's quality ceiling. */
+/** The effective ceiling: the route's, clamped to the hard maximum (and ≥ 0). */
+export function effectiveQualityCeiling(ceilingPercent: number): number {
+  const c = Number.isFinite(ceilingPercent) ? ceilingPercent : 0;
+  return Math.max(0, Math.min(c, MAX_QUALITY_CEILING_PERCENT));
+}
+
+/** Whether a lossy lever's proof clears the route's quality ceiling (hard-capped). */
 function proofClearsCeiling(lever: TheoLever, ceilingPercent: number): boolean {
   if (lever.gate === undefined) return false;
   const y = lever.gate.qualityDeltaPercent;
-  return Number.isFinite(y) && Math.abs(y) <= ceilingPercent;
+  return Number.isFinite(y) && Math.abs(y) <= effectiveQualityCeiling(ceilingPercent);
 }
 
 /** Map one lever id (+ params) onto the reducer config. Unknown ids are ignored. */
