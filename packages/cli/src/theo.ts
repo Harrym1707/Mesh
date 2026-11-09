@@ -104,6 +104,9 @@ export type TheoRunOptions = {
 /** Default exploration budget — caps a gate run's paid provider calls. */
 const DEFAULT_MAX_GATE_CALLS = 200;
 
+/** Print the auto-apply caution at most once per process. */
+let warnedOptimise = false;
+
 function parse(argv: string[]): TheoRunOptions {
   const args: TheoRunOptions = { customer: "local", ledgerDir: join(homedir(), ".mesh", "ledger"), maxSamples: 20, apply: false };
   for (let index = 0; index < argv.length; index += 1) {
@@ -323,6 +326,14 @@ export async function runTheoOnce(args: TheoRunOptions): Promise<void> {
   const memoryPath = defaultTheoMemoryPath(args.ledgerDir, args.customer);
   const existing = loadTheoMemory(memoryPath);
   const autonomy: TheoAutonomyLevel = args.autonomy ?? existing?.autonomy ?? "recommend";
+  if (autonomy === "optimise" && !warnedOptimise) {
+    warnedOptimise = true;
+    console.log(
+      "⚠ Theo autonomy is OPTIMISE — proven lossy levers are AUTO-APPLIED (within your quality ceiling). " +
+      "Use --autonomy recommend to require your approval first. Not advised on real traffic until the gate's " +
+      "quality graders are validated on it.",
+    );
+  }
   const baseMemory = existing
     ? { ...existing, autonomy }
     : createTheoMemory(args.customer, autonomy, now);
