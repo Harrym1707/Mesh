@@ -1,0 +1,240 @@
+{
+  "fetchedAt": "2026-11-09T16:32:07Z",
+  "views": {
+    "count": 38,
+    "uniques": 5,
+    "views": [
+      {
+        "timestamp": "2026-10-26T00:00:00Z",
+        "count": 0,
+        "uniques": 0
+      },
+      {
+        "timestamp": "2026-10-27T00:00:00Z",
+        "count": 1,
+        "uniques": 1
+      },
+      {
+        "timestamp": "2026-10-28T00:00:00Z",
+        "count": 0,
+        "uniques": 0
+      },
+      {
+        "timestamp": "2026-10-29T00:00:00Z",
+        "count": 1,
+        "uniques": 1
+      },
+      {
+        "timestamp": "2026-10-30T00:00:00Z",
+        "count": 0,
+        "uniques": 0
+      },
+      {
+        "timestamp": "2026-10-31T00:00:00Z",
+        "count": 0,
+        "uniques": 0
+      },
+      {
+        "timestamp": "2026-11-01T00:00:00Z",
+        "count": 0,
+        "uniques": 0
+      },
+      {
+        "timestamp": "2026-11-02T00:00:00Z",
+        "count": 0,
+        "uniques": 0
+      },
+      {
+        "timestamp": "2026-11-03T00:00:00Z",
+        "count": 0,
+        "uniques": 0
+      },
+      {
+        "timestamp": "2026-11-04T00:00:00Z",
+        "count": 3,
+        "uniques": 1
+      },
+      {
+        "timestamp": "2026-11-05T00:00:00Z",
+        "count": 16,
+        "uniques": 1
+      },
+      {
+        "timestamp": "2026-11-06T00:00:00Z",
+        "count": 0,
+        "uniques": 0
+      },
+      {
+        "timestamp": "2026-11-07T00:00:00Z",
+        "count": 17,
+        "uniques": 3
+      },
+      {
+        "timestamp": "2026-11-08T00:00:00Z",
+        "count": 0,
+        "uniques": 0
+      }
+    ]
+  },
+  "clones": {
+    "count": 1161,
+    "uniques": 271,
+    "clones": [
+      {
+        "timestamp": "2026-10-26T00:00:00Z",
+        "count": 104,
+        "uniques": 38
+      },
+      {
+        "timestamp": "2026-10-27T00:00:00Z",
+        "count": 69,
+        "uniques": 26
+      },
+      {
+        "timestamp": "2026-10-28T00:00:00Z",
+        "count": 125,
+        "uniques": 45
+      },
+      {
+        "timestamp": "2026-10-29T00:00:00Z",
+        "count": 64,
+        "uniques": 17
+      },
+      {
+        "timestamp": "2026-10-30T00:00:00Z",
+        "count": 26,
+        "uniques": 13
+      },
+      {
+        "timestamp": "2026-10-31T00:00:00Z",
+        "count": 26,
+        "uniques": 13
+      },
+      {
+        "timestamp": "2026-11-01T00:00:00Z",
+        "count": 76,
+        "uniques": 23
+      },
+      {
+        "timestamp": "2026-11-02T00:00:00Z",
+        "count": 28,
+        "uniques": 7
+      },
+      {
+        "timestamp": "2026-11-03T00:00:00Z",
+        "count": 71,
+        "uniques": 28
+      },
+      {
+        "timestamp": "2026-11-04T00:00:00Z",
+        "count": 116,
+        "uniques": 36
+      },
+      {
+        "timestamp": "2026-11-05T00:00:00Z",
+        "count": 161,
+        "uniques": 41
+      },
+      {
+        "timestamp": "2026-11-06T00:00:00Z",
+        "count": 59,
+        "uniques": 26
+      },
+      {
+        "timestamp": "2026-11-07T00:00:00Z",
+        "count": 177,
+        "uniques": 35
+      },
+      {
+        "timestamp": "2026-11-08T00:00:00Z",
+        "count": 59,
+        "uniques": 17
+      }
+    ]
+  },
+  "referrers": [
+    {
+      "referrer": "github.com",
+      "count": 2,
+      "uniques": 1
+    },
+    {
+      "referrer": "Google",
+      "count": 1,
+      "uniques": 1
+    }
+  ],
+  "paths": [
+    {
+      "path": "/Harrym1707/Flux",
+      "title": "Overview",
+      "count": 3,
+      "uniques": 3
+    },
+    {
+      "path": "/Harrym1707/Mesh/compare/theo/readiness-loop...claude/self-serve-billing-ad4518",
+      "title": "/compare/theo/readiness-loop...claude/self-serve-billing-ad4518",
+      "count": 3,
+      "uniques": 2
+    },
+    {
+      "path": "/Harrym1707/Mesh",
+      "title": "Overview",
+      "count": 3,
+      "uniques": 1
+    },
+    {
+      "path": "/Harrym1707/Mesh/actions",
+      "title": "/actions",
+      "count": 3,
+      "uniques": 1
+    },
+    {
+      "path": "/Harrym1707/Mesh/compare/main...claude/stage-6-router-522e30",
+      "title": "/compare/main...claude/stage-6-router-522e30",
+      "count": 3,
+      "uniques": 1
+    },
+    {
+      "path": "/Harrym1707/Mesh/compare/main...claude/pilot-prep-e258fb",
+      "title": "/compare/main...claude/pilot-prep-e258fb",
+      "count": 2,
+      "uniques": 2
+    },
+    {
+      "path": "/Harrym1707/Mesh/actions/runs/42101550697",
+      "title": "/actions/runs/42101550697",
+      "count": 1,
+      "uniques": 1
+    },
+    {
+      "path": "/Harrym1707/Mesh/actions/runs/42372448542/job/128403184469",
+      "title": "/actions/runs/42372448542/job/128403184469",
+      "count": 1,
+      "uniques": 1
+    },
+    {
+      "path": "/Harrym1707/Mesh/actions/workflows/pages.yml",
+      "title": "/actions/workflows/pages.yml",
+      "count": 1,
+      "uniques": 1
+    },
+    {
+      "path": "/Harrym1707/Mesh/compare/integration/trunk",
+      "title": "/compare/integration/trunk",
+      "count": 1,
+      "uniques": 1
+    }
+  ],
+  "repo": {
+    "stargazers_count": 0,
+    "forks_count": 0,
+    "subscribers_count": 0
+  },
+  "npmLastWeek": {
+    "downloads": 211,
+    "start": "2026-11-02",
+    "end": "2026-11-08",
+    "package": "@harrym1707/sdk"
+  }
+}
