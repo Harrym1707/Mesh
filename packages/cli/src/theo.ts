@@ -303,6 +303,11 @@ export async function runTheoOnce(args: TheoRunOptions): Promise<void> {
   const retryRate = events.length > 0
     ? events.filter((event) => event.duplicateOfRequestId !== undefined).length / events.length
     : 0;
+  // The second drift signal: the share of recent requests that failed at the
+  // provider. A rise after a lever is applied also triggers a rollback.
+  const failureRate = events.length > 0
+    ? events.filter((event) => event.status === "failed").length / events.length
+    : 0;
   const invoice = events.length > 0 ? recomputeInvoice(events, { feePercent: 1 }) : undefined;
   const memoryPath = defaultTheoMemoryPath(args.ledgerDir, args.customer);
   const existing = loadTheoMemory(memoryPath);
@@ -315,6 +320,7 @@ export async function runTheoOnce(args: TheoRunOptions): Promise<void> {
     profile,
     price,
     retryRate,
+    failureRate,
     ...(invoice ? { realisedSavingsUsd: invoice.netVerifiedSavingsUsd } : {}),
   };
 

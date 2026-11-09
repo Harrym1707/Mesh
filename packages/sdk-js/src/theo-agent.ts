@@ -116,9 +116,9 @@ export type TheoMemory = {
   experiments: TheoExperiment[];
   /** Open proposals the customer has not yet accepted or rejected. */
   proposals: TheoProposal[];
-  /** Per applied lossy lever: the retry rate measured when it was proven, so a
-   * later rise can be detected as quality drift. */
-  driftBaselines: Record<string, { retryRate: number; at: string }>;
+  /** Per applied lossy lever: the retry and failure rates measured when it was
+   * proven, so a later rise in either can be detected as quality drift. */
+  driftBaselines: Record<string, { retryRate: number; failureRate: number; at: string }>;
   /** Levers Theo auto-rolled-back after drift; not re-proposed this session. */
   rolledBack: string[];
   log: TheoCycleLogEntry[];
@@ -133,9 +133,12 @@ export type TheoObservation = {
   realisedSavingsUsd?: number;
   realisedSpendUsd?: number;
   /** Fraction of recent requests that were retries (duplicate of a prior one) —
-   * the behavioural-drift signal. When it rises after a lever is applied, Theo
-   * rolls that lever back. Omit it and the drift monitor simply does not fire. */
+   * a behavioural-drift signal. When it rises after a lever is applied, Theo
+   * rolls that lever back. Omit it and that signal simply does not fire. */
   retryRate?: number;
+  /** Fraction of recent requests that FAILED (provider error) — a second drift
+   * signal, caught the same way. Omit it to ignore it. */
+  failureRate?: number;
 };
 
 /** A measured gate result the caller obtained (from `replayGate`) and hands to
@@ -156,7 +159,7 @@ export type TheoAction =
   | { kind: "proposal-opened"; lever: string; savingPercent: number; qualityDeltaPercent: number }
   | { kind: "gate-requested"; levers: string[] }
   | { kind: "proof-rejected"; lever: string; reason: string }
-  | { kind: "rolled-back"; lever: string; baselineRetryRate: number; currentRetryRate: number };
+  | { kind: "rolled-back"; lever: string; reason: string };
 
 export type TheoCycleResult = {
   memory: TheoMemory;
@@ -327,37 +330,35 @@ export function runTheoCycle(
   // OBSERVE
   const profile = observation.profile;
 
-  // MONITOR — auto-rollback. If the retry rate has risen materially since an
-  // applied lossy lever was proven, that is behavioural drift (users re-running
-  // because answers got worse): roll the lever back and don't re-propose it. This
-  // is the "never degrade" guarantee holding AFTER rollout, not just at the gate.
-  if (observation.retryRate !== undefined) {
+  // MONITOR — auto-rollback on behavioural drift. If the retry rate OR the
+  // failure rate has risen materially since an applied lossy lever was proven,
+  // that is a quality regression after rollout (users re-running, or more
+  // provider errors): roll the lever back and don't re-propose it. This is the
+  // "never degrade" guarantee holding AFTER rollout, not just at the gate.
+  const retryRate = observation.retryRate;
+  const failureRate = observation.failureRate;
+  if (retryRate !== undefined || failureRate !== undefined) {
+    const pct = (value: number): string => `${(value * 100).toFixed(1)}%`;
     for (const lever of policy.levers) {
       if (lever.class !== "lossy" || lever.gate === undefined) continue;
       const baseline = driftBaselines[lever.lever];
       if (baseline === undefined) continue;
-      if (observation.retryRate > baseline.retryRate + DRIFT_RISE_THRESHOLD) {
-        policy = {
-          ...policy,
-          levers: policy.levers.filter((other) => other.lever !== lever.lever),
-          version: policy.version + 1,
-          updatedAt: now,
-        };
-        delete driftBaselines[lever.lever];
-        if (!rolledBack.includes(lever.lever)) rolledBack.push(lever.lever);
-        experiments.push({
-          lever: lever.lever,
-          ranAt: now,
-          passed: false,
-          note: `rolled back: retry rate rose ${(baseline.retryRate * 100).toFixed(1)}% → ${(observation.retryRate * 100).toFixed(1)}%`,
-        });
-        actions.push({
-          kind: "rolled-back",
-          lever: lever.lever,
-          baselineRetryRate: baseline.retryRate,
-          currentRetryRate: observation.retryRate,
-        });
-      }
+      const retryRose = retryRate !== undefined && retryRate > baseline.retryRate + DRIFT_RISE_THRESHOLD;
+      const failRose = failureRate !== undefined && failureRate > (baseline.failureRate ?? 0) + DRIFT_RISE_THRESHOLD;
+      if (!retryRose && !failRose) continue;
+      const reason = retryRose
+        ? `retry rate rose ${pct(baseline.retryRate)} → ${pct(retryRate!)}`
+        : `failure rate rose ${pct(baseline.failureRate ?? 0)} → ${pct(failureRate!)}`;
+      policy = {
+        ...policy,
+        levers: policy.levers.filter((other) => other.lever !== lever.lever),
+        version: policy.version + 1,
+        updatedAt: now,
+      };
+      delete driftBaselines[lever.lever];
+      if (!rolledBack.includes(lever.lever)) rolledBack.push(lever.lever);
+      experiments.push({ lever: lever.lever, ranAt: now, passed: false, note: `rolled back: ${reason}` });
+      actions.push({ kind: "rolled-back", lever: lever.lever, reason });
     }
   }
 
@@ -422,8 +423,12 @@ export function runTheoCycle(
         now,
       );
       actions.push({ kind: "policy-published", version: policy.version, lever: proof.lever });
-      // Record the drift baseline so a later retry-rate rise can roll it back.
-      driftBaselines[proof.lever] = { retryRate: observation.retryRate ?? 0, at: now };
+      // Record the drift baselines so a later rise in either can roll it back.
+      driftBaselines[proof.lever] = {
+        retryRate: observation.retryRate ?? 0,
+        failureRate: observation.failureRate ?? 0,
+        at: now,
+      };
     } else if (autonomy === "recommend" || autonomy === "test") {
       if (!proposals.some((existing) => existing.lever === proof.lever)) {
         proposals.push({

@@ -198,6 +198,24 @@ describe("Theo agent — drift auto-rollback (never degrade, after rollout too)"
     expect(actions.some((a) => a.kind === "rolled-back")).toBe(false);
   });
 
+  it("rolls back when the FAILURE rate rises, even if retries are flat", () => {
+    const m = createTheoMemory("acme", "optimise", AT);
+    const { memory: appl } = runTheoCycle(
+      m,
+      { observation: { profile: PROFILE, price: PRICE, retryRate: 0.1, failureRate: 0.02 }, proofs: [proof()] },
+      LATER,
+    );
+    expect(appl.policy.levers.some((l) => l.lever === "tool-schema-description-trim")).toBe(true);
+    const { memory, actions } = runTheoCycle(
+      appl,
+      { observation: { profile: PROFILE, price: PRICE, retryRate: 0.1, failureRate: 0.20 } }, // failures +18pp, retries flat
+      LATER,
+    );
+    expect(memory.policy.levers.some((l) => l.lever === "tool-schema-description-trim")).toBe(false);
+    const rb = actions.find((a) => a.kind === "rolled-back");
+    expect(rb && rb.kind === "rolled-back" && rb.reason).toContain("failure rate");
+  });
+
   it("does not re-propose or re-apply a rolled-back lever", () => {
     const appl = applied(0.10);
     const rolled = runTheoCycle(appl, { observation: { profile: PROFILE, price: PRICE, retryRate: 0.20 } }, LATER).memory;
