@@ -21,6 +21,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
@@ -68,6 +69,7 @@ type StartArgs = {
   install: boolean;
   anthropicUpstream?: string;
   openaiUpstream?: string;
+  capturePath?: string;
 };
 
 function parseStart(argv: string[]): StartArgs {
@@ -90,6 +92,8 @@ function parseStart(argv: string[]): StartArgs {
           `  --openai-base <url>     Send OpenAI-style traffic to this host instead of api.openai.com —\n` +
           `                          any OpenAI-compatible provider (Grok, DeepSeek, Mistral, Llama, …).\n` +
           `  --anthropic-base <url>  Send Anthropic traffic to this host instead of api.anthropic.com.\n` +
+          `  --capture <file>        Opt-in: record your own requests to <file> (local, owner-only) so\n` +
+          `                          \`mesh theo --gate <file>\` can prove lossy levers on real traffic.\n` +
           `  --no-install            Don't touch ~/.claude/settings.json; just run the proxy.\n` +
           `  --help                  Show this message.`,
       );
@@ -103,6 +107,7 @@ function parseStart(argv: string[]): StartArgs {
     else if (key === "--ledger") args.ledgerDir = value;
     else if (key === "--openai-base") args.openaiUpstream = value;
     else if (key === "--anthropic-base") args.anthropicUpstream = value;
+    else if (key === "--capture") args.capturePath = value;
     else throw new Error(`Unknown option: ${key}. See mesh start --help.`);
   }
   if (!Number.isInteger(args.port) || args.port < 0 || args.port > 65535) throw new Error("--port must be 0-65535.");
@@ -219,6 +224,7 @@ export async function startProxyWithPolicy(
   port: number,
   ledgerDir: string,
   upstreams: { anthropicUpstream?: string; openaiUpstream?: string } = {},
+  capture?: { path: string; limit?: number },
 ): Promise<{ proxy: Awaited<ReturnType<typeof startMeshProxy>>; policy: ReturnType<typeof defaultPolicy> }> {
   mkdirSync(MESH_HOME, { recursive: true });
   mkdirSync(ledgerDir, { recursive: true });
@@ -227,11 +233,29 @@ export async function startProxyWithPolicy(
     ? (JSON.parse(readFileSync(policyPath, "utf8")) as ReturnType<typeof defaultPolicy>)
     : defaultPolicy("local", new Date().toISOString());
   if (!existsSync(policyPath)) writeFileSync(policyPath, `${JSON.stringify(policy, null, 2)}\n`);
+  // Hot-reload: re-read the policy file when it changes (Theo publishes to it),
+  // so proven levers take effect without restarting the proxy. mtime-cached so a
+  // request never re-parses the file needlessly; the last good config is kept on
+  // any read/parse error, so a mid-write or bad file can't break the request path.
+  let cached = { mtimeMs: -1, config: policyToReductionConfig(policy) };
+  const liveReduction = (): ReturnType<typeof policyToReductionConfig> => {
+    try {
+      const mtimeMs = statSync(policyPath).mtimeMs;
+      if (mtimeMs !== cached.mtimeMs) {
+        const current = JSON.parse(readFileSync(policyPath, "utf8")) as TheoPolicy;
+        cached = { mtimeMs, config: policyToReductionConfig(current) };
+      }
+    } catch {
+      // keep the last good config
+    }
+    return cached.config;
+  };
   const proxy = await startMeshProxy({
     port,
     ledgerDirectory: ledgerDir,
-    tokenReduction: policyToReductionConfig(policy),
+    tokenReduction: liveReduction,
     blindFeaturesKey: blindKey(),
+    ...(capture ? { requestCapture: capture } : {}),
     ...(upstreams.anthropicUpstream ? { anthropicUpstream: upstreams.anthropicUpstream } : {}),
     ...(upstreams.openaiUpstream ? { openaiUpstream: upstreams.openaiUpstream } : {}),
   });
@@ -246,7 +270,7 @@ export async function startProxyWithPolicy(
  */
 export async function runServe(argv: string[]): Promise<void> {
   const args = parseStart(argv);
-  const { proxy } = await startProxyWithPolicy(args.port, args.ledgerDir, args);
+  const { proxy } = await startProxyWithPolicy(args.port, args.ledgerDir, args, args.capturePath ? { path: args.capturePath } : undefined);
   const stamp = (): string => new Date().toISOString();
   console.log(`[${stamp()}] mesh serve · build ${BUILD_COMMIT} · proxy ${proxy.url} · ledger ${args.ledgerDir}`);
   if (args.openaiUpstream) console.log(`[${stamp()}] openai-style upstream → ${args.openaiUpstream}`);
@@ -294,7 +318,7 @@ export async function runServe(argv: string[]): Promise<void> {
 
 export async function runStart(argv: string[]): Promise<void> {
   const args = parseStart(argv);
-  const { proxy, policy } = await startProxyWithPolicy(args.port, args.ledgerDir, args);
+  const { proxy, policy } = await startProxyWithPolicy(args.port, args.ledgerDir, args, args.capturePath ? { path: args.capturePath } : undefined);
   const restore = args.install ? configureClaudeCode(proxy.url) : () => {};
   const withheld = withheldLevers(policy);
 
