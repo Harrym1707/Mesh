@@ -18,7 +18,7 @@
  * The feature spools and the ledger never leave your machine, and the gate
  * replays your captured requests with your own key; nothing is uploaded.
  */
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -65,6 +65,12 @@ const USAGE = `Usage: mesh theo [options]
   --provider-url <u>  Send replay calls here instead of the provider's default
                         endpoint (e.g. a local mock, or your running proxy).
   --max-samples <n>   Cap how many captured requests to replay. Default 20.
+  --watch <interval>  Keep running: re-run the cycle every interval (e.g. 15m,
+                        30s, 1h) until you stop it with Ctrl-C — Theo never stops.
+  --max-ticks <n>     In --watch mode, stop after n cycles (default: unlimited).
+  --apply             Write Theo's decided policy to ~/.mesh/theo-policy.json,
+                        the proxy's control file, so the proxy enforces it on the
+                        next \`mesh start\` (the running proxy does not hot-reload).
   --help              Show this message.
 
 Theo never enables a saving he has not proven on your own traffic within your
@@ -80,16 +86,20 @@ type Args = {
   gate?: string;
   providerUrl?: string;
   maxSamples: number;
+  watchMs?: number;
+  maxTicks?: number;
+  apply: boolean;
 };
 
 function parse(argv: string[]): Args {
-  const args: Args = { customer: "local", ledgerDir: join(homedir(), ".mesh", "ledger"), maxSamples: 20 };
+  const args: Args = { customer: "local", ledgerDir: join(homedir(), ".mesh", "ledger"), maxSamples: 20, apply: false };
   for (let index = 0; index < argv.length; index += 1) {
     const key = argv[index]!;
     if (key === "--help" || key === "-h") {
       console.log(USAGE);
       process.exit(0);
     }
+    if (key === "--apply") { args.apply = true; continue; }
     const value = argv[index + 1];
     if (value === undefined || value.startsWith("--")) throw new Error(`${key} needs a value.`);
     index += 1;
@@ -109,6 +119,13 @@ function parse(argv: string[]): Args {
         const n = Number(value);
         if (!Number.isInteger(n) || n < 1) throw new Error("--max-samples must be a positive integer.");
         args.maxSamples = n;
+        break;
+      }
+      case "--watch": args.watchMs = parseDuration(value); break;
+      case "--max-ticks": {
+        const n = Number(value);
+        if (!Number.isInteger(n) || n < 1) throw new Error("--max-ticks must be a positive integer.");
+        args.maxTicks = n;
         break;
       }
       default: throw new Error(`Unknown option: ${key}. See --help.`);
@@ -242,8 +259,7 @@ function makeProviderCall(provider: string, providerUrl: string | undefined): (r
   };
 }
 
-export async function runTheo(argv: string[]): Promise<void> {
-  const args = parse(argv);
+async function runTheoOnce(args: Args): Promise<void> {
   const now = new Date().toISOString();
   const at = now.slice(0, 10);
 
@@ -333,4 +349,81 @@ export async function runTheo(argv: string[]): Promise<void> {
     for (const proposal of result.memory.proposals) console.log(`  - ${proposal.message}`);
   }
   console.log(`\nMemory saved to ${memoryPath}`);
+
+  if (args.apply) {
+    const policyPath = applyPolicyToProxy(result.memory.policy);
+    console.log(`Applied policy to ${policyPath} — the proxy enforces it on the next \`mesh start\`.`);
+  }
+}
+
+/** Parse an interval like "30s", "15m", "1h", "500ms", or a bare number of seconds. */
+export function parseDuration(text: string): number {
+  const match = /^(\d+)(ms|s|m|h)?$/.exec(text.trim());
+  if (!match) throw new Error(`Invalid --watch interval "${text}". Use e.g. 30s, 15m, 1h.`);
+  const amount = Number(match[1]);
+  const unit = match[2] ?? "s";
+  const multiplier = unit === "ms" ? 1 : unit === "s" ? 1_000 : unit === "m" ? 60_000 : 3_600_000;
+  const ms = amount * multiplier;
+  if (ms <= 0) throw new Error("The --watch interval must be positive.");
+  return ms;
+}
+
+/**
+ * Run a tick repeatedly on an interval — the "never stops looking" loop. Pure
+ * glue over an injected `tick` and `sleep`, so it is deterministically testable:
+ * it sleeps BETWEEN ticks, never after the last, and stops on `shouldStop` or
+ * once `maxTicks` is reached. Returns how many ticks ran.
+ */
+export async function theoWatch(options: {
+  tick: (iteration: number) => Promise<void>;
+  intervalMs: number;
+  maxTicks?: number;
+  sleep?: (ms: number) => Promise<void>;
+  shouldStop?: () => boolean;
+}): Promise<number> {
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((done) => setTimeout(done, ms)));
+  const stopped = (): boolean => options.shouldStop?.() ?? false;
+  let ticks = 0;
+  while (!stopped()) {
+    await options.tick(ticks);
+    ticks += 1;
+    if (options.maxTicks !== undefined && ticks >= options.maxTicks) break;
+    if (stopped()) break;
+    await sleep(options.intervalMs);
+  }
+  return ticks;
+}
+
+/** Write Theo's policy to the proxy's control file (~/.mesh/theo-policy.json). */
+function applyPolicyToProxy(policy: unknown): string {
+  const dir = join(homedir(), ".mesh");
+  mkdirSync(dir, { recursive: true });
+  const policyPath = join(dir, "theo-policy.json");
+  writeFileSync(policyPath, `${JSON.stringify(policy, null, 2)}\n`, { mode: 0o600 });
+  return policyPath;
+}
+
+export async function runTheo(argv: string[]): Promise<void> {
+  const args = parse(argv);
+  if (args.watchMs === undefined) {
+    await runTheoOnce(args);
+    return;
+  }
+  let stop = false;
+  const onSignal = (): void => { stop = true; console.log("\nStopping Theo after this cycle…"); };
+  process.on("SIGINT", onSignal);
+  try {
+    const ticks = await theoWatch({
+      intervalMs: args.watchMs,
+      ...(args.maxTicks !== undefined ? { maxTicks: args.maxTicks } : {}),
+      shouldStop: () => stop,
+      tick: async (iteration) => {
+        console.log(`\n=== Theo cycle ${iteration + 1} · ${new Date().toISOString()} ===`);
+        await runTheoOnce(args);
+      },
+    });
+    console.log(`\nTheo ran ${ticks} cycle(s).`);
+  } finally {
+    process.off("SIGINT", onSignal);
+  }
 }
