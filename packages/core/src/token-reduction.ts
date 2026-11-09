@@ -330,6 +330,75 @@ export function dedupeRepeatedLeadingBlock(
   return { texts: nextTexts, notes };
 }
 
+export type RagCorpusCacheResult = {
+  /** The corpus in its stable, append-only order after this call (identical to the input corpus when skipped). */
+  corpus: string[];
+  /** This request's chunks resolved to indices into `corpus`, in `chunks` order. Empty when skipped. */
+  indices: number[];
+  /** How many previously-unseen chunks this call added. */
+  appended: number;
+  /** True when adding this request's new chunks would have exceeded `maximumCorpusTokens`, so NOTHING was added — the corpus and `indices` are untouched/empty rather than half-updated. */
+  skippedOverBudget: boolean;
+};
+
+/**
+ * Grow an append-only, cache-stable corpus of retrieval chunks and resolve
+ * this request's chunk list to stable indices into it.
+ *
+ * This is the lever behind `ragCorpusCache` (see reduce-request.ts):
+ * Anthropic's own prompt-caching guidance is to put a whole retrieval corpus
+ * under ~200K tokens in the cached prefix rather than caching per-query chunk
+ * selections, because a provider's cache matches an EXACT prefix and a RAG
+ * pipeline's per-query picks are themselves never byte-identical between two
+ * different questions — even when most of the underlying text repeats, the
+ * SET and ORDER of chunks a retriever returns varies per query, so inlining
+ * picks fresh every time means the provider's cache never has a stable
+ * prefix to match against. An append-only corpus, grown in first-seen order
+ * and never reordered once written, stays a stable, growing prefix across
+ * every request that reuses an already-seen chunk, so a later request pays
+ * the cache-read rate on everything it repeats instead of full rate.
+ *
+ * Deliberately ALL-OR-NOTHING per call: if adding this request's new chunks
+ * would push the corpus over `maximumCorpusTokens`, nothing is added and the
+ * corpus is returned unchanged — never half of one request's chunks hoisted
+ * and half left behind, which would be harder for a caller to audit than
+ * simply "this one did not qualify."
+ */
+export function growRagCorpus(
+  corpus: readonly string[],
+  chunks: readonly string[],
+  options: { maximumCorpusTokens?: number; countTokens?: TokenCounter } = {},
+): RagCorpusCacheResult {
+  const countTokens = options.countTokens ?? approximateTokenCount;
+  const maximumCorpusTokens = options.maximumCorpusTokens ?? 8_000;
+  const known = new Map<string, number>(corpus.map((text, index) => [text, index]));
+  const newChunks: string[] = [];
+  for (const chunk of chunks) {
+    if (!known.has(chunk) && !newChunks.includes(chunk)) newChunks.push(chunk);
+  }
+  if (newChunks.length === 0) {
+    return { corpus: [...corpus], indices: chunks.map((chunk) => known.get(chunk)!), appended: 0, skippedOverBudget: false };
+  }
+  const currentTokens = corpus.reduce((sum, text) => sum + countTokens(text), 0);
+  const addedTokens = newChunks.reduce((sum, text) => sum + countTokens(text), 0);
+  if (currentTokens + addedTokens > maximumCorpusTokens) {
+    return { corpus: [...corpus], indices: [], appended: 0, skippedOverBudget: true };
+  }
+  const nextCorpus = [...corpus];
+  for (const chunk of newChunks) {
+    known.set(chunk, nextCorpus.length);
+    nextCorpus.push(chunk);
+  }
+  return { corpus: nextCorpus, indices: chunks.map((chunk) => known.get(chunk)!), appended: newChunks.length, skippedOverBudget: false };
+}
+
+/** Render a grown corpus as the stable block placed in the cacheable prefix. */
+export function renderRagCorpusBlock(corpus: readonly string[]): string {
+  if (corpus.length === 0) return "";
+  const items = corpus.map((text, index) => `[corpus#${index}] ${text}`).join("\n\n");
+  return `RETRIEVAL CORPUS (cache-stable; an item's number does not imply it is relevant to the current question):\n${items}`;
+}
+
 function maskBreakers(text: string): { masked: string; found: Map<string, PrefixBreaker> } {
   let masked = text;
   const found = new Map<string, PrefixBreaker>();

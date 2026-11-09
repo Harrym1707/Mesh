@@ -7,8 +7,10 @@ import {
   collapseWhitespace,
   dedupeRepeatedBlocks,
   dedupeRepeatedLeadingBlock,
+  growRagCorpus,
   priceReduction,
   recommendOutputCap,
+  renderRagCorpusBlock,
 } from "./token-reduction.js";
 
 /** Claude Sonnet 5.5 shape: a cache-write premium plus a very cheap cached read. */
@@ -208,6 +210,80 @@ describe("dedupeRepeatedLeadingBlock", () => {
     const once = dedupeRepeatedLeadingBlock(texts, 24);
     const twice = dedupeRepeatedLeadingBlock(once.texts, 24);
     expect(twice.texts).toEqual(once.texts);
+  });
+});
+
+describe("growRagCorpus", () => {
+  const a = paragraph("clause A sets the notification window.");
+  const b = paragraph("clause B defines the remediation ladder.");
+  const c = paragraph("clause C assigns liability for third-party outages.");
+
+  it("appends previously-unseen chunks in first-seen order and resolves indices", () => {
+    const result = growRagCorpus([], [a, b]);
+    expect(result.corpus).toEqual([a, b]);
+    expect(result.indices).toEqual([0, 1]);
+    expect(result.appended).toBe(2);
+    expect(result.skippedOverBudget).toBe(false);
+  });
+
+  it("never reorders an already-known chunk, even when a later call sees it before a newer one", () => {
+    const first = growRagCorpus([], [a, b]);
+    const second = growRagCorpus(first.corpus, [c, a]);
+    expect(second.corpus).toEqual([a, b, c]); // a and b keep their slots; c appends after
+    expect(second.indices).toEqual([2, 0]); // [c, a] resolved against the corpus's own order
+    expect(second.appended).toBe(1);
+  });
+
+  it("is a no-op (appended: 0) when every chunk is already known", () => {
+    const first = growRagCorpus([], [a, b]);
+    const second = growRagCorpus(first.corpus, [b, a]);
+    expect(second.corpus).toEqual(first.corpus);
+    expect(second.indices).toEqual([1, 0]);
+    expect(second.appended).toBe(0);
+    expect(second.skippedOverBudget).toBe(false);
+  });
+
+  it("dedupes a chunk repeated within the SAME call to a single corpus slot", () => {
+    const result = growRagCorpus([], [a, a, b]);
+    expect(result.corpus).toEqual([a, b]);
+    expect(result.indices).toEqual([0, 0, 1]);
+    expect(result.appended).toBe(2);
+  });
+
+  it("is all-or-nothing: adding new chunks that would exceed the budget adds NONE of them", () => {
+    const tiny = { maximumCorpusTokens: 5 }; // far below even one paragraph
+    const result = growRagCorpus([], [a, b], tiny);
+    expect(result.corpus).toEqual([]);
+    expect(result.indices).toEqual([]);
+    expect(result.appended).toBe(0);
+    expect(result.skippedOverBudget).toBe(true);
+  });
+
+  it("an over-budget call never mutates the corpus a later, smaller call could still use", () => {
+    const first = growRagCorpus([], [a]);
+    const blocked = growRagCorpus(first.corpus, [b, c], { maximumCorpusTokens: 10 });
+    expect(blocked.skippedOverBudget).toBe(true);
+    expect(blocked.corpus).toEqual(first.corpus); // untouched, not partially grown
+    const retried = growRagCorpus(blocked.corpus, [b]); // no budget this time: succeeds
+    expect(retried.corpus).toEqual([a, b]);
+  });
+
+  it("is deterministic: the same inputs always resolve to the same indices", () => {
+    const once = growRagCorpus([a], [b, a, c]);
+    const twice = growRagCorpus([a], [b, a, c]);
+    expect(twice).toEqual(once);
+  });
+});
+
+describe("renderRagCorpusBlock", () => {
+  it("is empty for an empty corpus", () => {
+    expect(renderRagCorpusBlock([])).toBe("");
+  });
+
+  it("numbers each item by its stable index and includes the full text", () => {
+    const block = renderRagCorpusBlock(["alpha text", "beta text"]);
+    expect(block).toContain("[corpus#0] alpha text");
+    expect(block).toContain("[corpus#1] beta text");
   });
 });
 

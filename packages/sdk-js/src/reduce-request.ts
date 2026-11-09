@@ -1,6 +1,6 @@
 // Specific core modules, not the barrel — see the note in proxy.ts.
 import { anthropicCacheableMinimumTokens, publishedModelPrices } from "../../core/dist/src/model-prices.js";
-import { approximateTokenCount, dedupeRepeatedBlocks, dedupeRepeatedLeadingBlock, type TokenCounter } from "../../core/dist/src/token-reduction.js";
+import { approximateTokenCount, dedupeRepeatedBlocks, dedupeRepeatedLeadingBlock, growRagCorpus, renderRagCorpusBlock, type TokenCounter } from "../../core/dist/src/token-reduction.js";
 import { minifyToolSchemas } from "../../core/dist/src/tool-schema.js";
 import { resolveModelId } from "../../core/dist/src/price-catalogue.js";
 
@@ -42,6 +42,14 @@ export type MeshReductionSummary = {
   /** True when reduction was attempted but the request was returned unchanged. */
   skipped: boolean;
   skippedReason?: string;
+  /**
+   * Present only when `config.ragCorpusCache` was supplied: the corpus
+   * after this call, for the caller to persist and resupply as
+   * `ragCorpusCache.knownCorpus` on its next request. Identical to the
+   * input `knownCorpus` when the lever did not apply or skipped over
+   * budget this call.
+   */
+  nextKnownCorpus?: string[];
 };
 
 export type MeshHistoryCompactionConfig = {
@@ -206,6 +214,39 @@ export type MeshTokenReductionConfig = {
    * consulted with the RAW request before any stamp is placed.
    */
   cacheVolatilityGuard?: { observe(request: unknown): { stamp: boolean; reason?: string } };
+  /**
+   * RAG-shaped lever: hoist this request's retrieval chunks into an
+   * append-only, cache-stable corpus block in the system prompt instead of
+   * inlining each query's picks fresh. Anthropic's own prompt-caching
+   * guidance is to cache a WHOLE retrieval corpus under ~200K tokens rather
+   * than per-query chunk selections, because the provider's cache matches an
+   * EXACT prefix and no two queries retrieve the identical chunk SET, so
+   * inlined picks never repeat byte-for-byte across requests even when most
+   * of their underlying text does (see `growRagCorpus` in
+   * `@mesh/core/token-reduction`).
+   *
+   * `knownCorpus` is the corpus as of the LAST request that used this lever,
+   * in its stable append order; MESH holds no state of its own between
+   * requests, so the caller persists and resupplies it — read it back from
+   * `summary.nextKnownCorpus` after each call. `chunks` is THIS request's
+   * retrieved chunk texts, in retrieval order, exactly as they appear
+   * verbatim inside the last message's content.
+   *
+   * LOSSY, not lossless: no chunk's text is ever deleted (every chunk a
+   * question depends on is still sent, in full, in the corpus block), but
+   * the chunk is no longer adjacent to the question it answers — the model
+   * must resolve a short `[corpus#N]` reference instead of reading the
+   * excerpt where it used to sit. That is a real behaviour change, the same
+   * category `crossTurnMemoryDedup` is in, and needs a replay-gate pass on
+   * the customer's own traffic before any part of its saving may be billed.
+   * Applies only when the request has a non-empty string `system` and the
+   * last message's `content` is a plain string containing every chunk in
+   * `chunks` verbatim; anything else is left untouched, never guessed at.
+   * All-or-nothing per call: if hoisting this request's new chunks would
+   * push the corpus over `maximumCorpusTokens` (default 8,000), nothing is
+   * added or rewritten this call.
+   */
+  ragCorpusCache?: { knownCorpus?: readonly string[]; chunks: readonly string[]; maximumCorpusTokens?: number };
   countTokens?: TokenCounter;
   onReduction?: (summary: MeshReductionSummary) => void;
 };
@@ -675,6 +716,83 @@ function dedupeMemoryAcrossTurns(
   return next;
 }
 
+/**
+ * RAG corpus cache (see `ragCorpusCache` on `MeshTokenReductionConfig`):
+ * hoist THIS request's retrieval chunks into the append-only corpus and
+ * replace their inline text in the last message with short references.
+ *
+ * `systemVolatileTail` is the text `repairCachePrefix` already moved to the
+ * end of `next.system` (if any); the corpus block is inserted BEFORE it, so
+ * it lands in the STABLE region a cache breakpoint actually covers rather
+ * than after a value that changes every request.
+ *
+ * Returns the corpus to persist (`summary.nextKnownCorpus`), or `undefined`
+ * when the request's shape did not match (no system prompt, last message
+ * not a plain string, or it does not literally contain every chunk) — never
+ * a partial rewrite.
+ */
+function applyRagCorpusCache(
+  next: AnyObject,
+  systemVolatileTail: string[],
+  options: { knownCorpus?: readonly string[]; chunks: readonly string[]; maximumCorpusTokens?: number },
+  countTokens: TokenCounter,
+  changes: MeshReductionChange[],
+): string[] | undefined {
+  if (!Array.isArray(options.chunks) || options.chunks.length === 0) return undefined;
+  if (typeof next.system !== "string" || next.system.trim() === "") return undefined;
+  if (!Array.isArray(next.messages) || next.messages.length === 0) return undefined;
+  const lastIndex = next.messages.length - 1;
+  const lastMessage = next.messages[lastIndex];
+  if (!isPlainObject(lastMessage) || typeof lastMessage.content !== "string") return undefined;
+  const content = lastMessage.content;
+  for (const chunk of options.chunks) {
+    if (typeof chunk !== "string" || chunk === "" || !content.includes(chunk)) return undefined;
+  }
+
+  const knownCorpus = options.knownCorpus ?? [];
+  const result = growRagCorpus(knownCorpus, options.chunks, {
+    maximumCorpusTokens: options.maximumCorpusTokens,
+    countTokens,
+  });
+  if (result.skippedOverBudget) return [...knownCorpus];
+
+  let rewritten = content;
+  for (const [position, chunk] of options.chunks.entries()) {
+    rewritten = rewritten.replace(chunk, `[corpus#${result.indices[position]}]`);
+  }
+  if (rewritten === content) return result.corpus;
+
+  next.messages = (next.messages as unknown[]).map((message, index) =>
+    index === lastIndex ? { ...lastMessage, content: rewritten } : message);
+
+  const corpusBlock = renderRagCorpusBlock(result.corpus);
+  const tailText = systemVolatileTail.join("\n");
+  const hasTail = systemVolatileTail.length > 0 && tailText.trim() !== "" &&
+    (next.system === tailText || (next.system as string).endsWith(`\n${tailText}`));
+  if (hasTail) {
+    const stable = next.system === tailText ? "" : (next.system as string).slice(0, -tailText.length);
+    next.system = `${stable}${stable.trim() !== "" ? "\n" : ""}${corpusBlock}\n${tailText}`;
+  } else {
+    next.system = `${next.system}\n${corpusBlock}`;
+  }
+
+  changes.push({
+    lever: "rag-corpus-cache",
+    lossless: false,
+    // Per-request raw tokens typically RISE (the corpus block is now part of
+    // every request's system prompt); the claimed saving is a cache-rate
+    // change across the stream, not a token count this single call can see
+    // — same accounting as cache-ttl and cache-prefix-repair above.
+    estimatedTokensSaved: 0,
+    detail: `Hoisted ${options.chunks.length} retrieval chunk(s) (${result.appended} new) into a ` +
+      `${result.corpus.length}-item cache-stable corpus block in the system prompt, replacing their inline ` +
+      "text in the last message with short references. Every chunk's full text is still sent, in full, just " +
+      "relocated away from the question it answers — a behaviour change, not a pure reorder, so it needs a " +
+      "replay-gate pass on the customer's own traffic before any part of the saving may be billed.",
+  });
+  return result.corpus;
+}
+
 function reduceText(
   text: string,
   config: MeshTokenReductionConfig,
@@ -995,6 +1113,7 @@ export function reduceRequest(
     // Lines prefix repair moved to the end of a string `system`: the cache
     // stamp must not cover them (see stampAnthropicCacheTtl).
     let systemVolatileTail: string[] = [];
+    let nextKnownCorpus: string[] | undefined;
     const reduceSystemText = (text: string, label: "instructions" | "system"): string => {
       let current = reduceText(text, config, countTokens, changes, label);
       if (config.repairCachePrefix) {
@@ -1081,6 +1200,13 @@ export function reduceRequest(
         if (!("content" in message)) return message;
         return { ...message, content: reduceMessageContent(message.content, config, countTokens, changes) };
       });
+    }
+
+    // RAG corpus cache, after every other message-shape transform has
+    // settled (so it sees the FINAL message content) and before the cache
+    // TTL stamp below (so a stamped breakpoint covers the corpus block too).
+    if (config.ragCorpusCache) {
+      nextKnownCorpus = applyRagCorpusCache(next, systemVolatileTail, config.ragCorpusCache, countTokens, changes);
     }
 
     // Execution tier, only where the caller has not chosen one themselves,
@@ -1270,6 +1396,7 @@ export function reduceRequest(
         .reduce((sum, change) => sum + change.estimatedTokensSaved, 0),
       changes,
       skipped: false,
+      ...(nextKnownCorpus !== undefined ? { nextKnownCorpus } : {}),
     };
     config.onReduction?.(summary);
     return { request: changes.length === 0 ? request : next, summary };

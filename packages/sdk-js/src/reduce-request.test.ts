@@ -267,6 +267,112 @@ describe("cross-turn memory dedup", () => {
   });
 });
 
+describe("rag corpus cache", () => {
+  const SYSTEM = "You are a careful contracts assistant. Cite clauses precisely. ".repeat(20);
+  const EXCERPT_A = "Excerpt A: the notification window is 30 days from discovery of the breach. ".repeat(3);
+  const EXCERPT_B = "Excerpt B: the remediation ladder starts with a written cure notice. ".repeat(3);
+  const EXCERPT_C = "Excerpt C: liability for third-party outages sits with the operating party. ".repeat(3);
+
+  function ragRequest(picks: string[], question: string): Record<string, unknown> {
+    return {
+      model: "claude-sonnet-5-5",
+      max_tokens: 400,
+      system: SYSTEM,
+      messages: [{ role: "user", content: `Context:\n${picks.join("\n")}\nQuestion: ${question}` }],
+    };
+  }
+
+  it("hoists this request's chunks into a corpus block and references them from the message", () => {
+    const { request: reduced, summary } = reduceRequest(
+      ragRequest([EXCERPT_A, EXCERPT_B], "what is the notification window?"),
+      { ragCorpusCache: { chunks: [EXCERPT_A, EXCERPT_B] } },
+    );
+    const change = summary.changes.find((entry) => entry.lever === "rag-corpus-cache")!;
+    expect(change).toBeDefined();
+    expect(change.lossless).toBe(false);
+    const next = reduced as Record<string, unknown>;
+    expect(next.system as string).toContain("[corpus#0]");
+    expect(next.system as string).toContain(EXCERPT_A.trim());
+    expect(next.system as string).toContain(EXCERPT_B.trim());
+    const content = (next.messages as Array<{ content: string }>)[0]!.content;
+    expect(content).toContain("[corpus#0]");
+    expect(content).toContain("[corpus#1]");
+    expect(content).not.toContain("Excerpt A: the notification window");
+    expect(summary.nextKnownCorpus).toEqual([EXCERPT_A, EXCERPT_B]);
+  });
+
+  it("reuses an already-known chunk's stable slot and only appends what is new", () => {
+    const first = reduceRequest(
+      ragRequest([EXCERPT_A], "q1"),
+      { ragCorpusCache: { chunks: [EXCERPT_A] } },
+    );
+    const second = reduceRequest(
+      ragRequest([EXCERPT_B, EXCERPT_A], "q2"),
+      { ragCorpusCache: { knownCorpus: first.summary.nextKnownCorpus, chunks: [EXCERPT_B, EXCERPT_A] } },
+    );
+    expect(second.summary.nextKnownCorpus).toEqual([EXCERPT_A, EXCERPT_B]); // A keeps slot 0
+    const content = (second.request as Record<string, unknown>).messages as Array<{ content: string }>;
+    expect(content[0]!.content).toContain("[corpus#1]"); // B, newly appended
+    expect(content[0]!.content).toContain("[corpus#0]"); // A, reused
+  });
+
+  it("is append-only: the corpus block for an already-known chunk is byte-identical across calls", () => {
+    const first = reduceRequest(ragRequest([EXCERPT_A], "q1"), { ragCorpusCache: { chunks: [EXCERPT_A] } });
+    const second = reduceRequest(
+      ragRequest([EXCERPT_A], "q2"),
+      { ragCorpusCache: { knownCorpus: first.summary.nextKnownCorpus, chunks: [EXCERPT_A] } },
+    );
+    const firstSystem = (first.request as Record<string, unknown>).system as string;
+    const secondSystem = (second.request as Record<string, unknown>).system as string;
+    expect(secondSystem).toBe(firstSystem); // identical corpus -> identical stable prefix, cache-matchable
+  });
+
+  it("is off by default", () => {
+    const { summary } = reduceRequest(ragRequest([EXCERPT_A], "q"), {});
+    expect(summary.changes.some((entry) => entry.lever === "rag-corpus-cache")).toBe(false);
+  });
+
+  it("is all-or-nothing on budget: an over-budget call leaves system and messages untouched", () => {
+    const { request: reduced, summary } = reduceRequest(
+      ragRequest([EXCERPT_A, EXCERPT_B, EXCERPT_C], "q"),
+      { ragCorpusCache: { chunks: [EXCERPT_A, EXCERPT_B, EXCERPT_C], maximumCorpusTokens: 5 } },
+    );
+    expect(summary.changes.some((entry) => entry.lever === "rag-corpus-cache")).toBe(false);
+    const content = (reduced as Record<string, unknown>).messages as Array<{ content: string }>;
+    expect(content[0]!.content).toContain("Excerpt A: the notification window");
+  });
+
+  it("never partially applies: a chunk not literally present in the message leaves the request untouched", () => {
+    const { request: reduced, summary } = reduceRequest(
+      ragRequest([EXCERPT_A], "q"),
+      { ragCorpusCache: { chunks: [EXCERPT_A, "a chunk that was never actually inlined"] } },
+    );
+    expect(summary.changes.some((entry) => entry.lever === "rag-corpus-cache")).toBe(false);
+    expect(reduced).toEqual(ragRequest([EXCERPT_A], "q"));
+  });
+
+  it("does nothing on a request with no system prompt", () => {
+    const request = { model: "claude-sonnet-5-5", max_tokens: 400, messages: [{ role: "user", content: `Context:\n${EXCERPT_A}\nQuestion: q` }] };
+    const { summary } = reduceRequest(request, { ragCorpusCache: { chunks: [EXCERPT_A] } });
+    expect(summary.changes.some((entry) => entry.lever === "rag-corpus-cache")).toBe(false);
+  });
+
+  it("places the corpus block before a prefix-repaired volatile tail, not after it", () => {
+    const requestId = "request-id 123e4567-e89b-12d3-a456-426614174000";
+    const request = ragRequest([EXCERPT_A], "q");
+    request.system = `${requestId}\n${SYSTEM}`;
+    const { request: reduced } = reduceRequest(request, {
+      repairCachePrefix: true,
+      ragCorpusCache: { chunks: [EXCERPT_A] },
+    });
+    const system = (reduced as Record<string, unknown>).system as string;
+    const corpusAt = system.indexOf("[corpus#0]");
+    const requestIdAt = system.indexOf(requestId);
+    expect(corpusAt).toBeGreaterThan(-1);
+    expect(requestIdAt).toBeGreaterThan(corpusAt); // the volatile value stays AFTER the stable corpus block
+  });
+});
+
 describe("fresh tool-result capping", () => {
   /** An oversized tool result shaped like the eval fixture: a headline carrying
    * the reference later turns depend on, verbose record sentences, one error
