@@ -409,6 +409,8 @@ Usage: mesh <command> [options]
   uninstall  Stop and remove the background service; restore Claude Code.
   status     Is the service up, and what has Theo saved so far?
   dashboard  Open a live local web view of your savings and what Theo is doing.
+  theo       Run Theo now over your metered traffic: observe it, find savings,
+             and update what he enforces, within your chosen autonomy level.
   update     Update the runtime now (--rollback to revert).
   verify     Re-prove MESH's claims on this machine: the build's provenance,
              your ledger's hash-chain, and a deterministic invoice recompute.
@@ -442,6 +444,8 @@ async function main(): Promise<void> {
     await (await import("./diag.js")).runDoctor(process.argv.slice(3));
   } else if (sub === "dashboard") {
     await (await import("./dashboard.js")).runDashboard(process.argv.slice(3));
+  } else if (sub === "theo") {
+    await (await import("./theo.js")).runTheo(process.argv.slice(3));
   } else if (sub === "version" || sub === "--version" || sub === "-v") {
     (await import("./diag.js")).runVersion(process.argv.slice(3));
   } else if (sub === "analyse" || sub === "analyze") {
