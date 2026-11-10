@@ -1,0 +1,174 @@
+// Mesh Token Engineering Lab — command-line entry point.
+//
+//   pnpm lab:run            advance the persistent lab ledger to quiescence
+//   pnpm lab:status         print the ledger + promoted portfolio
+//   pnpm lab:verify         verify the hash-chained audit trail
+//   pnpm lab:demo           run one complete end-to-end workflow and narrate it
+//
+// (or: node --import tsx lab/cli.ts <command> [--root <dir>])
+
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { LabLedger } from "./ledger.js";
+import { runToQuiescence, step } from "./orchestrator.js";
+import type { OptimisationRecord } from "./types.js";
+
+const DEFAULT_ROOT = "lab/ledger";
+
+function parse(argv: string[]): { command: string; options: Record<string, string> } {
+  const command = argv[0] ?? "status";
+  const options: Record<string, string> = {};
+  for (let i = 1; i < argv.length; i += 1) {
+    const key = argv[i]!;
+    if (key.startsWith("--")) options[key.slice(2)] = argv[++i] ?? "true";
+  }
+  return { command, options };
+}
+
+function line(char = "─", width = 72): string {
+  return char.repeat(width);
+}
+
+function printStatus(ledger: LabLedger): void {
+  const records = ledger.listRecords();
+  console.log(`\nLedger: ${records.length} optimisation(s)`);
+  for (const r of records) {
+    const save = r.actualSavingPercent ?? r.expectedSavingPercent ?? 0;
+    console.log(
+      `  ${r.id}  ${r.status.padEnd(12)} ${r.category.padEnd(14)} ${r.title}` +
+        (r.status === "promoted" ? `  [+${save.toFixed(1)}% tokens]` : ""),
+    );
+  }
+  const portfolio = ledger.readPortfolio();
+  console.log(`\nPromoted portfolio: ${portfolio.levers.length} lever(s)`);
+  for (const lever of portfolio.levers) {
+    console.log(
+      `  ${lever.id}  ${lever.title} — ${lever.measuredTokenReductionPercent.toFixed(1)}% tokens, ` +
+        `${lever.measuredCostReductionPercent.toFixed(1)}% cost, quality drop ${(lever.measuredQualityDelta * 100).toFixed(2)}%`,
+    );
+  }
+  const integrity = ledger.verifyIntegrity();
+  console.log(`\nAudit trail: ${integrity.ok ? `OK (${integrity.length} events, hash-chain intact)` : `BROKEN at seq ${integrity.seq}: ${integrity.reason}`}`);
+}
+
+function narrateRecord(ledger: LabLedger, id: string): void {
+  const r = ledger.getRecord(id) as OptimisationRecord;
+  console.log(`\n${line("═")}`);
+  console.log(`${r.id} — ${r.title}`);
+  console.log(`category=${r.category}  bucket=${r.bucket}  final=${r.status.toUpperCase()}`);
+  console.log(line());
+  console.log("Lifecycle:");
+  for (const h of r.history) {
+    console.log(`  ${(h.from ?? "∅").padEnd(11)} -> ${h.to.padEnd(11)} by ${h.by.padEnd(10)} ${h.note}`);
+  }
+  if (r.compatibility) {
+    console.log(`\nResearch verdict: ${r.compatibility.verdict.toUpperCase()}`);
+    for (const note of r.compatibility.notes) console.log(`  ${note}`);
+  }
+  if (r.redTeam) {
+    console.log(`\nRed Team: ${r.redTeam.verdict.toUpperCase()} (${r.redTeam.unresolvedCritical} unresolved critical)`);
+    for (const f of r.redTeam.findings) console.log(`  [${f.severity}] ${f.category}: ${f.description}`);
+  }
+  if (r.evaluation) {
+    const e = r.evaluation;
+    console.log(`\nEvaluation: ${e.verdict}`);
+    console.log(`  tokens ${e.baseline.tokens} -> ${e.candidate.tokens} (${e.tokenReductionPercent.toFixed(1)}% reduction)`);
+    console.log(`  cost $${e.baseline.costUsd.toFixed(4)} -> $${e.candidate.costUsd.toFixed(4)} (${e.costReductionPercent.toFixed(1)}% reduction)`);
+    console.log(`  quality drop ${(e.qualityDelta * 100).toFixed(2)}%  candidate error rate ${(e.reliability.candidateErrorRate * 100).toFixed(1)}%`);
+    for (const g of e.gates) console.log(`  ${g.passed ? "PASS" : "FAIL"} ${g.name}: observed ${g.observed} / required ${g.required}`);
+  }
+  if (r.promotion) {
+    console.log(`\nMaintainer decision: ${r.promotion.decision}`);
+    for (const g of r.promotion.checkedGates) console.log(`  ${g.passed ? "PASS" : "FAIL"} ${g.name}: ${g.detail}`);
+    console.log(`  Reason: ${r.promotion.reason}`);
+  }
+}
+
+function runDemo(): void {
+  console.log(line("═"));
+  console.log("MESH TOKEN ENGINEERING LAB — end-to-end demonstration");
+  console.log(line("═"));
+  const root = mkdtempSync(join(tmpdir(), "mesh-lab-demo-"));
+  // Deterministic clock so the demo is reproducible.
+  let tick = 0;
+  const now = () => new Date(Date.UTC(2026, 0, 1, 0, 0, tick++)).toISOString();
+  const ledger = new LabLedger(root, { now });
+
+  console.log("\n1. The orchestrator finds no open work, so it dispatches Scouts.");
+  const first = step(ledger, { now });
+  if (first.action === "scout") {
+    console.log(`   Scouts discovered ${first.created.length} lead(s): ${first.created.join(", ")}`);
+  }
+
+  console.log("\n2. The orchestrator runs the full pipeline to quiescence:");
+  console.log("   Scout → Research → Design → Build → Red Team → Evaluate → Maintain");
+  const summary = runToQuiescence(ledger, { now });
+  for (const s of summary.steps) {
+    if (s.action === "advance") {
+      console.log(`   ${s.recordId}: ${s.from} -> ${s.to}  (${s.by})`);
+    } else if (s.action === "scout") {
+      console.log(`   scouts discovered: ${s.created.join(", ")}`);
+    }
+  }
+
+  console.log(`\n3. Outcomes by status: ${JSON.stringify(summary.statusCounts)}`);
+  console.log(`   Audit trail integrity: ${summary.integrity.ok ? `OK (${summary.integrity.length} hash-chained events)` : "BROKEN"}`);
+
+  // Narrate one promoted record end-to-end (the Definition-of-Done workflow),
+  // plus one rejected and one inconclusive so every path is visible.
+  const promoted = ledger.listRecords({ status: "promoted" })[0];
+  const rejected = ledger.listRecords({ status: "rejected" })[0];
+  const inconclusive = ledger.listRecords({ status: "inconclusive" })[0];
+
+  console.log(`\n4. The complete end-to-end workflow for one promoted optimisation:`);
+  if (promoted) narrateRecord(ledger, promoted.id);
+  if (rejected) {
+    console.log(`\n5. An idea Research rejected early (content-blind / Mesh-side constraint):`);
+    narrateRecord(ledger, rejected.id);
+  }
+  if (inconclusive) {
+    console.log(`\n6. An idea with no runnable implementation yet (evaluated INCONCLUSIVE):`);
+    narrateRecord(ledger, inconclusive.id);
+  }
+
+  console.log(`\n${line("═")}`);
+  printStatus(ledger);
+  console.log(`\nDemo ledger written to: ${root}`);
+  console.log("(ephemeral; delete it with: rm -rf " + root + ")");
+  rmSync(root, { recursive: true, force: true });
+}
+
+const { command, options } = parse(process.argv.slice(2));
+
+switch (command) {
+  case "demo":
+    runDemo();
+    break;
+  case "run": {
+    const ledger = new LabLedger(options.root ?? DEFAULT_ROOT);
+    const summary = runToQuiescence(ledger, { scoutCount: options.scoutCount ? Number(options.scoutCount) : undefined });
+    console.log(`Ran ${summary.steps.length} step(s). Status: ${JSON.stringify(summary.statusCounts)}`);
+    printStatus(ledger);
+    break;
+  }
+  case "status": {
+    const ledger = new LabLedger(options.root ?? DEFAULT_ROOT);
+    printStatus(ledger);
+    break;
+  }
+  case "verify": {
+    const ledger = new LabLedger(options.root ?? DEFAULT_ROOT);
+    const integrity = ledger.verifyIntegrity();
+    if (integrity.ok) {
+      console.log(`Audit trail OK: ${integrity.length} hash-chained events.`);
+    } else {
+      console.log(`Audit trail BROKEN at seq ${integrity.seq}: ${integrity.reason}`);
+      process.exitCode = 2;
+    }
+    break;
+  }
+  default:
+    console.log("Usage: lab <demo|run|status|verify> [--root <dir>]");
+    process.exitCode = 1;
+}

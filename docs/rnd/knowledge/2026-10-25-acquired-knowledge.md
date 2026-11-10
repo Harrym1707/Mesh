@@ -10,7 +10,7 @@ Captured the actual request bytes of LangGraph 1.2.17 (Anthropic + OpenAI
 arms), OpenAI Agents SDK 0.24.0 (Responses), and a raw Anthropic SDK tool
 loop, each running a 2-tool agent against a recording stub. Structural facts:
 
-- **ZERO cache_control from every stack, every request.** The core FLUX
+- **ZERO cache_control from every stack, every request.** The core MESH
   thesis — Anthropic's cache is opt-in and the popular frameworks never opt
   in — is now verified at current versions, not asserted. Launch-grade.
 - **Tool-schema bloat is framework-made**: the Agents SDK serializes two tiny
@@ -23,7 +23,7 @@ loop, each running a 2-tool agent against a recording stub. Structural facts:
 - LangGraph OpenAI arm: system travels as messages[0], `stream: false` on
   invoke(); max_completion_tokens injected. Agents SDK: instructions string +
   `include` field. NIGHTLY (P3): confirm whether LangChain's .stream() path
-  sets stream_options.include_usage (if not, FLUX events on that path are
+  sets stream_options.include_usage (if not, MESH events on that path are
   honestly UNPRICED — document in FAQ if so).
 - These captures are now the seed fixtures for lever work: NIGHTLY standing
   rule — prefer fixtures derived from wire-captures/ over invented ones.
@@ -38,8 +38,8 @@ clock system vs stable control, recorded at a stub:
   after 6 consecutive zero-read responses. Control-arm placement is sound.
 - INFERRED (documented billing rules, not live-billed): the volatile arm
   pays the 1.25x write premium on effectively the whole input every turn
-  with zero reads — strictly worse than caching off. Exactly the loss FLUX's
-  volatility guard prevents and nets against FLUX when it happens.
+  with zero reads — strictly worse than caching off. Exactly the loss MESH's
+  volatility guard prevents and nets against MESH when it happens.
 - Comparison page updated to cite this as measured (version-pinned).
 
 ## 3. Token-counter calibration (measured vs tiktoken o200k_base)
@@ -69,14 +69,14 @@ decades-tested mechanics we adopt:
 - Measurement exhibit structured on FEMP Appendix C, WITH a dispute-
   resolution section inside the exhibit itself + a lost-data method.
 - Every statement carries a "running log of traffic-shape impacts"
-  (NIGHTLY P4: add a changes-observed section to flux-report sourced from
+  (NIGHTLY P4: add a changes-observed section to mesh-report sourced from
   the volatility guard + lever-mix deltas).
 - Negative periods: CUMULATIVE NETTING WITH CARRY-FORWARD (the federal G.5
   mechanic): fee = 1% x max(0, cumulative verified savings - savings already
   billed). PRODUCT CHANGE, NIGHTLY (P1, with design care): recomputeInvoice
-  takes an optional prior-billed figure; flux-report shows the carry-forward
+  takes an optional prior-billed figure; mesh-report shows the carry-forward
   line. Payments must never exceed aggregate verified savings.
 - Invoices gate on customer acceptance (written or deemed after 30 days),
-  flux-verify = the witnessing step; escalation ladder: discrepancy notice
+  mesh-verify = the witnessing step; escalation ladder: discrepancy notice
   with specific ledger entries -> 30-day reconciliation -> non-binding
   neutral expert -> contract remedies; undisputed service continues.

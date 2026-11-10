@@ -34,6 +34,6 @@ content — the token metric should move to model-visible text, not request JSON
    flagged by the security review (M1) — byte-exact keys, preserve separators.
 3. **Below-minimum stamp no-op guard.** Stamping a stable span smaller than
    the model's documented cacheable minimum (1,024 tokens on sonnet-5 tier)
-   is a provider no-op; FLUX still records the lever. Skip the stamp (and the
+   is a provider no-op; MESH still records the lever. Skip the stamp (and the
    lever record) when the span is under the per-model minimum — needs a small
    minimum table next to the price catalogue.

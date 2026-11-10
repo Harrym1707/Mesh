@@ -1,13 +1,13 @@
-# Repo Scout Synthesis — what FLUX should borrow
+# Repo Scout Synthesis — what MESH should borrow
 
-_Synthesized 2026-10-29 from six area scouts under `docs/rnd/scout/`. FLUX is
+_Synthesized 2026-10-29 from six area scouts under `docs/rnd/scout/`. MESH is
 BUSL-1.1, pure-TS/Node. License rule throughout: **MIT / Apache-2.0 / BSD / MPL
 (separate process) are fine to depend on or copy; GPL / AGPL are study-only,
 never vendored or linked.**_
 
-This is the selective list — the few borrows that move FLUX, not every repo the
+This is the selective list — the few borrows that move MESH, not every repo the
 scouts logged. Each is tagged `adopt-as-dep` (take it as a dependency),
-`copy-pattern` (lift the design/code into FLUX), or `study-only` (read it,
+`copy-pattern` (lift the design/code into MESH), or `study-only` (read it,
 don't import it).
 
 ---
@@ -20,10 +20,10 @@ These are the highest-leverage, lowest-effort borrows, and all three are
 
 1. **TOON as the first structured-data lever** — the biggest *new* lossless
    saving available, and provable by construction.
-2. **A real tokenizer (gpt-tokenizer) on the OpenAI path** — turns FLUX's
+2. **A real tokenizer (gpt-tokenizer) on the OpenAI path** — turns MESH's
    `approximateTokenCount` into honest, billable measurement.
 3. **import-in-the-middle + shimmer** — the actual fix for the known
-   `wrapFlux` private-fields crash on the real `@anthropic-ai/sdk`.
+   `wrapMesh` private-fields crash on the real `@anthropic-ai/sdk`.
 
 Details for each are in their area sections below.
 
@@ -38,8 +38,8 @@ The single highest-leverage borrow in the whole scan. Token-Oriented Object
 Notation re-serializes the JSON data model densely (~40% fewer tokens on
 structured payloads) with a **deterministic `encode`/`decode` round-trip**.
 That round-trip is the point: the saving is lossless and *provable*, so it feeds
-the hash-chained verified-savings ledger directly — exactly FLUX's billing
-premise. It is the same language and license as FLUX, so it drops straight into
+the hash-chained verified-savings ledger directly — exactly MESH's billing
+premise. It is the same language and license as MESH, so it drops straight into
 `packages/core/src/token-reduction.ts` as a new lever.
 
 - **Reason:** a black-box request-byte rewrite for the common case (tool
@@ -52,7 +52,7 @@ premise. It is the same language and license as FLUX, so it drops straight into
 ### gpt-tokenizer — `niieani/gpt-tokenizer` · MIT · pure JS · **adopt-as-dep**
 https://github.com/niieani/gpt-tokenizer
 
-FLUX today meters with `approximateTokenCount` (±15%, explicitly "not good
+MESH today meters with `approximateTokenCount` (±15%, explicitly "not good
 enough to bill on"). `token-reduction.ts` already takes an injectable
 `countTokens` — so wiring an exact OpenAI tokenizer (`cl100k_base`/`o200k_base`)
 is a near-zero-friction change that makes the OpenAI-path savings honest.
@@ -72,14 +72,14 @@ default and never billed as lossless.
 
 ---
 
-## 2. Drop-in instrumentation — fix the `wrapFlux` shim
+## 2. Drop-in instrumentation — fix the `wrapMesh` shim
 
 ### ⭐ import-in-the-middle (+ require-in-the-middle) + shimmer · **adopt-as-dep**
 - https://github.com/nodejs/import-in-the-middle · Apache-2.0
 - https://github.com/elastic/require-in-the-middle · MIT
 - `shimmer` (from opentelemetry-js) · BSD-2
 
-This is the *fix*, not a nice-to-have. `wrapFlux` Proxied the SDK instance,
+This is the *fix*, not a nice-to-have. `wrapMesh` Proxied the SDK instance,
 which throws on the real `@anthropic-ai/sdk` because its methods touch
 `#private` class fields. Every mature observability tool solves this the same
 way: hook module load and wrap the **prototype method**
@@ -87,7 +87,7 @@ way: hook module load and wrap the **prototype method**
 runs with `this` intact. Adopt the three deps, write one instrumentation module
 per provider.
 
-- **Reason:** makes `wrapFlux` genuinely one-line *and* survive private fields,
+- **Reason:** makes `wrapMesh` genuinely one-line *and* survive private fields,
   ESM, and CJS. Copy opentelemetry-js's "already patched?" idempotency +
   version guards so double-wrapping doesn't double-count tokens.
 - **License fit:** Apache-2.0 / MIT / BSD-2 — all clean.
@@ -100,7 +100,7 @@ per provider.
   the always-works explicit fallback entry point when load-time hooks can't be
   installed.
 - **langfuse `observeOpenAI`** (MIT) — ergonomics/docs framing for the explicit
-  `wrapFlux(client)` call signature.
+  `wrapMesh(client)` call signature.
 
 ---
 
@@ -110,28 +110,28 @@ per provider.
 https://github.com/Portkey-AI/gateway
 
 The only top-tier, actively-maintained, provider-agnostic gateway that is
-**FLUX's exact stack and license** — so its code is adaptable, not just
+**MESH's exact stack and license** — so its code is adaptable, not just
 readable. Three things to lift:
 
 1. **Provider-adapter pattern** (`src/providers/*`): unified-request ↔ provider-
    native transform. This is the clean way to stay "OpenAI-compatible +
-   Anthropic" (FLUX already has `adapters.ts`/`gateway.ts` to grow into it).
+   Anthropic" (MESH already has `adapters.ts`/`gateway.ts` to grow into it).
 2. **SSE streaming passthrough** that tees `usage`/`finish_reason` out of the
    final chunk without buffering — required to meter savings on streamed
    responses.
 3. **Cloudflare Workers deploy target** — a worked example for standing up
-   `gw.fluxtoken.dev` at the edge without hand-rolling infra.
+   `gw.mesh-technology.com` at the edge without hand-rolling infra.
 - **License fit:** MIT — clean to adapt into BUSL with attribution.
 
 ### LiteLLM — `BerriAI/litellm` · MIT · Python · **copy-pattern (data/behaviour)**
 Port its exhaustive per-model price + usage-normalisation tables to validate
-FLUX's savings accounting across providers (FLUX already has
+MESH's savings accounting across providers (MESH already has
 `model-prices.ts`/`litellm.ts` — use LiteLLM as the canonical cross-check).
 Python, so data/behaviour reference, not a code dep.
 
 ### Bifrost benchmark methodology — `maximhq/bifrost` · Go · **study-only**
-Replicate its Vegeta + mock-provider harness to publish FLUX's own proxy-
-overhead numbers (FLUX already has `evals/run-proxy-overhead.ts` to extend).
+Replicate its Vegeta + mock-provider harness to publish MESH's own proxy-
+overhead numbers (MESH already has `evals/run-proxy-overhead.ts` to extend).
 Credible latency numbers are trust currency for a "we only bill verified
 savings" pitch. Go, so methodology only.
 
@@ -141,30 +141,30 @@ routing *design*.
 
 ---
 
-## 4. Frictionless local deploy — `flux init` / `flux run`
+## 4. Frictionless local deploy — `mesh init` / `mesh run`
 
 ### ⭐ package-manager-detector — `antfu-collective/...` · MIT · pure-TS · **adopt-as-dep**
 https://github.com/antfu-collective/package-manager-detector
 
 Tiny, zero-dep, exact fit, and the detection engine inside `@antfu/ni` (~22k★),
-so battle-tested. `flux init` calls `detect()`; `flux run` with no command calls
-`resolveCommand(pm, 'run', ['dev'])` so bare `flux run` works instead of forcing
-`flux run -- npm run dev`. `evals/flux-run.ts` already has the run-wrapper shape
+so battle-tested. `mesh init` calls `detect()`; `mesh run` with no command calls
+`resolveCommand(pm, 'run', ['dev'])` so bare `mesh run` works instead of forcing
+`mesh run -- npm run dev`. `evals/mesh-run.ts` already has the run-wrapper shape
 to drop this into.
 - **License fit:** MIT — clean.
 
 ### Infisical + supabase/cli — **copy-pattern**
-- **Infisical** (MIT core) — the `init` (writes a persistent `.flux/config`:
+- **Infisical** (MIT core) — the `init` (writes a persistent `.mesh/config`:
   ledger dir, cache-ttl, provider) + stateless `run` (reads it) two-command
   split, so later runs need no flags. Avoid vendoring its `ee/` dirs.
 - **supabase/cli** (MIT) — (a) the `config.toml` convention (one declarative
   file, versionable in-repo) and (b) the multi-channel install matrix
-  (brew + `curl | bash` + Releases binaries) to replace FLUX's npx-only
+  (brew + `curl | bash` + Releases binaries) to replace MESH's npx-only
   distribution so the Phase-2 install lands on any OS.
 
 ### ngrok-go — `ngrok/ngrok-go` · Go · **study-only**
 Architecture blueprint only for Phase-2: an agent that dials out to
-`gw.fluxtoken.dev` and exposes the blind gateway with no open ports / no TLS
+`gw.mesh-technology.com` and exposes the blind gateway with no open ports / no TLS
 setup. The one-line/one-listener ergonomics is the target for how invisible the
 hosted hop should feel. Go, so pattern not dep.
 
@@ -187,15 +187,15 @@ certificate-transparency standard.
 
 ### sigstore/rekor — Apache-2.0 · **study-only**
 Anchor the periodic signed tree head into a Rekor instance for an **independent,
-timestamped** append-only log — removes "trust FLUX's own clock" and is the
+timestamped** append-only log — removes "trust MESH's own clock" and is the
 natural signing boundary for the Nitro-Enclave roadmap. Integrate via REST /
 self-host; don't vendor the Go server.
 
 ### OpenMeter — Apache-2.0 · **copy-pattern (later)**
-Idempotent ingestion keyed by requestId (validates FLUX's existing dedup at
+Idempotent ingestion keyed by requestId (validates MESH's existing dedup at
 scale) + windowed aggregation + metering/invoicing separation — adopt only
 if/when the in-process ledger must become a streaming multi-tenant plane. Keep
-FLUX's recompute-from-catalogue billing core (more verifiable than OpenMeter's).
+MESH's recompute-from-catalogue billing core (more verifiable than OpenMeter's).
 Reject **Lago** (AGPLv3) as a dep; immudb (BUSL competitor carve-out) stays a
 design reference only.
 
@@ -203,9 +203,9 @@ design reference only.
 
 ## 6. Confidential computing / attestation — the Phase-3 "provably blind" layer
 
-The honest shape: FLUX is TS; the enclave world is Rust/Go/C. The Node proxy
+The honest shape: MESH is TS; the enclave world is Rust/Go/C. The Node proxy
 runs **unchanged** as the enclave's application behind a thin supervisor; the
-one piece FLUX writes in its own stack is the client-side verifier.
+one piece MESH writes in its own stack is the client-side verifier.
 
 ### aws/aws-nitro-enclaves-nsm-api — Apache-2.0 · **adopt-as-dep (in-enclave)**
 First-party AWS. The in-enclave supervisor calls it to mint the attestation
@@ -213,8 +213,8 @@ document (CBOR/COSE_Sign1) and embed a nonce + the proxy pubkey. Non-negotiable
 building block for the Nitro path.
 
 ### @epsilon-data/nitro-verify — MIT · TS · **copy-pattern (vendor)**
-The only Nitro verifier already in FLUX's language (Node + browser WebCrypto).
-Vendor its small, auditable code into FLUX's SDK/CLI so customers pin the
+The only Nitro verifier already in MESH's language (Node + browser WebCrypto).
+Vendor its small, auditable code into MESH's SDK/CLI so customers pin the
 published PCRs and confirm the gateway is the exact audited binary — turning "we
 can't read it" into something the client *checks*. Traction is ~0, so vet and
 pin the code rather than take a live dep.
@@ -227,9 +227,9 @@ Read **Amnesic-Systems/veil** (GPL-3.0) as current state of the art but **do not
 fork or copy** — clean-room only.
 
 ### aws-nitro-enclaves-sdk-c — Apache-2.0 · **study-only**
-The KMS-key-release-gated-on-PCRs pattern: `FLUX_PROXY_BLIND_KEY` becomes a key
+The KMS-key-release-gated-on-PCRs pattern: `MESH_PROXY_BLIND_KEY` becomes a key
 KMS only decrypts for the attested enclave. Copy the condition-key policy
-design; FLUX won't link the C library. Park **confidential-containers/trustee**
+design; MESH won't link the C library. Park **confidential-containers/trustee**
 (Apache-2.0) as the multi-TEE scaling story.
 
 ---
@@ -237,10 +237,10 @@ design; FLUX won't link the C library. Park **confidential-containers/trustee**
 ## Sequencing
 
 - **Now (ship efficiency):** TOON lever + gpt-tokenizer metering + the
-  import-in-the-middle/shimmer `wrapFlux` fix. All adopt-as-dep, all MIT/
+  import-in-the-middle/shimmer `wrapMesh` fix. All adopt-as-dep, all MIT/
   Apache/BSD, all land in files that already exist.
 - **Next (hosted gateway):** Portkey adapter + streaming-passthrough pattern;
-  package-manager-detector + `flux init`/`config.toml`; Bifrost-style overhead
+  package-manager-detector + `mesh init`/`config.toml`; Bifrost-style overhead
   benchmark for trust.
 - **Then (verifiability):** merkletreejs proof layer over the ledger, then Rekor
   anchoring.

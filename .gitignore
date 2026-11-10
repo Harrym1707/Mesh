@@ -18,3 +18,10 @@ packages/cli/pkg/
 
 # Claude Code personal project settings (hooks, etc.)
 .claude/settings.local.json
+
+# GTM prospect-finder outputs (regenerable via `npm run gtm:prospects`)
+scripts/gtm/out/*
+!scripts/gtm/out/.gitkeep
+
+# Token Engineering Lab runtime ledger (regenerable via `npm run lab:run`)
+lab/ledger/
