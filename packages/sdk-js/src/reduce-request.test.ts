@@ -267,6 +267,105 @@ describe("cross-turn memory dedup", () => {
   });
 });
 
+describe("RAG cross-turn dedup", () => {
+  const CHUNK =
+    "Excerpt 4: clause 4 of the services agreement sets the notification window, defines the remediation " +
+    "ladder, and assigns liability for third-party outages to the operating party. ".repeat(3);
+  const OTHER_CHUNK =
+    "Excerpt 9: clause 9 of the services agreement covers data residency and the audit rights the customer " +
+    "retains over any subprocessor. ".repeat(3);
+
+  function ragRequest(turns: number, model = "claude-sonnet-5-5"): Record<string, unknown> {
+    const messages: unknown[] = [];
+    for (let turn = 0; turn < turns; turn += 1) {
+      messages.push({ role: "user", content: `Context:\n${CHUNK}\n\nQuestion ${turn}: what does clause 4 require?` });
+      messages.push({ role: "assistant", content: `Clause 4 answer for turn ${turn}.` });
+    }
+    return { model, max_tokens: 500, messages };
+  }
+
+  it("replaces a chunk repeated from an earlier turn and reports a lossy change", () => {
+    const { request: reduced, summary } = reduceRequest(ragRequest(4), { ragCrossTurnDedup: true });
+    const change = summary.changes.find((entry) => entry.lever === "rag-cross-turn-dedup")!;
+    expect(change.lossless).toBe(false);
+    expect(change.estimatedTokensSaved).toBeGreaterThan(0);
+    const messages = (reduced as Record<string, unknown>).messages as Array<{ role: string; content: string }>;
+    const userTurns = messages.filter((m) => m.role === "user");
+    expect(userTurns[0]!.content).toContain("Excerpt 4");
+    for (const turn of userTurns.slice(1)) {
+      expect(turn.content).not.toContain("Excerpt 4");
+      expect(turn.content).toMatch(/what does clause 4 require\?/);
+    }
+  });
+
+  it("only dedupes once the chunk has actually repeated, not a turn that retrieves something new", () => {
+    const messages = [
+      { role: "user", content: `Context:\n${OTHER_CHUNK}\n\nQuestion 0: about clause 9?` },
+      { role: "assistant", content: "Noted." },
+      { role: "user", content: `Context:\n${CHUNK}\n\nQuestion 1: about clause 4?` },
+      { role: "assistant", content: "Noted." },
+      { role: "user", content: `Context:\n${CHUNK}\n\nQuestion 2: still clause 4?` },
+    ];
+    const { request: reduced } = reduceRequest(
+      { model: "claude-sonnet-5-5", max_tokens: 500, messages },
+      { ragCrossTurnDedup: true },
+    );
+    const resultMessages = (reduced as Record<string, unknown>).messages as Array<{ role: string; content: string }>;
+    expect(resultMessages[0]!.content).toContain("Excerpt 9");
+    expect(resultMessages[2]!.content).toContain("Excerpt 4");
+    expect(resultMessages[4]!.content).not.toContain("Excerpt 4");
+    expect(resultMessages[4]!.content).toContain("Question 2: still clause 4?");
+  });
+
+  it("never touches assistant turns, even though they also repeat", () => {
+    const { request: reduced } = reduceRequest(ragRequest(4), { ragCrossTurnDedup: true });
+    const messages = (reduced as Record<string, unknown>).messages as Array<{ role: string; content: string }>;
+    const assistantTurns = messages.filter((m) => m.role === "assistant");
+    expect(assistantTurns.every((m) => m.content.startsWith("Clause 4 answer"))).toBe(true);
+  });
+
+  it("is off by default", () => {
+    const { summary } = reduceRequest(ragRequest(4), {});
+    expect(summary.changes.some((entry) => entry.lever === "rag-cross-turn-dedup")).toBe(false);
+  });
+
+  it("does nothing with a single user turn", () => {
+    const original = ragRequest(1);
+    const { request: reduced, summary } = reduceRequest(original, { ragCrossTurnDedup: true });
+    expect(reduced).toEqual(original);
+    expect(summary.changes).toHaveLength(0);
+  });
+
+  it("respects a custom minimumBlockTokens and skips below it", () => {
+    const { summary } = reduceRequest(ragRequest(4), {
+      ragCrossTurnDedup: { minimumBlockTokens: 100_000 },
+    });
+    expect(summary.changes.some((entry) => entry.lever === "rag-cross-turn-dedup")).toBe(false);
+  });
+
+  it("skips the whole reduction on an invalid minimumBlockTokens", () => {
+    const original = ragRequest(4);
+    const { request: reduced, summary } = reduceRequest(original, {
+      ragCrossTurnDedup: { minimumBlockTokens: -1 },
+    });
+    expect(reduced).toBe(original);
+    expect(summary.skipped).toBe(true);
+    expect(summary.skippedReason).toMatch(/positive integer/);
+  });
+
+  it("works on Responses-style `input` arrays too", () => {
+    const input = [
+      { role: "user", content: `Context:\n${CHUNK}\n\nQuestion 0: what does clause 4 require?` },
+      { role: "assistant", content: "Noted." },
+      { role: "user", content: `Context:\n${CHUNK}\n\nQuestion 1: still clause 4?` },
+    ];
+    const { request: reduced } = reduceRequest({ model: "gpt-5", input }, { ragCrossTurnDedup: true });
+    const resultInput = (reduced as Record<string, unknown>).input as Array<{ role: string; content: string }>;
+    expect(resultInput[2]!.content).not.toContain("Excerpt 4");
+    expect(resultInput[2]!.content).toContain("Question 1: still clause 4?");
+  });
+});
+
 describe("fresh tool-result capping", () => {
   /** An oversized tool result shaped like the eval fixture: a headline carrying
    * the reference later turns depend on, verbose record sentences, one error
