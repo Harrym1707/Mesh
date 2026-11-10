@@ -1,6 +1,6 @@
 // Specific core modules, not the barrel — see the note in proxy.ts.
 import { anthropicCacheableMinimumTokens, publishedModelPrices } from "../../core/dist/src/model-prices.js";
-import { approximateTokenCount, dedupeRepeatedBlocks, dedupeRepeatedLeadingBlock, type TokenCounter } from "../../core/dist/src/token-reduction.js";
+import { approximateTokenCount, dedupeRepeatedBlocks, dedupeRepeatedBlocksAcrossTexts, dedupeRepeatedLeadingBlock, type TokenCounter } from "../../core/dist/src/token-reduction.js";
 import { minifyToolSchemas } from "../../core/dist/src/tool-schema.js";
 import { resolveModelId } from "../../core/dist/src/price-catalogue.js";
 
@@ -111,6 +111,28 @@ export type MeshTokenReductionConfig = {
    * block is `{type: "text", text}`; anything else is left untouched.
    */
   crossTurnMemoryDedup?: boolean | { minimumBlockTokens?: number };
+  /**
+   * Replace a chunk anywhere in a later `user` turn with a short reference
+   * marker when an EARLIER `user` turn already carries an exact
+   * byte-identical copy (see `dedupeRepeatedBlocksAcrossTexts`). This is the
+   * shape a RAG pipeline produces once retrieved context survives inside
+   * the stored conversation history: a topically related follow-up
+   * question's retrieval overlaps an earlier turn's top-k, so the same
+   * excerpt is resent verbatim. Restricted to the `user` role, for the same
+   * reason as `crossTurnMemoryDedup`: that is where an application glues
+   * retrieved context onto the call, and keeping this off assistant/tool
+   * bodies avoids two reduction strategies fighting over the same bytes.
+   *
+   * LOSSY, like `crossTurnMemoryDedup` and for the identical reason: the
+   * duplicate removed is never adjacent to its twin, so a model that
+   * attends less to context far back in a long history may behave
+   * differently with the chunk present once versus restated fresh every
+   * turn it is retrieved. This must be proven on the customer's own traffic
+   * through `replayGate` before it is ever billed, and is never enabled by
+   * default. `true` uses the default 64-token minimum block size; pass an
+   * object to tune it.
+   */
+  ragCrossTurnDedup?: boolean | { minimumBlockTokens?: number };
   /**
    * Cap oversized tool-result and assistant bodies at injection, BEFORE first
    * send. A fresh oversized result is billed once at the FULL input rate and
@@ -675,6 +697,55 @@ function dedupeMemoryAcrossTurns(
   return next;
 }
 
+/**
+ * RAG cross-turn dedup: within the user turns of a message array, replaces a
+ * retrieved-context chunk repeated from an earlier turn - anywhere in a
+ * later turn's text, not just its leading block - with a reference marker
+ * (see `dedupeRepeatedBlocksAcrossTexts`). See
+ * `MeshTokenReductionConfig.ragCrossTurnDedup`.
+ */
+function dedupeRagAcrossTurns(
+  input: unknown[],
+  options: { minimumBlockTokens?: number },
+  countTokens: TokenCounter,
+  changes: MeshReductionChange[],
+): unknown[] {
+  const minimumBlockTokens = options.minimumBlockTokens ?? 64;
+  if (!Number.isInteger(minimumBlockTokens) || minimumBlockTokens < 1) {
+    throw new Error("ragCrossTurnDedup minimumBlockTokens must be a positive integer.");
+  }
+  const indices: number[] = [];
+  for (const [index, message] of input.entries()) {
+    if (!isPlainObject(message) || message.role !== "user") continue;
+    if (leadingText(message) === undefined) continue;
+    indices.push(index);
+  }
+  if (indices.length < 2) return input;
+
+  const texts = indices.map((index) => leadingText(input[index] as AnyObject)!);
+  const before = texts.reduce((sum, text) => sum + countTokens(text), 0);
+  const result = dedupeRepeatedBlocksAcrossTexts(texts, minimumBlockTokens, countTokens);
+  if (result.notes.length === 0) return input;
+  const after = result.texts.reduce((sum, text) => sum + countTokens(text), 0);
+
+  const next = [...input];
+  indices.forEach((index, position) => {
+    if (result.texts[position] === texts[position]) return;
+    next[index] = withLeadingText(next[index] as AnyObject, result.texts[position]!);
+  });
+
+  changes.push({
+    lever: "rag-cross-turn-dedup",
+    lossless: false,
+    estimatedTokensSaved: Math.max(0, before - after),
+    detail: `Replaced ${result.notes.length} retrieved-context block(s) repeated from an earlier turn with ` +
+      "reference markers (the first occurrence, and every turn's own differing content, kept verbatim). This " +
+      "is a behaviour change, not a cache-rate change, so it needs a replay-gate pass on the customer's own " +
+      "traffic before the saving may be billed.",
+  });
+  return next;
+}
+
 function reduceText(
   text: string,
   config: MeshTokenReductionConfig,
@@ -1061,6 +1132,20 @@ export function reduceRequest(
       }
       if (Array.isArray(next.messages)) {
         next.messages = dedupeMemoryAcrossTurns(next.messages, memoryOptions, countTokens, changes);
+      }
+    }
+
+    // RAG cross-turn dedup, same stage as cross-turn memory dedup and for
+    // the same reason: it needs the RAW text of every user turn to find a
+    // chunk repeated from an earlier one, and leaves a marker that the
+    // per-message pass's own (same-text) dedupe then simply passes through.
+    if (config.ragCrossTurnDedup) {
+      const ragOptions = isPlainObject(config.ragCrossTurnDedup) ? config.ragCrossTurnDedup : {};
+      if (Array.isArray(next.input)) {
+        next.input = dedupeRagAcrossTurns(next.input, ragOptions, countTokens, changes);
+      }
+      if (Array.isArray(next.messages)) {
+        next.messages = dedupeRagAcrossTurns(next.messages, ragOptions, countTokens, changes);
       }
     }
 

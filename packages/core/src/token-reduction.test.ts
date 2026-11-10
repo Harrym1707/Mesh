@@ -6,6 +6,7 @@ import {
   approximateTokenCount,
   collapseWhitespace,
   dedupeRepeatedBlocks,
+  dedupeRepeatedBlocksAcrossTexts,
   dedupeRepeatedLeadingBlock,
   priceReduction,
   recommendOutputCap,
@@ -207,6 +208,84 @@ describe("dedupeRepeatedLeadingBlock", () => {
     ];
     const once = dedupeRepeatedLeadingBlock(texts, 24);
     const twice = dedupeRepeatedLeadingBlock(once.texts, 24);
+    expect(twice.texts).toEqual(once.texts);
+  });
+});
+
+describe("dedupeRepeatedBlocksAcrossTexts", () => {
+  const chunk = paragraph("Excerpt: clause 4 of the services agreement");
+
+  it("replaces a chunk repeated from an earlier turn, wherever it sits in the later turn", () => {
+    const texts = [
+      `Context:\n${chunk}\n\nQuestion 0: what does it require?`,
+      `Context:\n${chunk}\n\nQuestion 1: does it still apply?`,
+    ];
+    const result = dedupeRepeatedBlocksAcrossTexts(texts, 24);
+    expect(result.texts[0]).toBe(texts[0]);
+    expect(result.texts[1]).toContain("Question 1: does it still apply?");
+    expect(result.texts[1]).not.toContain("Excerpt: clause 4");
+    expect(result.notes).toHaveLength(1);
+  });
+
+  it("never touches a duplicate found WITHIN one text, leaving it for dedupeRepeatedBlocks", () => {
+    const texts = [`${chunk}\n\n${chunk}\n\nunrelated`];
+    const result = dedupeRepeatedBlocksAcrossTexts(texts, 24);
+    expect(result.texts).toEqual(texts);
+    expect(result.notes).toEqual([]);
+  });
+
+  it("leaves texts alone when the shared block falls below the minimum", () => {
+    const texts = [`Context:\n${chunk}\n\nQ0`, `Context:\n${chunk}\n\nQ1`];
+    const result = dedupeRepeatedBlocksAcrossTexts(texts, 100_000);
+    expect(result.texts).toEqual(texts);
+    expect(result.notes).toEqual([]);
+  });
+
+  it("is a no-op on a single text", () => {
+    const texts = [`Context:\n${chunk}\n\nQ0`];
+    const result = dedupeRepeatedBlocksAcrossTexts(texts, 24);
+    expect(result.texts).toEqual(texts);
+    expect(result.notes).toEqual([]);
+  });
+
+  it("is a no-op when nothing repeats", () => {
+    const texts = ["alpha context entirely its own, long enough to clear the minimum easily here.",
+      "beta context, unrelated to alpha, also long enough to clear the minimum easily here."];
+    const result = dedupeRepeatedBlocksAcrossTexts(texts, 1);
+    expect(result.texts).toEqual(texts);
+    expect(result.notes).toEqual([]);
+  });
+
+  it("never dedupes a repeated block that sits inside a fenced code sample", () => {
+    const fence = `\`\`\`json\n${chunk}\n\`\`\``;
+    const texts = [`Context:\n${fence}\n\nQ0`, `Context:\n${fence}\n\nQ1`];
+    const result = dedupeRepeatedBlocksAcrossTexts(texts, 1);
+    expect(result.texts).toEqual(texts);
+    expect(result.notes).toEqual([]);
+  });
+
+  it("matches a chunk against turn 2 even when turn 1 never repeats it (non-adjacent, non-leading)", () => {
+    const other = paragraph("Excerpt: clause 9, unrelated to clause 4");
+    const texts = [
+      `Context:\n${other}\n\nQuestion 0: about clause 9?`,
+      `Context:\n${chunk}\n\nQuestion 1: about clause 4?`,
+      `Context:\n${chunk}\n\nQuestion 2: still about clause 4?`,
+    ];
+    const result = dedupeRepeatedBlocksAcrossTexts(texts, 24);
+    expect(result.texts[0]).toBe(texts[0]);
+    expect(result.texts[1]).toBe(texts[1]);
+    expect(result.texts[2]).not.toContain("Excerpt: clause 4");
+    expect(result.texts[2]).toContain("Question 2: still about clause 4?");
+    expect(result.notes).toHaveLength(1);
+  });
+
+  it("is deterministic and idempotent: re-running on its own output changes nothing further", () => {
+    const texts = [
+      `Context:\n${chunk}\n\nQuestion 0: what does it require?`,
+      `Context:\n${chunk}\n\nQuestion 1: does it still apply?`,
+    ];
+    const once = dedupeRepeatedBlocksAcrossTexts(texts, 24);
+    const twice = dedupeRepeatedBlocksAcrossTexts(once.texts, 24);
     expect(twice.texts).toEqual(once.texts);
   });
 });

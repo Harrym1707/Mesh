@@ -330,6 +330,77 @@ export function dedupeRepeatedLeadingBlock(
   return { texts: nextTexts, notes };
 }
 
+/**
+ * Removes a repeated block from a later text when an EARLIER text in the
+ * group already carries an exact copy, at ANY position - not just leading.
+ *
+ * This is the shape a RAG pipeline produces once retrieved context survives
+ * inside the conversation's own stored history (a chatbot that appends the
+ * "Context: ...\nQuestion: ..." turn it just assembled into the history it
+ * keeps, rather than discarding retrieved passages once the call returns):
+ * a topically related follow-up question's retrieval overlaps an earlier
+ * turn's top-k, so the same excerpt resurfaces, verbatim, several turns
+ * later. `dedupeRepeatedBlocks` never catches this - one text at a time, no
+ * memory of earlier texts - and `dedupeRepeatedLeadingBlock` only catches a
+ * match at the very front of a text, never a chunk sitting after other,
+ * unique content (a RAG turn's shape is usually "Context:\n<chunks>\n\n
+ * Question: ...", so the chunk a later turn repeats is rarely leading).
+ *
+ * LOSSY, like `dedupeRepeatedLeadingBlock` and for the identical reason: the
+ * duplicate removed here is never adjacent to its twin, so a model that
+ * attends less to context far back in a long history may behave differently
+ * with the chunk present once versus restated fresh every turn it is
+ * retrieved. Callers must run this behind a replay-gate pass on their own
+ * traffic before billing it; it is never enabled by default.
+ *
+ * Matches at blank-line block granularity only - the same split
+ * `dedupeRepeatedBlocks` uses for its outer pass - never at the line level:
+ * a RAG chunk is typically its own paragraph, and matching single lines
+ * across DIFFERENT turns (rather than within one already-assembled prompt)
+ * raises the false-positive cost of a short, incidentally-repeated line much
+ * higher, so this stays at the coarser, safer granularity. Fenced code
+ * blocks are never matched, consistent with `dedupeRepeatedBlocks`. Only
+ * blocks at or above `minimumBlockTokens` are considered, and a duplicate
+ * found WITHIN one text (rather than against an earlier text) is left for
+ * `dedupeRepeatedBlocks` - this function only ever adds a text's own new
+ * blocks to what later texts are matched against once that whole text has
+ * been scanned, so it never double-claims a within-text repeat.
+ */
+export function dedupeRepeatedBlocksAcrossTexts(
+  texts: readonly string[],
+  minimumBlockTokens = 64,
+  countTokens: TokenCounter = approximateTokenCount,
+): { texts: string[]; notes: string[] } {
+  const seen = new Set<string>();
+  const notes: string[] = [];
+  const nextTexts = texts.map((text, index) => {
+    const parts = text.split(/(\n{2,})/);
+    let changed = false;
+    const kept: string[] = [];
+    const newBlocks: string[] = [];
+    for (let position = 0; position < parts.length; position += 2) {
+      const block = parts[position]!;
+      const separator = parts[position + 1] ?? "";
+      const tokens = countTokens(block);
+      const eligible = block.trim() !== "" && !block.includes("```") && tokens >= minimumBlockTokens;
+      if (eligible && seen.has(block)) {
+        changed = true;
+        notes.push(
+          `Turn ${index + 1}: replaced a ${tokens}-token block identical to one already sent in an earlier turn ` +
+            "with a reference marker.",
+        );
+        kept.push(`[mesh: ${tokens} tokens, identical to an earlier turn, omitted]`, separator);
+        continue;
+      }
+      kept.push(block, separator);
+      if (eligible) newBlocks.push(block);
+    }
+    for (const block of newBlocks) seen.add(block);
+    return changed ? kept.join("") : text;
+  });
+  return { texts: nextTexts, notes };
+}
+
 function maskBreakers(text: string): { masked: string; found: Map<string, PrefixBreaker> } {
   let masked = text;
   const found = new Map<string, PrefixBreaker>();
