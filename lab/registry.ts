@@ -99,12 +99,59 @@ const TECHNIQUES: Record<string, Technique> = {
     },
   },
 
+  "cache-prefix-read": {
+    id: "cache-prefix-read",
+    title: "Stable-prefix cache placement (steady-state read)",
+    risk: "lossless",
+    runnable: true,
+    // Mesh's core lever: a stable system+tools prefix, re-sent every turn, is
+    // cached and billed at the provider's read rate (~0.1x) instead of full
+    // price. Content is byte-identical — only the billing of the prefix changes.
+    // Models the steady-state read (prefix already cached); the first-turn write
+    // premium amortizes away for long-lived / high-frequency traffic.
+    apply: (input, params) => {
+      const readMultiplier = Number(params.readMultiplier ?? 0.1);
+      const index = input.indexOf("\n\n");
+      const prefix = index >= 0 ? input.slice(0, index) : input;
+      const suffix = index >= 0 ? input.slice(index + 2) : "";
+      const prefixTokens = approximateTokenCount(prefix);
+      const suffixTokens = approximateTokenCount(suffix);
+      const tokensBefore = prefixTokens + suffixTokens;
+      const tokensAfter = Math.ceil(prefixTokens * readMultiplier) + suffixTokens;
+      return {
+        candidateText: input, // byte-identical: caching changes billing, not content
+        notes: [`Stable ${prefixTokens}-token prefix billed at ${readMultiplier}x on cache-read turns.`],
+        tokensBefore,
+        tokensAfter,
+        risk: "lossless",
+      };
+    },
+  },
+
   "minify-json-blocks": {
     id: "minify-json-blocks",
     title: "JSON tool-result minification",
     risk: "lossless",
     runnable: true,
     apply: (input) => runReducers(input, [minifyJsonBlocks()], "lossless"),
+  },
+
+  "full-lossless-stack": {
+    id: "full-lossless-stack",
+    title: "Full lossless stack (dedup + JSON minify + whitespace)",
+    risk: "lossless",
+    runnable: true,
+    // Captures every lossless feature real traffic carries at once — re-sent
+    // duplicates, fat JSON tool results, and redundant whitespace — so it beats
+    // any single reducer on a realistic workload.
+    apply: (input, params) => {
+      const minimumBlockTokens = Number(params.minimumBlockTokens ?? 16);
+      return runReducers(
+        input,
+        [dedupeRepeatedBlocks(minimumBlockTokens), minifyJsonBlocks(), collapseWhitespace()],
+        "lossless",
+      );
+    },
   },
 
   "dedupe-then-collapse": {

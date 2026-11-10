@@ -89,7 +89,7 @@ export const FIXTURES: Record<string, Fixture> = {
     id: "padded-whitespace",
     description: "Prompts carrying redundant whitespace outside code blocks.",
     evaluator: "classification",
-    cases: Array.from({ length: 6 }, (_unused, index) => ({
+    cases: Array.from({ length: 8 }, (_unused, index) => ({
       id: `pad-${index + 1}`,
       input:
         `Classify the sentiment.    \n\n\n\n` +
@@ -224,6 +224,174 @@ FIXTURES["agent-history-resend"] = {
     id: `turn-${index + 1}`,
     input: alwaysOnTurn(index % 2 === 0 ? "is the service healthy?" : "should we escalate?"),
     expected: index % 2 === 0 ? "healthy" : "escalate",
+    inputPerMillionUsd: 3,
+  })),
+};
+
+// --- Chat & coding (the biggest token-billed consumer workloads) ----------
+
+// Conversational chat where the framework echoes the full system prompt into
+// the first user turn — a real, documented pattern. The echo is an exact
+// duplicate block, so dropping it is lossless.
+const CHAT_SYSTEM = [
+  "You are a helpful, concise assistant. Be accurate and cite sources when asked.",
+  "Never invent facts. If unsure, say so. Keep answers short unless detail is requested.",
+  "Follow the user's formatting requests and remember the conversation so far.",
+].join("\n");
+
+function chatPrompt(question: string): string {
+  return [
+    CHAT_SYSTEM,
+    "",
+    // The framework re-states the system prompt inside the first user message.
+    `USER: (system reminder) ${CHAT_SYSTEM}`,
+    "",
+    "ASSISTANT: Understood.",
+    "",
+    `USER: ${question}`,
+  ].join("\n");
+}
+
+FIXTURES["chat-conversation"] = {
+  id: "chat-conversation",
+  description: "Multi-turn chat where the system prompt is echoed into the first user turn (exact-duplicate block).",
+  evaluator: "classification",
+  shape: "always-on-agent",
+  cases: Array.from({ length: 8 }, (_unused, index) => ({
+    id: `chat-${index + 1}`,
+    input: chatPrompt(index % 2 === 0 ? "Is the sky blue? yes or no." : "Is coal renewable? yes or no."),
+    expected: index % 2 === 0 ? "yes" : "no",
+    inputPerMillionUsd: 3,
+  })),
+};
+
+// A coding agent that re-reads the same file into context across turns. The
+// file body is plain text (not fenced), so the exact-duplicate re-read is a
+// lossless drop.
+const CODE_FILE = [
+  "FILE src/orders.py:",
+  "def total(order): return sum(i.price * i.qty for i in order.items)",
+  "def is_paid(order): return order.status == 'paid' and order.balance == 0",
+  "def summary(order): return {'id': order.id, 'total': total(order), 'paid': is_paid(order)}",
+].join("\n");
+
+function codingPrompt(task: string): string {
+  // Realistic coding-agent turn: the file is re-read into context (exact
+  // duplicate → dedup), a test tool returns pretty-printed JSON (→ JSON minify),
+  // and the whole thing carries layout whitespace (→ collapse).
+  const testResult = JSON.stringify(
+    {
+      passed: 3,
+      failed: 1,
+      duration_ms: 142,
+      cases: [
+        { name: "test_total", status: "passed" },
+        { name: "test_is_paid", status: "failed", error: "AssertionError: balance not zero" },
+        { name: "test_summary", status: "passed" },
+      ],
+    },
+    null,
+    2,
+  );
+  return [
+    "You are a coding agent. Use the file context to answer.",
+    "",
+    CODE_FILE,
+    "",
+    "TOOL read_file(src/orders.py) ->",
+    CODE_FILE,
+    "",
+    "TOOL run_tests() ->",
+    "```json",
+    testResult,
+    "```",
+    "",
+    `TASK: ${task}`,
+  ].join("\n");
+}
+
+FIXTURES["coding-agent"] = {
+  id: "coding-agent",
+  description: "Coding-agent turns that re-read the same file into context (exact-duplicate plain-text block).",
+  evaluator: "classification",
+  shape: "autonomous-agent",
+  cases: Array.from({ length: 8 }, (_unused, index) => ({
+    id: `code-${index + 1}`,
+    input: codingPrompt(
+      index % 2 === 0 ? "Does total() sum line items? yes or no." : "Is an unpaid order is_paid()? yes or no.",
+    ),
+    expected: index % 2 === 0 ? "yes" : "no",
+    inputPerMillionUsd: 3,
+  })),
+};
+
+// --- Cache sessions (the prefix-caching lever's target) -------------------
+// A steady-state request: a large STABLE prefix (system + tools, cached across
+// the session) separated by a blank line from a short fresh suffix. The cache
+// lever bills the prefix at the read rate. Prefix dominates, as it does in
+// real long-running agents and long-system-prompt chats.
+
+const AGENT_SESSION_PREFIX = [
+  "SYSTEM: You are a long-running operations agent. Operate strictly by the rules below.",
+  "You coordinate monitoring, triage and escalation across the orders, billing and inventory services.",
+  "RULES: never fabricate; always cite the tool result that supports a claim; escalate only confirmed anomalies;",
+  "keep a running incident log; prefer cached reads; respect provider rate limits; summarize before escalating;",
+  "redact customer identifiers; never take destructive actions without an explicit confirmed instruction.",
+  "TOOLS: search(query), fetch(id), summarize(doc), rank(passages), diff(a,b), alert(level,message), log(entry).",
+  "TOOL SCHEMAS: search -> {query:string, limit?:int}; fetch -> {id:string}; summarize -> {doc:string};",
+  "rank -> {passages:string[]}; diff -> {a:string, b:string}; alert -> {level:enum, message:string}; log -> {entry:string}.",
+].join("\n");
+
+const CHAT_SESSION_PREFIX = [
+  "You are a careful, friendly assistant for a productivity app. Keep answers short and correct.",
+  "House style: plain language, no hedging, cite sources when asked, never invent facts, admit uncertainty.",
+  "You remember the whole conversation, follow the user's formatting requests, and keep a consistent persona.",
+  "Safety: decline harmful requests briefly; do not give medical, legal or financial advice beyond general info.",
+].join("\n");
+
+function sessionCase(prefix: string, suffix: string): string {
+  return `${prefix}\n\n${suffix}`;
+}
+
+FIXTURES["agent-session"] = {
+  id: "agent-session",
+  description: "Always-on/autonomous agent requests with a large stable system+tools prefix cached across the session.",
+  evaluator: "classification",
+  shape: "always-on-agent",
+  cases: Array.from({ length: 8 }, (_unused, index) => ({
+    id: `sess-${index + 1}`,
+    input: sessionCase(
+      AGENT_SESSION_PREFIX,
+      [
+        index % 2 === 0 ? "USER: is the orders service healthy right now?" : "USER: should we escalate the billing incident?",
+        "TOOL fetch(orders/status) -> error_rate=4.2%, p95_latency_ms=820, window=15m, degraded=true",
+        "TOOL diff(baseline,current) -> error_rate +3.1pp, latency +300ms; inventory nominal; billing nominal",
+        "TOOL log(entry) -> appended incident note #4471 to the running session log",
+        "Assess the tool results and answer in exactly one word.",
+      ].join("\n"),
+    ),
+    expected: index % 2 === 0 ? "healthy" : "escalate",
+    inputPerMillionUsd: 3,
+  })),
+};
+
+FIXTURES["chat-session"] = {
+  id: "chat-session",
+  description: "Chat requests with a stable system prompt cached across the conversation and a short fresh user turn.",
+  evaluator: "classification",
+  shape: "always-on-agent",
+  cases: Array.from({ length: 8 }, (_unused, index) => ({
+    id: `csess-${index + 1}`,
+    input: sessionCase(
+      CHAT_SESSION_PREFIX,
+      [
+        "ASSISTANT: Earlier I helped you draft the Q3 summary, set three reminders, and outline the deck.",
+        "USER: thanks, that was useful. I have a couple more follow-ups after this.",
+        "ASSISTANT: Of course — go ahead.",
+        index % 2 === 0 ? "USER: quick factual check: is water wet? answer yes or no." : "USER: quick factual check: is fire cold? answer yes or no.",
+      ].join("\n"),
+    ),
+    expected: index % 2 === 0 ? "yes" : "no",
     inputPerMillionUsd: 3,
   })),
 };

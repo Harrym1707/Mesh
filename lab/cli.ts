@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LabLedger } from "./ledger.js";
 import { runContinuous, runToQuiescence, step } from "./orchestrator.js";
+import { fleetSavings } from "./workloads.js";
 import type { OptimisationRecord } from "./types.js";
 
 const DEFAULT_ROOT = "lab/ledger";
@@ -48,6 +49,19 @@ function printStatus(ledger: LabLedger): void {
         `${lever.measuredCostReductionPercent.toFixed(1)}% cost, quality drop ${(lever.measuredQualityDelta * 100).toFixed(2)}%`,
     );
   }
+  const fleet = fleetSavings(ledger);
+  console.log(`\n% SAVED FOR THE END USER — ${fleet.fleetPercentSaved.toFixed(1)}% blended across the consumer workload mix`);
+  console.log(`  (Mesh-addressable spend: ${(fleet.addressableShare * 100).toFixed(0)}%, parked: ${(fleet.parkedShare * 100).toFixed(0)}% — weights are an illustrative ESTIMATE)`);
+  for (const w of fleet.workloads) {
+    const tag =
+      w.addressable === "parked-advisory-only"
+        ? "PARKED (advisory only)"
+        : w.savingsPercent > 0
+          ? `${w.savingsPercent.toFixed(1)}% saved (${w.bestLeverId})`
+          : "0% — no proven lever yet";
+    console.log(`  ${(w.spendShare * 100).toFixed(0).padStart(3)}% spend  ${w.label.padEnd(34)} ${tag}`);
+  }
+
   const coverage = ledger.coverageByShape();
   console.log(`\nCoverage by workload vertical (agentic first):`);
   for (const shape of ["always-on-agent", "autonomous-agent", "one-shot"] as const) {

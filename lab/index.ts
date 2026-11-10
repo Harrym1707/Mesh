@@ -5,6 +5,7 @@ export * from "./permissions.js";
 export * from "./registry.js";
 export * from "./fixtures.js";
 export * from "./catalog.js";
+export * from "./workloads.js";
 export * from "./ledger.js";
 export * from "./orchestrator.js";
 export { scoutDispatch } from "./agents/scout.js";

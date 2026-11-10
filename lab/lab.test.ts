@@ -13,6 +13,7 @@ import {
   checkAvoidsCustomerAppChanges,
   DEFAULT_MAX_QUALITY_DEGRADATION,
 } from "./constraints.js";
+import { fleetSavings } from "./workloads.js";
 import type { OptimisationLead } from "./types.js";
 
 let root: string;
@@ -260,6 +261,28 @@ describe("agentic workflows", () => {
     const result = scoutDispatch(ledger, { now, count: 1 });
     const picked = ledger.getRecord(result.created[0]!)!;
     expect(picked.lead!.shape).not.toBe("one-shot");
+  });
+});
+
+describe("fleet % saved for the end user", () => {
+  it("rolls the promoted portfolio into a blended saving across the consumer mix", () => {
+    const ledger = new LabLedger(root, { now });
+    runToQuiescence(ledger, { now });
+    const fleet = fleetSavings(ledger);
+
+    expect(fleet.fleetPercentSaved).toBeGreaterThan(10);
+    const byDomain = Object.fromEntries(fleet.workloads.map((w) => [w.domain, w]));
+    // The biggest token-billed consumer workloads show proven savings.
+    expect(byDomain.chat.savingsPercent).toBeGreaterThan(0);
+    expect(byDomain["coding-agent"].savingsPercent).toBeGreaterThan(0);
+    expect(byDomain["always-on-agent"].savingsPercent).toBeGreaterThan(0);
+    // Image/video are parked, not addressed (founder decision), never faked.
+    expect(byDomain["image-gen"].addressable).toBe("parked-advisory-only");
+    expect(byDomain["image-gen"].savingsPercent).toBe(0);
+    // Reasoning is the acknowledged output-side frontier: 0% proven so far.
+    expect(byDomain.reasoning.savingsPercent).toBe(0);
+    // Spend weights are a coherent mix.
+    expect(fleet.workloads.reduce((s, w) => s + w.spendShare, 0)).toBeCloseTo(1, 5);
   });
 });
 
