@@ -20,7 +20,7 @@ import { recomputeInvoice } from "../../core/src/savings-ledger.js";
 import { groupWorkflowSessions } from "../../core/src/workflow-sessions.js";
 import { policyCoverage, withheldLevers } from "../../sdk-js/src/theo-policy.js";
 import { defaultTheoMemoryPath, loadTheoMemory } from "../../sdk-js/src/theo-agent-store.js";
-import { BUILD_COMMIT, DEFAULT_PORT, MESH_HOME, readLedger, readPolicy } from "./start.js";
+import { BUILD_COMMIT, DEFAULT_PORT, MESH_HOME, readLedger, readPolicy, readPolicyBundle } from "./start.js";
 
 type DashArgs = { port: number; proxyPort: number; ledgerDir: string; open: boolean };
 
@@ -62,8 +62,15 @@ function proxyUp(port: number): Promise<boolean> {
 async function buildData(args: DashArgs): Promise<unknown> {
   const { records, chainOk, brokenAt } = readLedger(args.ledgerDir);
   const invoice = records.length ? recomputeInvoice(records.map((r) => r.event)) : null;
-  const policy = readPolicy();
+  const bundle = readPolicyBundle();
+  const policy = bundle.default;
   const active = (policy.levers ?? []).map((l) => ({ lever: l.lever, class: l.class }));
+  // Per-route overrides (empty for a single-policy user): each route's matcher,
+  // its own ceiling, and how many levers it has live vs held.
+  const routes = (bundle.routes ?? []).map((r) => {
+    const cov = policyCoverage(r);
+    return { route: r.route ?? "*", qualityCeilingPercent: r.qualityCeilingPercent, activeCount: cov.activeCount, heldCount: cov.heldCount };
+  });
   // Theo's memory (proposals awaiting approval, levers auto-rolled-back on drift)
   // lives beside the ledger; absent until Theo has run at least once.
   const memory = loadTheoMemory(defaultTheoMemoryPath(args.ledgerDir, "local"));
@@ -92,6 +99,7 @@ async function buildData(args: DashArgs): Promise<unknown> {
       active,
       withheld: withheldLevers(policy),
       coverage: policyCoverage(policy),
+      routes,
       proposals: memory?.proposals ?? [],
       rolledBack: memory?.rolledBack ?? [],
     },
@@ -236,6 +244,8 @@ const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8">
       <div id="proposals"><span class="empty">none</span></div>
       <p class="sub" style="margin-top:14px">Auto-rolled-back after drift</p>
       <div id="rolledback"><span class="empty">none</span></div>
+      <p class="sub" style="margin-top:14px">Per-route policies</p>
+      <div id="routes"><span class="empty">one policy for all routes</span></div>
       <div class="ceiling" id="ceiling"></div>
     </div>
     <div class="panel">
@@ -286,6 +296,7 @@ async function tick(){
     $('withheld').innerHTML=d.theo.withheld.length?d.theo.withheld.map(w=>'<span class="chip held" title="'+(w.reason||'')+'">'+w.lever+'</span>').join(''):'<span class="empty">nothing held</span>';
     $('proposals').innerHTML=(d.theo.proposals&&d.theo.proposals.length)?d.theo.proposals.map(p=>'<span class="chip held" title="'+(p.message||'')+'">'+p.lever+' · ~'+p.savingPercent.toFixed(1)+'%</span>').join(''):'<span class="empty">none</span>';
     $('rolledback').innerHTML=(d.theo.rolledBack&&d.theo.rolledBack.length)?d.theo.rolledBack.map(l=>'<span class="chip held">'+l+'</span>').join(''):'<span class="empty">none</span>';
+    $('routes').innerHTML=(d.theo.routes&&d.theo.routes.length)?d.theo.routes.map(r=>'<span class="chip on" title="'+r.activeCount+' live · '+r.heldCount+' held">'+r.route+'<span class="k"> · ≤'+r.qualityCeilingPercent+'%</span></span>').join(''):'<span class="empty">one policy for all routes</span>';
     $('ceiling').textContent='Quality ceiling: '+d.theo.qualityCeilingPercent+'% — anything that could cost more than this stays off until a replay of your traffic proves it safe.';
     const rows=d.lineItems;
     $('levers').innerHTML=rows.length?rows.map(li=>'<tr><td>'+li.leverId+'</td><td class="k">'+li.kind+(li.basis?' · '+li.basis:'')+'</td><td class="num">'+li.events+'</td><td class="num">$'+usd(li.savedUsd)+'</td></tr>').join(''):'<tr><td colspan="4" class="empty">No billable savings yet — run Claude Code through MESH and this fills in.</td></tr>';

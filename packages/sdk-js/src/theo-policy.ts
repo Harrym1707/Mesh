@@ -165,6 +165,93 @@ export function leverToReductionConfig(lever: TheoLever): MeshTokenReductionConf
   return config;
 }
 
+/**
+ * A bundle of policies for one user: a DEFAULT policy plus zero or more
+ * route-specific overrides. A "route" is matched against the request's model id,
+ * so a user can run a strict ceiling on their agent's planning model and a looser
+ * one on a cheap summariser — each route carries its OWN ceiling, levers and
+ * proofs, and the hard cap (`MAX_QUALITY_CEILING_PERCENT`) still binds every one.
+ *
+ * Back-compatible: a stored single `TheoPolicy` is read as a bundle whose default
+ * is that policy and whose route list is empty (`asBundle`), so existing policy
+ * files and the single-policy enforcement path keep working unchanged.
+ */
+export type TheoPolicyBundle = {
+  schemaVersion: 1;
+  user: string;
+  /** Applied to any request whose model id matches no route. */
+  default: TheoPolicy;
+  /** Route-specific policies; each MUST carry a `route` matcher. First match wins. */
+  routes?: TheoPolicy[];
+  updatedAt: string;
+};
+
+/**
+ * Whether a route matcher applies to a model id. Three forms, deliberately small:
+ * - `"*"` or `""` — matches every model (a catch-all route).
+ * - a trailing `*` — prefix match (`"claude-*"` matches `"claude-sonnet-5-5"`).
+ * - anything else — an exact model-id match.
+ * No regex: a policy file is config a user hand-edits, so matching stays obvious.
+ */
+export function routeMatches(pattern: string, modelId: string): boolean {
+  if (pattern === "*" || pattern === "") return true;
+  if (pattern.endsWith("*")) return modelId.startsWith(pattern.slice(0, -1));
+  return pattern === modelId;
+}
+
+/** Is this stored value a bundle (has a `default` policy) rather than a single policy? */
+export function isPolicyBundle(value: unknown): value is TheoPolicyBundle {
+  return typeof value === "object" && value !== null && "default" in value &&
+    typeof (value as { default?: unknown }).default === "object";
+}
+
+/**
+ * Normalise a stored document to a bundle. A single `TheoPolicy` becomes a bundle
+ * with that policy as its default and no routes; a bundle passes through. One read
+ * path for both the legacy single-policy file and the new per-route bundle.
+ */
+export function asBundle(stored: TheoPolicy | TheoPolicyBundle): TheoPolicyBundle {
+  if (isPolicyBundle(stored)) return stored;
+  const policy = stored as TheoPolicy;
+  return { schemaVersion: 1, user: policy.user, default: policy, updatedAt: policy.updatedAt };
+}
+
+/**
+ * The policy governing a given model id: the FIRST route whose matcher applies,
+ * else the bundle's default. Order in `routes` is the precedence, so put specific
+ * matchers before catch-alls.
+ */
+export function policyForRoute(bundle: TheoPolicyBundle, modelId: string): TheoPolicy {
+  for (const route of bundle.routes ?? []) {
+    if (route.route !== undefined && routeMatches(route.route, modelId)) return route;
+  }
+  return bundle.default;
+}
+
+/**
+ * The reduction config the proxy enforces for a given model id under a bundle.
+ * Routes through `policyForRoute` then the single-policy enforcement gate, so the
+ * per-route ceiling and every safety guarantee (proof required, hard cap) apply to
+ * the SELECTED route exactly as they do to a single policy.
+ */
+export function bundleToReductionConfig(bundle: TheoPolicyBundle, modelId: string): MeshTokenReductionConfig {
+  return policyToReductionConfig(policyForRoute(bundle, modelId));
+}
+
+/**
+ * Insert or replace a route policy in a bundle, returning a NEW bundle (never
+ * mutating the input). The policy must carry a `route`; a policy for an existing
+ * route replaces it, matched by the exact matcher string.
+ */
+export function upsertRoutePolicy(bundle: TheoPolicyBundle, policy: TheoPolicy, at: string): TheoPolicyBundle {
+  if (policy.route === undefined || policy.route === "") {
+    throw new Error("Refusing to add a route policy without a `route` matcher.");
+  }
+  const routes = (bundle.routes ?? []).filter((existing) => existing.route !== policy.route);
+  routes.push(policy);
+  return { ...bundle, routes, updatedAt: at };
+}
+
 /** The lossy levers present in the policy but NOT enforced, with the reason — for Theo's UX. */
 export function withheldLevers(policy: TheoPolicy): WithheldLever[] {
   const out: WithheldLever[] = [];

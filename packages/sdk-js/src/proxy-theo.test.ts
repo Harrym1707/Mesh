@@ -58,6 +58,15 @@ async function post(proxy: MeshProxy, app: string): Promise<void> {
   await res.arrayBuffer();
 }
 
+async function postModel(proxy: MeshProxy, app: string, model: string): Promise<void> {
+  const res = await fetch(`${proxy.url}/v1/messages`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-api-key": "caller-key", "x-mesh-application": app },
+    body: JSON.stringify({ ...(toolHeavyRequest() as AnyObject), model }),
+  });
+  await res.arrayBuffer();
+}
+
 describe("proxy — Theo policy hot-reload", () => {
   let proxy: MeshProxy | undefined;
   let upstream: { server: Server; url: string } | undefined;
@@ -86,6 +95,28 @@ describe("proxy — Theo policy hot-reload", () => {
 
     // The forwarded request shrank once the new policy was live — no restart.
     expect(secondSize).toBeLessThan(firstSize);
+  });
+
+  it("passes the request's model id to the getter, so reduction is chosen per route", async () => {
+    const seen: AnyObject[] = [];
+    upstream = await stubUpstream(seen);
+    const ledgerDir = mkdtempSync(join(tmpdir(), "mesh-route-"));
+    // A route-aware getter: trim tool-schema descriptions ONLY for the cheap model,
+    // leave the planning model untouched — exactly a per-route policy bundle.
+    proxy = await startMeshProxy({
+      ledgerDirectory: ledgerDir,
+      anthropicUpstream: upstream.url,
+      openaiUpstream: upstream.url,
+      tokenReduction: (modelId) =>
+        modelId === "claude-haiku-5-5" ? { toolSchemas: { descriptions: "truncate" } } : {},
+    });
+
+    await postModel(proxy, "app-route", "claude-sonnet-5-5"); // planning route: no trim
+    const planningSize = JSON.stringify(seen.at(-1)).length;
+    await postModel(proxy, "app-route", "claude-haiku-5-5"); // cheap route: trimmed
+    const cheapSize = JSON.stringify(seen.at(-1)).length;
+
+    expect(cheapSize).toBeLessThan(planningSize); // the same payload shrank only on the routed model
   });
 });
 

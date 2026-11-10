@@ -33,7 +33,7 @@ import { join } from "node:path";
 // client surface: proxy + reducer + ledger + Theo policy.
 import { recomputeInvoice, verifyLedgerChain, type LedgerRecord } from "../../core/src/savings-ledger.js";
 import { startMeshProxy } from "../../sdk-js/src/proxy.js";
-import { defaultPolicy, policyToReductionConfig, withheldLevers, type TheoPolicy } from "../../sdk-js/src/theo-policy.js";
+import { asBundle, bundleToReductionConfig, defaultPolicy, policyToReductionConfig, withheldLevers, type TheoPolicy, type TheoPolicyBundle } from "../../sdk-js/src/theo-policy.js";
 import type { TheoAutonomyLevel } from "../../sdk-js/src/theo-agent.js";
 import { parseDuration, startBackgroundTheo } from "./theo.js";
 // Pure formatter module (no core imports) — reused so the signup URL and the
@@ -56,12 +56,22 @@ export const DEFAULT_PORT = 8787;
  * startProxyWithPolicy is separate because it writes the default on first run.
  */
 export function readPolicy(): TheoPolicy {
+  return readPolicyBundle().default;
+}
+
+/**
+ * Read the user's full policy bundle (default + per-route overrides), normalising
+ * a legacy single-policy file into a bundle. The DEFAULT (STRICT, lossless-only)
+ * when none exists yet or the file is unreadable.
+ */
+export function readPolicyBundle(): TheoPolicyBundle {
   const path = join(MESH_HOME, "theo-policy.json");
-  if (!existsSync(path)) return defaultPolicy("local", new Date().toISOString());
+  const fallback = (): TheoPolicyBundle => asBundle(defaultPolicy("local", new Date().toISOString()));
+  if (!existsSync(path)) return fallback();
   try {
-    return JSON.parse(readFileSync(path, "utf8")) as TheoPolicy;
+    return asBundle(JSON.parse(readFileSync(path, "utf8")) as TheoPolicy | TheoPolicyBundle);
   } catch {
-    return defaultPolicy("local", new Date().toISOString());
+    return fallback();
   }
 }
 
@@ -263,18 +273,21 @@ export async function startProxyWithPolicy(
   // so proven levers take effect without restarting the proxy. mtime-cached so a
   // request never re-parses the file needlessly; the last good config is kept on
   // any read/parse error, so a mid-write or bad file can't break the request path.
-  let cached = { mtimeMs: -1, config: policyToReductionConfig(policy) };
-  const liveReduction = (): ReturnType<typeof policyToReductionConfig> => {
+  // mtime-cache the parsed BUNDLE (default + per-route overrides); the per-route
+  // config for a given model id is resolved per request from the cached bundle, so
+  // routing costs nothing beyond a map lookup once the file is parsed.
+  let cached = { mtimeMs: -1, bundle: asBundle(policy) };
+  const liveReduction = (modelId?: string): ReturnType<typeof policyToReductionConfig> => {
     try {
       const mtimeMs = statSync(policyPath).mtimeMs;
       if (mtimeMs !== cached.mtimeMs) {
-        const current = JSON.parse(readFileSync(policyPath, "utf8")) as TheoPolicy;
-        cached = { mtimeMs, config: policyToReductionConfig(current) };
+        const current = JSON.parse(readFileSync(policyPath, "utf8")) as TheoPolicy | TheoPolicyBundle;
+        cached = { mtimeMs, bundle: asBundle(current) };
       }
     } catch {
-      // keep the last good config
+      // keep the last good bundle
     }
-    return cached.config;
+    return bundleToReductionConfig(cached.bundle, modelId ?? "");
   };
   const proxy = await startMeshProxy({
     port,

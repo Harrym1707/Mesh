@@ -7,8 +7,16 @@ import {
   policyCoverage,
   knownLeverIds,
   ENFORCEABLE_LEVERS,
+  routeMatches,
+  isPolicyBundle,
+  asBundle,
+  policyForRoute,
+  bundleToReductionConfig,
+  upsertRoutePolicy,
   type TheoPolicy,
+  type TheoPolicyBundle,
   type TheoLever,
+  type TheoGateProof,
 } from "./theo-policy.js";
 
 const AT = "2026-10-29T00:00:00.000Z";
@@ -136,5 +144,80 @@ describe("policyCoverage", () => {
     const ttl = coverage.stands.find((s) => s.lever === "cache-ttl")!;
     expect(ttl.state).toBe("active");
     expect(coverage.activeCount).toBe(1); // not two, despite two TTL ids existing
+  });
+});
+
+describe("per-route policy bundles", () => {
+  const proven = (y: number): TheoGateProof => ({ savingPercent: 20, qualityDeltaPercent: y, grader: "tests", provenAt: AT });
+
+  it("routeMatches: exact, trailing-* prefix, and catch-all", () => {
+    expect(routeMatches("claude-sonnet-5-5", "claude-sonnet-5-5")).toBe(true);
+    expect(routeMatches("claude-sonnet-5-5", "claude-haiku-5-5")).toBe(false);
+    expect(routeMatches("claude-*", "claude-haiku-5-5")).toBe(true);
+    expect(routeMatches("claude-*", "gpt-4o")).toBe(false);
+    expect(routeMatches("*", "anything")).toBe(true);
+    expect(routeMatches("", "anything")).toBe(true);
+  });
+
+  it("asBundle wraps a single policy; isPolicyBundle discriminates the two", () => {
+    const single = defaultPolicy("u", AT);
+    expect(isPolicyBundle(single)).toBe(false);
+    const bundle = asBundle(single);
+    expect(isPolicyBundle(bundle)).toBe(true);
+    expect(bundle.default).toBe(single);
+    expect(bundle.routes).toBeUndefined();
+    expect(asBundle(bundle)).toBe(bundle); // a bundle passes straight through
+  });
+
+  it("policyForRoute returns the FIRST matching route, else the default", () => {
+    const def = defaultPolicy("u", AT);
+    const cheap: TheoPolicy = { ...def, route: "claude-haiku-5-5", qualityCeilingPercent: 5 };
+    const anyClaude: TheoPolicy = { ...def, route: "claude-*", qualityCeilingPercent: 3 };
+    const bundle: TheoPolicyBundle = { schemaVersion: 1, user: "u", default: def, routes: [cheap, anyClaude], updatedAt: AT };
+    expect(policyForRoute(bundle, "claude-haiku-5-5")).toBe(cheap);   // specific wins (listed first)
+    expect(policyForRoute(bundle, "claude-sonnet-5-5")).toBe(anyClaude); // falls to the prefix route
+    expect(policyForRoute(bundle, "gpt-4o")).toBe(def);               // no route → default
+  });
+
+  it("enforces the SELECTED route's levers — a lever proven for one route does not leak to another", () => {
+    const def = defaultPolicy("u", AT); // lossless-only
+    const loose: TheoPolicy = {
+      ...def, route: "claude-haiku-5-5", qualityCeilingPercent: 4,
+      levers: [...def.levers, { lever: "output-effort-low", class: "lossy", gate: proven(-1) }],
+    };
+    const bundle: TheoPolicyBundle = { schemaVersion: 1, user: "u", default: def, routes: [loose], updatedAt: AT };
+    // The route that proved the lossy lever gets it...
+    expect(bundleToReductionConfig(bundle, "claude-haiku-5-5").outputEffort).toBe("low");
+    // ...a different model falls to the default policy and does NOT.
+    expect(bundleToReductionConfig(bundle, "claude-sonnet-5-5").outputEffort).toBeUndefined();
+  });
+
+  it("each route carries its OWN ceiling, and the hard cap still binds every route", () => {
+    const def = defaultPolicy("u", AT);
+    // ceiling 2 withholds a 3% drop; same lever clears on a route whose ceiling is 4
+    const strict: TheoPolicy = { ...def, route: "gpt-4o", qualityCeilingPercent: 2,
+      levers: [{ lever: "output-effort-low", class: "lossy", gate: proven(-3) }] };
+    const loose: TheoPolicy = { ...strict, route: "claude-*", qualityCeilingPercent: 4 };
+    // and the hard cap (5%) overrides a route that sets an absurd ceiling
+    const reckless: TheoPolicy = { ...strict, route: "claude-opus-5-5", qualityCeilingPercent: 50,
+      levers: [{ lever: "output-effort-low", class: "lossy", gate: proven(-6) }] };
+    // specific routes before the catch-all prefix (first match wins)
+    const bundle: TheoPolicyBundle = { schemaVersion: 1, user: "u", default: def, routes: [strict, reckless, loose], updatedAt: AT };
+    expect(bundleToReductionConfig(bundle, "gpt-4o").outputEffort).toBeUndefined(); // 3% > 2% route ceiling
+    expect(bundleToReductionConfig(bundle, "claude-sonnet-5-5").outputEffort).toBe("low"); // 3% ≤ 4%
+    expect(bundleToReductionConfig(bundle, "claude-opus-5-5").outputEffort).toBeUndefined(); // 6% > hard cap 5%
+  });
+
+  it("upsertRoutePolicy adds then replaces a route, never mutating the input, and refuses a routeless policy", () => {
+    const bundle = asBundle(defaultPolicy("u", AT));
+    const r1: TheoPolicy = { ...bundle.default, route: "gpt-4o", qualityCeilingPercent: 3 };
+    const added = upsertRoutePolicy(bundle, r1, "2026-10-29T02:00:00.000Z");
+    expect(added.routes).toHaveLength(1);
+    expect(bundle.routes).toBeUndefined(); // input untouched
+    const r2: TheoPolicy = { ...r1, qualityCeilingPercent: 1 };
+    const replaced = upsertRoutePolicy(added, r2, "2026-10-29T03:00:00.000Z");
+    expect(replaced.routes).toHaveLength(1); // replaced, not appended
+    expect(replaced.routes![0]?.qualityCeilingPercent).toBe(1);
+    expect(() => upsertRoutePolicy(bundle, bundle.default, AT)).toThrow(/route/);
   });
 });

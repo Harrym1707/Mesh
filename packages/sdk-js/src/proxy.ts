@@ -48,8 +48,12 @@ export type MeshProxyOptions = {
    * Reduction config applied to every proxied request. Pass a getter instead of
    * a fixed config to have it re-read per request, so a policy Theo publishes
    * takes effect without restarting the proxy (hot-reload). Lossless-only default.
+   *
+   * The getter receives the request's model id, so a route-aware policy bundle can
+   * return a different config per route (per-route ceilings and levers). A getter
+   * that ignores the argument keeps the single-policy behaviour.
    */
-  tokenReduction?: MeshTokenReductionConfig | (() => MeshTokenReductionConfig);
+  tokenReduction?: MeshTokenReductionConfig | ((modelId?: string) => MeshTokenReductionConfig);
   /** Override upstreams, e.g. a mock in tests or an OpenAI-compatible host. */
   anthropicUpstream?: string;
   openaiUpstream?: string;
@@ -256,15 +260,15 @@ export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
   // turns, a measured live loss otherwise), so keep ONE instance and merge it
   // into whatever policy is current.
   const reductionOption = options.tokenReduction;
-  const resolveBaseReduction: () => MeshTokenReductionConfig =
+  const resolveBaseReduction: (modelId?: string) => MeshTokenReductionConfig =
     typeof reductionOption === "function"
       ? reductionOption
       : () => reductionOption ?? LOSSLESS_DEFAULT;
   let volatilityGuard: CachePrefixVolatilityGuard | undefined;
-  const currentReduction = (): MeshTokenReductionConfig => {
+  const currentReduction = (modelId?: string): MeshTokenReductionConfig => {
     let base: MeshTokenReductionConfig;
     try {
-      base = resolveBaseReduction() ?? LOSSLESS_DEFAULT;
+      base = resolveBaseReduction(modelId) ?? LOSSLESS_DEFAULT;
     } catch {
       base = LOSSLESS_DEFAULT; // a bad policy file must never break the request path
     }
@@ -441,8 +445,10 @@ export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
     }
 
     // Reduce. reduceRequest never throws; a failure returns the original.
-    // currentReduction() resolves the latest policy (hot-reload) per request.
-    const { request: reducedRequest, summary } = reduceRequest(body, currentReduction());
+    // currentReduction() resolves the latest policy (hot-reload) per request,
+    // selecting the route by the request's model id for per-route policies.
+    const requestModelId = typeof body.model === "string" ? body.model : undefined;
+    const { request: reducedRequest, summary } = reduceRequest(body, currentReduction(requestModelId));
     const sendBody = JSON.stringify(reducedRequest);
     const applicationIdHeader = req.headers["x-mesh-application"];
     const applicationId = ((Array.isArray(applicationIdHeader) ? applicationIdHeader[0] : applicationIdHeader) ?? "proxy").slice(0, 128);
