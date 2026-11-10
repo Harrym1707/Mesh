@@ -69,6 +69,25 @@ export type MeshTokenReductionConfig = {
     descriptions?: "keep" | "truncate" | "drop";
     maximumDescriptionTokens?: number;
   };
+  /**
+   * Drop whole tool definitions by name — the "unused-tool removal" lever. A
+   * typical MCP server exposes 20-30 tools at 300-500 tokens each, and six
+   * connected servers run to 60,000-90,000 tokens of catalogue PER request; a
+   * workload that only ever calls a handful pays for all of them every turn.
+   * Each named tool is removed from the catalogue (Anthropic `{name}` and OpenAI
+   * `{type:"function",function:{name}}` shapes alike) before schema minification
+   * runs on the survivors. Past tool_use/tool_result turns in the history are
+   * untouched — providers do not require a tool's definition to be present to
+   * replay its earlier calls.
+   *
+   * LOSSY: removing a tool removes the model's ability to call it, so this holds
+   * ONLY where the tool is genuinely unreachable for the workload. The names are
+   * never guessed — they come from an operator who knows their workload (Theo is
+   * content-blind and cannot read tool names) and must clear a replay gate on the
+   * customer's own traffic before any saving is billed. Off by default; an empty
+   * or absent list is a no-op, and a name not present is skipped.
+   */
+  dropTools?: string[];
   /** Remove exact duplicate blocks from instructions and message text. */
   duplicateContext?: boolean;
   /**
@@ -952,6 +971,35 @@ export function reduceRequest(
     };
     const before = measure(next.instructions) + measure(next.system) + measure(next.input) +
       measure(next.messages) + measure(next.tools);
+
+    // Unused-tool removal. Drop whole named tool definitions BEFORE minification,
+    // so only the surviving catalogue is compacted. Lossy and operator-named.
+    if (Array.isArray(next.tools) && next.tools.length > 0 && Array.isArray(config.dropTools) && config.dropTools.length > 0) {
+      const drop = new Set(config.dropTools.filter((name): name is string => typeof name === "string"));
+      if (drop.size > 0) {
+        const nameOf = (tool: unknown): string | undefined => {
+          if (!isPlainObject(tool)) return undefined;
+          if (typeof tool.name === "string") return tool.name; // Anthropic + OpenAI Responses
+          if (isPlainObject(tool.function) && typeof tool.function.name === "string") return tool.function.name; // OpenAI Chat
+          return undefined;
+        };
+        const toolsBefore = measure(next.tools);
+        const kept = (next.tools as unknown[]).filter((tool) => { const name = nameOf(tool); return name === undefined || !drop.has(name); });
+        const removed = (next.tools as unknown[]).length - kept.length;
+        if (removed > 0) {
+          next.tools = kept;
+          const saved = toolsBefore - measure(next.tools);
+          if (saved > 0) {
+            changes.push({
+              lever: "unused-tool-removal",
+              lossless: false,
+              estimatedTokensSaved: saved,
+              detail: `Removed ${removed} tool definition(s) the workload does not call; proven on your traffic before billing.`,
+            });
+          }
+        }
+      }
+    }
 
     // Tool catalogue. Lossless unless the caller opts into description trimming.
     if (Array.isArray(next.tools) && next.tools.length > 0 && config.toolSchemas !== false) {

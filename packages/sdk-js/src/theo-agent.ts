@@ -186,6 +186,18 @@ const ENFORCEABLE_BY_CONCEPT: Record<string, { lever: string; class: TheoLeverCl
  * a frontier gap. `prefix-caching` is delivered by the active cache-prefix-repair. */
 const ALREADY_COVERED_CONCEPTS = new Set(["prefix-caching"]);
 
+/**
+ * Concepts that HAVE an enforceable lever but that Theo cannot author himself,
+ * because filling the lever's parameters needs content he is blind to (e.g. tool
+ * names). These stay on the frontier — Theo surfaces the opportunity with the
+ * exact operator step to enable it, rather than claiming new code is needed.
+ */
+const OPERATOR_CONFIGURED_CONCEPTS: Record<string, string> = {
+  "unused-tool-removal":
+    "An enforceable lever now exists (`unused-tool-removal`). Theo is content-blind and cannot name the tools, " +
+    "so enable it with the tool names your workload never calls — the replay gate proves it on your traffic before billing.",
+};
+
 /** The lossy enforceable lever ids Theo can prove and adopt. */
 const ENFORCEABLE_LOSSY = new Set(
   Object.values(ENFORCEABLE_BY_CONCEPT)
@@ -283,7 +295,8 @@ function hypothesise(
       frontier.push({
         concept: contribution.lever,
         priorSharePercent: contribution.sharePercent,
-        note: "Opportunity with no enforceable proxy lever yet — needs new reduction code or an app-side change.",
+        note: OPERATOR_CONFIGURED_CONCEPTS[contribution.lever]
+          ?? "Opportunity with no enforceable proxy lever yet — needs new reduction code or an app-side change.",
       });
       continue;
     }

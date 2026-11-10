@@ -75,6 +75,24 @@ describe("Theo policy", () => {
     expect(withheldLevers(p)).toHaveLength(0);
   });
 
+  it("unused-tool-removal: maps the tool names to dropTools, but only with a gate proof within the ceiling", () => {
+    const names = ["delete_record", "send_email"];
+    // No proof → withheld (lossy), dropTools never set.
+    const noProof: TheoPolicy = { ...defaultPolicy("u", AT),
+      levers: [{ lever: "unused-tool-removal", class: "lossy", params: { tools: names } }] };
+    expect(policyToReductionConfig(noProof).dropTools).toBeUndefined();
+    expect(withheldLevers(noProof)[0]?.reason).toContain("no gate proof");
+    // Proof within the ceiling → dropTools carries the operator's names.
+    const proven: TheoPolicy = { ...defaultPolicy("u", AT), qualityCeilingPercent: 2,
+      levers: [{ lever: "unused-tool-removal", class: "lossy", params: { tools: names },
+        gate: { savingPercent: 40, qualityDeltaPercent: -0.2, grader: "task-completion", provenAt: AT } }] };
+    expect(policyToReductionConfig(proven).dropTools).toEqual(names);
+    // An empty name list maps to nothing even with a proof (no tools to drop).
+    const emptyNames: TheoPolicy = { ...proven,
+      levers: [{ ...proven.levers[0]!, params: { tools: [] } }] };
+    expect(policyToReductionConfig(emptyNames).dropTools).toBeUndefined();
+  });
+
   it("maps params for parameterised levers", () => {
     const p: TheoPolicy = {
       ...defaultPolicy("u", AT),

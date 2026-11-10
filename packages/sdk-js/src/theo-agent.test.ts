@@ -82,10 +82,16 @@ describe("Theo agent — hypothesise and the frontier", () => {
     const candidateIds = memory.hypotheses.map((h) => h.lever);
     expect(candidateIds).toContain("tool-schema-description-trim");
     expect(memory.hypotheses.every((h) => h.class === "lossy")).toBe(true);
-    // unused-tool-removal / prompt-compression have no enforceable proxy lever yet.
+    // unused-tool-removal stays on the frontier — Theo is content-blind and
+    // cannot name the tools — but now it carries the operator step to enable the
+    // enforceable lever, not "needs new code".
     const frontierConcepts = memory.frontier.map((f) => f.concept);
     expect(frontierConcepts.length).toBeGreaterThan(0);
     expect(candidateIds).not.toContain("unused-tool-removal");
+    const unusedTool = memory.frontier.find((f) => f.concept === "unused-tool-removal");
+    expect(unusedTool).toBeDefined();
+    expect(unusedTool!.note).toContain("enable it with the tool names");
+    expect(unusedTool!.note).not.toContain("needs new reduction code");
   });
 
   it("does not change the policy when it only observes and hypothesises", () => {

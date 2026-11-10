@@ -94,6 +94,13 @@ function applyLever(config: MeshTokenReductionConfig, lever: TheoLever): void {
         ...(typeof p.maximumDescriptionTokens === "number" ? { maximumDescriptionTokens: p.maximumDescriptionTokens } : {}),
       };
       return;
+    case "unused-tool-removal": {
+      // Operator-named tools the workload never calls. Lossy: enforced only with
+      // a gate proof (handled by policyToReductionConfig), never guessed.
+      const names = Array.isArray(p.tools) ? p.tools.filter((name): name is string => typeof name === "string") : [];
+      if (names.length > 0) config.dropTools = names;
+      return;
+    }
     case "duplicate-context-removal":
       config.duplicateContext = true;
       return;
@@ -328,7 +335,7 @@ export function defaultPolicy(user: string, at: string): TheoPolicy {
 /** The reducer-lever ids Theo can enforce. */
 export function knownLeverIds(): string[] {
   return [
-    "tool-schema-compaction", "tool-schema-description-trim", "duplicate-context-removal",
+    "tool-schema-compaction", "tool-schema-description-trim", "unused-tool-removal", "duplicate-context-removal",
     "cache-prefix-repair", "stale-history-compaction", "cross-turn-memory-dedup",
     "fresh-tool-result-cap", "output-cap", "execution-tier-flex",
     "cache-ttl-5m", "cache-ttl-1h",
@@ -348,6 +355,7 @@ export type EnforceableLever = { id: string; label: string; members: readonly st
 export const ENFORCEABLE_LEVERS: readonly EnforceableLever[] = [
   { id: "tool-schema-compaction", label: "Tool-schema compaction", members: ["tool-schema-compaction"] },
   { id: "tool-schema-description-trim", label: "Tool-schema description trim", members: ["tool-schema-description-trim"] },
+  { id: "unused-tool-removal", label: "Unused-tool removal", members: ["unused-tool-removal"] },
   { id: "duplicate-context-removal", label: "Duplicate-context removal", members: ["duplicate-context-removal"] },
   { id: "cache-prefix-repair", label: "Cache-prefix repair", members: ["cache-prefix-repair"] },
   { id: "stale-history-compaction", label: "Stale-history compaction", members: ["stale-history-compaction"] },
