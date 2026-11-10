@@ -12,14 +12,14 @@ log it here · commit locally only when green · do not push (left for review).
 
 ### Standing queue (highest value first)
 
-1. **Block-array prefix repair, measured.** Build the volatile-line relocation as
-   a lab-local experimental transform and measure it on the LiteLLM capture with
-   `simulateCache` (expected ≈76% of that session's input bill). Gate-required.
+1. ~~Block-array prefix repair, measured.~~ **Done — iteration 2** (74.8% of the
+   volatile session, SIMULATOR, gate-required).
 2. **Simulated task-completion grader.** Reuse `evals/agent-fixture.ts`
    (`buildAnthropicRequest` + `answer()`, which has real quality consequences) so
    LOSSY levers — description truncation, fresh tool-result cap, history
    compaction, output effort — can run the pipeline with a measured quality
-   delta instead of sitting INCONCLUSIVE. Label the grader as simulated.
+   delta instead of sitting INCONCLUSIVE. Label the grader as simulated. Include
+   a date-anchor probe so the block-array repair gets a quality reading too.
 3. **Paying-shape tier.** Qualify on the repo's uncached agent-fixture sessions
    through `reduceRequest` + `simulateCache` — a third, labelled tier between
    constructed fixtures (upper bound) and the wire captures (floor).
@@ -30,6 +30,34 @@ log it here · commit locally only when green · do not push (left for review).
 6. **Red-team hardening.** Property tests for every reducer: never increases
    tokens, idempotent, preserves fenced code, byte-identical on clean input.
 7. README + floorplan refresh; final report at 24h.
+
+### Iteration 2 — 22:42 · block-array prefix repair, measured on the capture
+
+**Built** `lab/experiments/block-array-repair.ts` (lab-local, NOT in the product):
+relocates volatile lines (timestamps, UUIDs) out of each block-array `system`
+text block into one trailing unstamped block, so the stamped block stays
+byte-identical across turns. Every line survives verbatim; only position
+changes. No-op on a string system, on a system with nothing volatile, and on a
+block that would be left empty; idempotent. Added as a fourth capture arm
+(`blockRepair`) alongside a `GATE_REQUIRED_ARMS` list.
+
+**Measured (SIMULATOR, derived-from-captures).** Volatile LiteLLM session input
+cost $0.1615 → $0.0406, **74.8% saved**, landing within 7% of what the stable
+session already pays. Stable and framework sessions: unchanged. Cost-weighted
+across all six capture sessions: 55.8% — but that figure is carried by one
+session and must not be read as a fleet number.
+
+**Qualification / caveats.**
+- GATE-REQUIRED: it moves a date anchor from the top of the prompt to the end of
+  the system section. Cost effect is measured; quality effect is not. It stays
+  out of the lossless floor (still 0.06%) and cannot be promoted from this harness.
+- The simulator matches by character prefix and bills the post-hit remainder as
+  fresh rather than as a 1.25× write; on this session that under-costs the
+  repaired arm by roughly the message tail (hundreds of tokens against ~7,000).
+- `lab:status` now labels every figure SIMULATOR (none is LIVE), per the
+  standing decision of 2026-10-28, and prints floor / gated / upper bound.
+
+**Verification:** 559 tests green (4 new), `typecheck:lab` clean.
 
 ### Iteration 1 — 21:38 · qualification on real wire captures
 

@@ -296,7 +296,7 @@ export const CATALOG: CatalogEntry[] = [
   {
     title: "Block-array system prefix repair (volatile-line relocation)",
     description:
-      "Found by replaying the real LiteLLM wire capture: a per-request clock at the top of a block-array system prompt makes the customer's own cache stamp pure write premium — the volatile session costs 4.2x the stable one (76.4% of its input bill, derived-from-captures). Mesh's prefix repair only handles a string system today. Relocating the volatile line inside a text block would recover it, but it reorders what the model reads, so it is gate-required.",
+      "Found by replaying the real LiteLLM wire capture: a per-request clock at the top of a block-array system prompt makes the customer's own cache stamp pure write premium — the volatile session costs 4.2x the stable one (76.4% of its input bill, derived-from-captures). Mesh's prefix repair only handles a string system today. The lab-local experiment (lab/experiments/block-array-repair.ts) recovers 74.8% of that session's input bill on the capture (SIMULATOR), but it reorders what the model reads, so it is gate-required.",
     category: "cache-placement",
     bucket: "core",
     techniqueKey: "block-array-prefix-repair",

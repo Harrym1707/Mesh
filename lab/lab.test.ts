@@ -14,7 +14,8 @@ import {
   DEFAULT_MAX_QUALITY_DEGRADATION,
 } from "./constraints.js";
 import { fleetSavings } from "./workloads.js";
-import { qualifyOnCaptures } from "./captures.js";
+import { GATE_REQUIRED_ARMS, qualifyOnCaptures } from "./captures.js";
+import { repairBlockArraySystem } from "./experiments/block-array-repair.js";
 import type { OptimisationLead } from "./types.js";
 
 let root: string;
@@ -319,6 +320,65 @@ describe("qualification on real wire captures", () => {
     const [volatile, stable] = lite;
     // Same prompt, same stamps — a clock at the head of the prefix makes it far dearer.
     expect(volatile!.baselineCostUsd).toBeGreaterThan(stable!.baselineCostUsd * 2);
+  });
+
+  it("block-array repair recovers the volatile session and touches nothing else", () => {
+    const q = qualifyOnCaptures();
+    const [volatile, stable] = q.sessions.filter((s) => s.capture.startsWith("litellm"));
+    expect(volatile!.arms.blockRepair.savingPercent).toBeGreaterThan(60);
+    // It brings the volatile session close to what the stable one already pays.
+    expect(volatile!.arms.blockRepair.costUsd).toBeLessThan(stable!.baselineCostUsd * 1.2);
+    expect(stable!.arms.blockRepair.savingPercent).toBeLessThan(1);
+    for (const session of q.sessions.filter((s) => s.capture.startsWith("frameworks"))) {
+      expect(session.arms.blockRepair.savingPercent).toBeCloseTo(session.arms.stampRepair.savingPercent, 5);
+    }
+    // Gate-required arms are never folded into the lossless floor.
+    expect(GATE_REQUIRED_ARMS).toContain("blockRepair");
+    expect(q.totals.stamp.savingPercent).toBeLessThan(5);
+  });
+});
+
+describe("experiment: block-array system prefix repair", () => {
+  const turn = (clock: string) => ({
+    model: "claude-sonnet-4-5",
+    system: [
+      {
+        type: "text",
+        text: `Current time: ${clock}\nYou are the support agent.\nPolicy 1: verify the tier.`,
+        cache_control: { type: "ephemeral" },
+      },
+    ],
+    messages: [{ role: "user", content: "hi" }],
+  });
+
+  it("keeps the stamped block byte-identical across turns with different clocks", () => {
+    const a = repairBlockArraySystem(turn("2026-10-25T09:00:00Z")).request.system as { text: string }[];
+    const b = repairBlockArraySystem(turn("2026-10-25T09:01:00Z")).request.system as { text: string }[];
+    expect(JSON.stringify(a[0])).toBe(JSON.stringify(b[0]));
+    expect(a[1]!.text).toContain("09:00:00Z");
+    // The relocated block is never stamped.
+    expect("cache_control" in (a[1] as object)).toBe(false);
+  });
+
+  it("preserves every line verbatim — only position changes", () => {
+    const original = turn("2026-10-25T09:00:00Z");
+    const repaired = repairBlockArraySystem(original);
+    const before = original.system.flatMap((block) => block.text.split("\n")).sort();
+    const after = (repaired.request.system as { text: string }[]).flatMap((block) => block.text.split("\n")).sort();
+    expect(after).toEqual(before);
+    expect(repaired.moved).toEqual(["Current time: 2026-10-25T09:00:00Z"]);
+  });
+
+  it("is a no-op when there is nothing to repair, and idempotent when there is", () => {
+    const stringSystem = { system: "Current time: 2026-10-25T09:00:00Z\nrules", messages: [] };
+    expect(repairBlockArraySystem(stringSystem).request).toBe(stringSystem);
+    const stable = { system: [{ type: "text", text: "rules only" }], messages: [] };
+    expect(repairBlockArraySystem(stable).request).toBe(stable);
+    // A block that is ONLY volatile is left alone rather than emptied (an empty text block is a 400).
+    const onlyVolatile = { system: [{ type: "text", text: "Current time: 2026-10-25T09:00:00Z" }], messages: [] };
+    expect(repairBlockArraySystem(onlyVolatile).request).toBe(onlyVolatile);
+    const once = repairBlockArraySystem(turn("2026-10-25T09:00:00Z")).request;
+    expect(repairBlockArraySystem(once).request).toBe(once);
   });
 });
 

@@ -40,12 +40,22 @@ import {
 import type { TokenPrice } from "../packages/core/src/cost.js";
 import { reduceRequest, type MeshTokenReductionConfig } from "../packages/sdk-js/src/reduce-request.js";
 import { CachePrefixVolatilityGuard } from "../packages/sdk-js/src/cache-volatility-guard.js";
+import { repairBlockArraySystem } from "./experiments/block-array-repair.js";
 
 type AnyObject = Record<string, unknown>;
 
 type CaptureRow = { path: string; headers: Record<string, string>; body: AnyObject };
 
-export type CaptureArm = "text" | "stamp" | "stampRepair";
+export type CaptureArm = "text" | "stamp" | "stampRepair" | "blockRepair";
+
+export const CAPTURE_ARMS: CaptureArm[] = ["text", "stamp", "stampRepair", "blockRepair"];
+
+/**
+ * Arms that change the order of what the model reads. Their COST effect is
+ * measured here; their quality effect is not, so they are never part of the
+ * lossless floor and can never be promoted from this harness.
+ */
+export const GATE_REQUIRED_ARMS: CaptureArm[] = ["stampRepair", "blockRepair"];
 
 export type SessionQualification = {
   capture: string;
@@ -78,6 +88,8 @@ const ARM_CONFIG: Record<CaptureArm, MeshTokenReductionConfig> = {
   text: { toolSchemas: true, duplicateContext: true },
   stamp: { toolSchemas: true, duplicateContext: true, cacheTtl: "5m" },
   stampRepair: { toolSchemas: true, duplicateContext: true, cacheTtl: "5m", repairCachePrefix: true },
+  // EXPERIMENT: lab-local block-array repair first, then the product's stamp + string repair.
+  blockRepair: { toolSchemas: true, duplicateContext: true, cacheTtl: "5m", repairCachePrefix: true },
 };
 
 /** Canonical wire serialisation (same shape as evals/agent-fixture.ts wirePrompt). */
@@ -146,11 +158,13 @@ function qualifySession(capture: string, rows: CaptureRow[], spacingSeconds: num
   const baselineCostUsd = sessionCost(rawBodies, baselinePolicy, spacingSeconds);
 
   const arms = {} as SessionQualification["arms"];
-  for (const arm of ["text", "stamp", "stampRepair"] as CaptureArm[]) {
+  for (const arm of CAPTURE_ARMS) {
     const config = ARM_CONFIG[arm];
     // The proxy installs the volatility guard whenever cacheTtl is set; do the same.
     const guard = config.cacheTtl ? new CachePrefixVolatilityGuard() : undefined;
-    const reduced = rawBodies.map(
+    const source =
+      arm === "blockRepair" ? rawBodies.map((body) => repairBlockArraySystem(body).request) : rawBodies;
+    const reduced = source.map(
       (body) => reduceRequest(body, guard ? { ...config, cacheVolatilityGuard: guard } : config).request as AnyObject,
     );
     // Caching applies on Anthropic only when every request in the session ends
@@ -205,7 +219,7 @@ export function qualifyOnCaptures(options: { spacingSeconds?: number } = {}): Ca
 
   const baselineTotal = sessions.reduce((sum, s) => sum + s.baselineCostUsd, 0);
   const totals = {} as CaptureQualification["totals"];
-  for (const arm of ["text", "stamp", "stampRepair"] as CaptureArm[]) {
+  for (const arm of CAPTURE_ARMS) {
     const armTotal = sessions.reduce((sum, s) => sum + s.arms[arm].costUsd, 0);
     totals[arm] = { savingPercent: baselineTotal > 0 ? ((baselineTotal - armTotal) / baselineTotal) * 100 : 0 };
   }
@@ -218,7 +232,8 @@ export function qualifyOnCaptures(options: { spacingSeconds?: number } = {}): Ca
     notes: [
       `Turn spacing ${spacingSeconds}s is an ESTIMATE (captures carry no usable inter-arrival timing).`,
       "Savings are net of the customer's own caching (Anthropic stamps already present, OpenAI automatic caching).",
-      "stampRepair reorders lines the model reads, so it is gate-required before any saving is billed.",
+      "stampRepair and blockRepair reorder lines the model reads: cost effect measured, quality effect NOT — gate-required before any saving is billed.",
+      "All figures are SIMULATOR (the product's cache model on captured request bodies), not LIVE provider usage.",
     ],
   };
 }

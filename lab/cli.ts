@@ -51,15 +51,19 @@ function printStatus(ledger: LabLedger): void {
     );
   }
   const fleet = fleetSavings(ledger);
-  console.log(`\n% SAVED FOR THE END USER`);
+  console.log(`\n% SAVED FOR THE END USER  (every figure below is SIMULATOR, none is LIVE provider usage)`);
   console.log(`  UPPER BOUND — ${fleet.fleetPercentSaved.toFixed(1)}% modelled on constructed fixtures (uncached, redundancy-heavy shapes)`);
   if (capturesAvailable()) {
     const qualified = qualifyOnCaptures();
     console.log(
-      `  FLOOR       — ${qualified.totals.stamp.savingPercent.toFixed(1)}% measured on real wire captures with lossless levers ` +
+      `  FLOOR       — ${qualified.totals.stamp.savingPercent.toFixed(1)}% on real wire captures with lossless levers ` +
         `(${qualified.sessions.length} sessions; small or already-cached traffic; net of the customer's own caching)`,
     );
-    console.log(`  A real customer lands between the two, set by how much of their traffic is uncached and redundant.`);
+    console.log(
+      `  GATED       — ${qualified.totals.blockRepair.savingPercent.toFixed(1)}% on the same captures with the experimental block-array ` +
+        `prefix repair (cost measured, quality NOT — needs a replay gate; driven by one volatile session)`,
+    );
+    console.log(`  A real customer lands between floor and upper bound, set by how much of their traffic is uncached and redundant.`);
   }
   console.log(`  (Mesh-addressable spend: ${(fleet.addressableShare * 100).toFixed(0)}%, parked: ${(fleet.parkedShare * 100).toFixed(0)}% — weights are an illustrative ESTIMATE)`);
   for (const w of fleet.workloads) {
