@@ -100,6 +100,7 @@ function theoServeArgs(argv: string[]): string[] {
     if (i >= 0 && argv[i + 1]) out.push(flag, argv[i + 1]!);
   };
   takePath("--capture");
+  takePath("--gate-key-file"); // the PATH only — never the key value
   takeValue("--autonomy");
   takeValue("--theo-interval");
   takeValue("--theo-provider-url");

@@ -18,7 +18,7 @@
  * The feature spools and the ledger never leave your machine, and the gate
  * replays your captured requests with your own key; nothing is uploaded.
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -68,6 +68,10 @@ const USAGE = `Usage: mesh theo [options]
                         Needs ANTHROPIC_API_KEY / OPENAI_API_KEY, or --provider-url.
   --provider-url <u>  Send replay calls here instead of the provider's default
                         endpoint (e.g. a local mock, or your running proxy).
+  --gate-key-file <p> Read the provider key for the gate from this file (0600)
+                        instead of the environment — for the unattended daemon,
+                        which has no shell env. Only the path is stored, never
+                        the key. Precedence: --provider-url > this > env var.
   --max-samples <n>   Cap how many captured requests to replay. Default 20.
   --max-gate-calls <n> Exploration budget: the most paid provider calls one gate
                         run may make (default 200). The sample is trimmed to fit.
@@ -96,6 +100,9 @@ export type TheoRunOptions = {
   autonomy?: TheoAutonomyLevel;
   gate?: string;
   providerUrl?: string;
+  /** Path to a file holding the provider key for the UNATTENDED gate (the daemon
+   * has no shell env). Only the path is stored; the key is read at gate time. */
+  gateKeyFile?: string;
   maxSamples: number;
   apply: boolean;
   /** Exploration budget: max paid provider calls per gate run. Default 200. */
@@ -138,6 +145,7 @@ function parse(argv: string[]): TheoRunOptions {
       case "--ledger": args.ledgerDir = resolve(value); break;
       case "--gate": args.gate = resolve(value); break;
       case "--provider-url": args.providerUrl = value; break;
+      case "--gate-key-file": args.gateKeyFile = resolve(value); break;
       case "--max-samples": {
         const n = Number(value);
         if (!Number.isInteger(n) || n < 1) throw new Error("--max-samples must be a positive integer.");
@@ -274,12 +282,35 @@ function readCapture(path: string, maxSamples: number): Capture {
 /** The provider call the gate replays through: POST the request, return the JSON.
  * Uses --provider-url when given (a local mock or your proxy), else the provider
  * default endpoint, with the key read from the environment. */
-function makeProviderCall(provider: string, providerUrl: string | undefined): (request: unknown) => Promise<unknown> {
+/**
+ * Read a provider key from a file for the UNATTENDED gate (the daemon runs under
+ * launchd, which does NOT inherit the shell env, so `process.env.*_API_KEY` is
+ * empty there). The key stays in a file the operator controls — only its PATH is
+ * ever stored (in the launchd plist), never the key itself, and it is never
+ * logged. Refuses a file group/other can read, so a stray `chmod` can't leak it.
+ * Returns a reason instead of throwing; the gate degrades to "no key" gracefully.
+ */
+export function readGateKey(path: string): { key?: string; reason?: string } {
+  if (!existsSync(path)) return { reason: `gate key file ${path} not found` };
+  try {
+    const stat = statSync(path);
+    if (process.platform !== "win32" && (stat.mode & 0o077) !== 0) {
+      return { reason: `gate key file ${path} is group/other-readable — run \`chmod 600 ${path}\`` };
+    }
+    const key = readFileSync(path, "utf8").trim();
+    if (key === "") return { reason: `gate key file ${path} is empty` };
+    return { key };
+  } catch (error) {
+    return { reason: `gate key file ${path} unreadable: ${error instanceof Error ? error.message : String(error)}` };
+  }
+}
+
+function makeProviderCall(provider: string, providerUrl: string | undefined, keyOverride?: string): (request: unknown) => Promise<unknown> {
   const anthropic = provider !== "openai";
   const url = providerUrl ?? (anthropic
     ? "https://api.anthropic.com/v1/messages"
     : "https://api.openai.com/v1/chat/completions");
-  const key = anthropic ? process.env.ANTHROPIC_API_KEY : process.env.OPENAI_API_KEY;
+  const key = keyOverride ?? (anthropic ? process.env.ANTHROPIC_API_KEY : process.env.OPENAI_API_KEY);
   return async (request: unknown): Promise<unknown> => {
     const headers: Record<string, string> = { "content-type": "application/json" };
     if (anthropic) {
@@ -365,11 +396,25 @@ export async function runTheoOnce(args: TheoRunOptions): Promise<void> {
   let gateSummary: string | undefined;
   if (args.gate) {
     const { requests, baselineResponses } = readCapture(args.gate, args.maxSamples);
-    const haveKey = (provider === "openai" ? process.env.OPENAI_API_KEY : process.env.ANTHROPIC_API_KEY) !== undefined;
+    // Key precedence: an explicit --provider-url endpoint injects its own key; else
+    // a --gate-key-file (the daemon's path, since launchd has no shell env); else
+    // the shell env (foreground `mesh theo`). The file's read is reported, never
+    // the key. A key-file problem degrades the gate, it never crashes the daemon.
+    let gateKey: string | undefined;
+    let gateKeyNote: string | undefined;
+    if (!args.providerUrl && args.gateKeyFile) {
+      const resolved = readGateKey(args.gateKeyFile);
+      gateKey = resolved.key;
+      gateKeyNote = resolved.reason;
+    }
+    const envKey = provider === "openai" ? process.env.OPENAI_API_KEY : process.env.ANTHROPIC_API_KEY;
+    const haveKey = args.providerUrl !== undefined || gateKey !== undefined || envKey !== undefined;
     if (requests.length === 0) {
       gateSummary = `No requests found in ${args.gate}; nothing to prove.`;
-    } else if (!args.providerUrl && !haveKey) {
-      gateSummary = "Set ANTHROPIC_API_KEY / OPENAI_API_KEY, or pass --provider-url, to run the gate.";
+    } else if (!haveKey) {
+      gateSummary = gateKeyNote
+        ? `${gateKeyNote}. Fix it, or set ANTHROPIC_API_KEY / OPENAI_API_KEY, or pass --provider-url.`
+        : "Set ANTHROPIC_API_KEY / OPENAI_API_KEY, pass --gate-key-file <path>, or --provider-url, to run the gate.";
     } else {
       const queued = runTheoCycle(memory, { observation }, now).memory.hypotheses.map((h) => h.lever);
       if (queued.length === 0) {
@@ -378,7 +423,7 @@ export async function runTheoOnce(args: TheoRunOptions): Promise<void> {
         const proven = await proveCandidates({
           levers: queued,
           requests,
-          call: makeProviderCall(provider, args.providerUrl),
+          call: makeProviderCall(provider, args.providerUrl, gateKey),
           price,
           maximumQualityDrop: memory.policy.qualityCeilingPercent / 100,
           maxProviderCalls: args.maxGateCalls ?? DEFAULT_MAX_GATE_CALLS,

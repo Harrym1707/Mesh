@@ -1,5 +1,8 @@
+import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { parseDuration, theoWatch } from "./theo.js";
+import { parseDuration, readGateKey, theoWatch } from "./theo.js";
 
 describe("mesh theo — interval parsing", () => {
   it("parses units and a bare seconds number", () => {
@@ -14,6 +17,38 @@ describe("mesh theo — interval parsing", () => {
     expect(() => parseDuration("soon")).toThrow();
     expect(() => parseDuration("5x")).toThrow();
     expect(() => parseDuration("0s")).toThrow();
+  });
+});
+
+describe("mesh theo — readGateKey (unattended gate provisioning)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "mesh-gatekey-"));
+
+  it("reads and trims a key from a 0600 file", () => {
+    const path = join(dir, "ok.key");
+    writeFileSync(path, "  sk-secret-123\n", { mode: 0o600 });
+    chmodSync(path, 0o600);
+    const result = readGateKey(path);
+    expect(result.key).toBe("sk-secret-123"); // trimmed
+    expect(result.reason).toBeUndefined();
+  });
+
+  it("refuses a group/other-readable file instead of leaking the key", () => {
+    const path = join(dir, "loose.key");
+    writeFileSync(path, "sk-secret", { mode: 0o644 });
+    chmodSync(path, 0o644);
+    const result = readGateKey(path);
+    expect(result.key).toBeUndefined();
+    expect(result.reason).toMatch(/group\/other-readable|chmod 600/);
+  });
+
+  it("reports a missing file and an empty file without throwing", () => {
+    expect(readGateKey(join(dir, "nope.key")).reason).toMatch(/not found/);
+    const empty = join(dir, "empty.key");
+    writeFileSync(empty, "   \n", { mode: 0o600 });
+    chmodSync(empty, 0o600);
+    const result = readGateKey(empty);
+    expect(result.key).toBeUndefined();
+    expect(result.reason).toMatch(/empty/);
   });
 });
 

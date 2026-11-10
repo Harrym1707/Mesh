@@ -86,6 +86,8 @@ type StartArgs = {
   autonomy?: TheoAutonomyLevel;
   theoIntervalMs?: number;
   theoProviderUrl?: string;
+  /** Path to the provider-key file the unattended gate reads (launchd has no shell env). */
+  gateKeyFile?: string;
   noTheo?: boolean;
 };
 
@@ -112,6 +114,8 @@ function parseStart(argv: string[]): StartArgs {
           `  --capture <file>        Opt-in: record your own requests to <file> (local, owner-only) so\n` +
           `                          Theo can prove lossy levers on real traffic.\n` +
           `  --capture-max-mb <n>    Cap the capture file at n MB of prompt content (default 5).\n` +
+          `  --gate-key-file <path>  Provider key for the unattended gate, read from this file (chmod\n` +
+          `                          600) — the daemon has no shell env. Only the path is stored.\n` +
           `  --autonomy <level>      Theo's autonomy while running alongside: observe | recommend |\n` +
           `                          test | optimise (default recommend).\n` +
           `  --theo-interval <dur>   How often Theo runs a cycle (e.g. 15m, 1h; default 15m).\n` +
@@ -144,6 +148,7 @@ function parseStart(argv: string[]): StartArgs {
     }
     else if (key === "--theo-interval") args.theoIntervalMs = parseDuration(value);
     else if (key === "--theo-provider-url") args.theoProviderUrl = value;
+    else if (key === "--gate-key-file") args.gateKeyFile = value;
     else throw new Error(`Unknown option: ${key}. See mesh start --help.`);
   }
   if (!Number.isInteger(args.port) || args.port < 0 || args.port > 65535) throw new Error("--port must be 0-65535.");
@@ -328,6 +333,7 @@ export async function runServe(argv: string[]): Promise<void> {
       apply: true,
       ...(args.capturePath ? { gate: args.capturePath } : {}),
       ...(args.theoProviderUrl ? { providerUrl: args.theoProviderUrl } : {}),
+      ...(args.gateKeyFile ? { gateKeyFile: args.gateKeyFile } : {}),
     },
     theoIntervalMs,
   );
