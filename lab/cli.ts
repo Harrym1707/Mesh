@@ -48,6 +48,13 @@ function printStatus(ledger: LabLedger): void {
         `${lever.measuredCostReductionPercent.toFixed(1)}% cost, quality drop ${(lever.measuredQualityDelta * 100).toFixed(2)}%`,
     );
   }
+  const coverage = ledger.coverageByShape();
+  console.log(`\nCoverage by workload vertical (agentic first):`);
+  for (const shape of ["always-on-agent", "autonomous-agent", "one-shot"] as const) {
+    const c = coverage[shape];
+    console.log(`  ${shape.padEnd(17)} ${c.total} lead(s) — ${c.promoted} promoted, ${c.inconclusive} inconclusive, ${c.rejected + c.failed} rejected/failed`);
+  }
+
   const integrity = ledger.verifyIntegrity();
   console.log(`\nAudit trail: ${integrity.ok ? `OK (${integrity.length} events, hash-chain intact)` : `BROKEN at seq ${integrity.seq}: ${integrity.reason}`}`);
 }

@@ -16,6 +16,7 @@ import {
   type Reducer,
   type ReductionRisk,
 } from "../packages/core/src/token-reduction.js";
+import { minifyToolSchemas } from "../packages/core/src/tool-schema.js";
 
 export type TechniqueApplication = {
   candidateText: string;
@@ -64,6 +65,38 @@ const TECHNIQUES: Record<string, Technique> = {
     risk: "lossless",
     runnable: true,
     apply: (input) => runReducers(input, [collapseWhitespace()], "lossless"),
+  },
+
+  "minify-tool-schemas": {
+    id: "minify-tool-schemas",
+    title: "Tool-schema compaction (lossless)",
+    risk: "lossless",
+    runnable: true,
+    // Agentic lever: the input is the request's serialized tool catalogue. Strip
+    // plumbing ($schema/$id/…) and redundant titles the model never reads —
+    // lossless by construction (core keeps descriptions by default).
+    apply: (input) => {
+      let tools: unknown;
+      try {
+        tools = JSON.parse(input);
+      } catch {
+        const tokens = approximateTokenCount(input);
+        return { candidateText: input, notes: [], tokensBefore: tokens, tokensAfter: tokens, risk: "lossless" };
+      }
+      if (!Array.isArray(tools)) {
+        const tokens = approximateTokenCount(input);
+        return { candidateText: input, notes: [], tokensBefore: tokens, tokensAfter: tokens, risk: "lossless" };
+      }
+      const result = minifyToolSchemas(tools); // lossless defaults (descriptions kept)
+      const candidateText = JSON.stringify(result.tools);
+      return {
+        candidateText,
+        notes: result.changes.filter((c) => c.lossless).map((c) => c.detail),
+        tokensBefore: approximateTokenCount(input),
+        tokensAfter: approximateTokenCount(candidateText),
+        risk: "lossless",
+      };
+    },
   },
 
   "minify-json-blocks": {

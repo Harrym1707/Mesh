@@ -32,6 +32,7 @@ import {
   type OptimisationRecord,
   type PromotedLever,
   type StatusChange,
+  type WorkloadShape,
 } from "./types.js";
 import {
   assertCan,
@@ -346,6 +347,27 @@ export class LabLedger {
       else if (record.status === "failed") bucket.failed += 1;
       else if (record.status === "rejected") bucket.rejected += 1;
       else if (record.status === "inconclusive") bucket.inconclusive += 1;
+    }
+    return tally;
+  }
+
+  /**
+   * Coverage across the three traffic verticals — so the lab can see it is
+   * working the agentic shapes (where the spend compounds), not just one-shot.
+   */
+  coverageByShape(): Record<WorkloadShape, { total: number; promoted: number; inconclusive: number; rejected: number; failed: number }> {
+    const shapes: WorkloadShape[] = ["always-on-agent", "autonomous-agent", "one-shot"];
+    const tally = Object.fromEntries(
+      shapes.map((s) => [s, { total: 0, promoted: 0, inconclusive: 0, rejected: 0, failed: 0 }]),
+    ) as Record<WorkloadShape, { total: number; promoted: number; inconclusive: number; rejected: number; failed: number }>;
+    for (const record of this.listRecords()) {
+      const shape = record.lead?.shape ?? "one-shot";
+      const bucket = tally[shape];
+      bucket.total += 1;
+      if (record.status === "promoted") bucket.promoted += 1;
+      else if (record.status === "inconclusive") bucket.inconclusive += 1;
+      else if (record.status === "rejected") bucket.rejected += 1;
+      else if (record.status === "failed") bucket.failed += 1;
     }
     return tally;
   }

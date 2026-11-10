@@ -239,6 +239,30 @@ describe("end-to-end pipeline", () => {
   });
 });
 
+describe("agentic workflows", () => {
+  it("promotes agentic levers and covers all three traffic verticals", () => {
+    const ledger = new LabLedger(root, { now });
+    runToQuiescence(ledger, { now });
+    const promotedKeys = ledger.listRecords({ status: "promoted" }).map((r) => r.techniqueKey);
+    // The highest-priority verticals produce measured wins, not just one-shot.
+    expect(promotedKeys).toContain("minify-tool-schemas"); // autonomous-agent
+    expect(promotedKeys).toContain("agent-history-prefix-dedup"); // always-on-agent
+
+    const coverage = ledger.coverageByShape();
+    expect(coverage["always-on-agent"].promoted).toBeGreaterThanOrEqual(1);
+    expect(coverage["autonomous-agent"].promoted).toBeGreaterThanOrEqual(1);
+    expect(coverage["one-shot"].total).toBeGreaterThan(0);
+  });
+
+  it("ranks agentic leads ahead of one-shot when discovery is budget-limited", () => {
+    const ledger = new LabLedger(root, { now });
+    // A single-lead dispatch should pick an agentic shape first.
+    const result = scoutDispatch(ledger, { now, count: 1 });
+    const picked = ledger.getRecord(result.created[0]!)!;
+    expect(picked.lead!.shape).not.toBe("one-shot");
+  });
+});
+
 describe("learning", () => {
   it("tallies category outcomes to steer future research", () => {
     const ledger = new LabLedger(root, { now });

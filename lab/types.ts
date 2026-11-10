@@ -29,6 +29,14 @@ export type OptimisationCategory =
 export type ResearchBucket = "core" | "adjacent" | "exploratory";
 
 /**
+ * The traffic shape a lever targets (docs/rnd/rnd-doctrine.md's three
+ * verticals, in priority order). Always-on and autonomous agents are where the
+ * compounding token spend sits — re-sent growing history, tool schemas, stale
+ * tool results — so the lab weights discovery toward them over one-shot prompts.
+ */
+export type WorkloadShape = "always-on-agent" | "autonomous-agent" | "one-shot";
+
+/**
  * The Mesh control surfaces an optimisation is permitted to act on. Anything
  * that would rewrite or restructure the CUSTOMER's application is not a valid
  * control surface and is rejected by the Research agent.
@@ -125,6 +133,8 @@ export type OptimisationLead = {
     discoveredAt: string;
   };
   hypothesis: string;
+  /** Which traffic vertical this lever targets. Defaults to one-shot. */
+  shape?: WorkloadShape;
   controlSurface: ControlSurface;
   featureInputs: BlindFeatureKind[];
   /** Declared forbidden inputs, if any — a non-empty list fails research. */

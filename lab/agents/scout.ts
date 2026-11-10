@@ -9,7 +9,7 @@
 
 import { CATALOG, type CatalogEntry } from "../catalog.js";
 import { fingerprint, type LabLedger } from "../ledger.js";
-import type { OptimisationCategory, OptimisationLead, ResearchBucket } from "../types.js";
+import type { OptimisationCategory, OptimisationLead, ResearchBucket, WorkloadShape } from "../types.js";
 
 export type ScoutResult = {
   created: string[];
@@ -80,6 +80,15 @@ const BUCKET_SHARE: Record<ResearchBucket, number> = {
   exploratory: 0.2,
 };
 
+// Agentic shapes carry the compounding spend (re-sent history, tool schemas,
+// stale tool results), so the Scout prioritises them over one-shot prompts —
+// the priority order of the three verticals in docs/rnd/rnd-doctrine.md.
+const SHAPE_WEIGHT: Record<WorkloadShape, number> = {
+  "always-on-agent": 1.3,
+  "autonomous-agent": 1.15,
+  "one-shot": 1.0,
+};
+
 function priorityBoost(
   outcomes: ReturnType<LabLedger["categoryOutcomes"]>,
   category: string,
@@ -111,7 +120,9 @@ export function scoutDispatch(
   const handled = new Set<string>();
 
   const score = (entry: CatalogEntry) =>
-    entry.expectedTokenReductionPercent * priorityBoost(outcomes, entry.category);
+    entry.expectedTokenReductionPercent *
+    priorityBoost(outcomes, entry.category) *
+    SHAPE_WEIGHT[entry.shape ?? "one-shot"];
 
   const tryCreate = (entry: CatalogEntry): boolean => {
     if (handled.has(entry.techniqueKey)) return false;

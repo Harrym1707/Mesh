@@ -81,6 +81,7 @@ export const CATALOG: CatalogEntry[] = [
     hypothesis:
       "Selecting cache TTL from the inter-arrival histogram beats a fixed 5m policy on human-paced traffic.",
     controlSurface: "cache-placement",
+    shape: "always-on-agent",
     featureInputs: ["inter-arrival-timing", "keyed-prefix-hash", "aggregated-telemetry"],
     changesCustomerApplication: false,
     expectedTokenReductionPercent: 12,
@@ -100,6 +101,7 @@ export const CATALOG: CatalogEntry[] = [
     hypothesis:
       "Masking stale tool-result bodies that fall outside any live cached prefix reduces tokens without changing the agent's next action.",
     controlSurface: "context-compaction",
+    shape: "autonomous-agent",
     featureInputs: ["structural-counts", "token-counts", "aggregated-telemetry"],
     changesCustomerApplication: false,
     expectedTokenReductionPercent: 18,
@@ -117,6 +119,7 @@ export const CATALOG: CatalogEntry[] = [
     techniqueKey: "minify-json-blocks",
     hypothesis:
       "Stripping whitespace from JSON tool-result bodies reduces input tokens with no change to the values the model reads.",
+    shape: "autonomous-agent",
     controlSurface: "context-compaction",
     featureInputs: ["structural-counts", "token-counts"],
     changesCustomerApplication: false,
@@ -124,6 +127,80 @@ export const CATALOG: CatalogEntry[] = [
     techniqueId: "minify-json-blocks",
     defaultParams: {},
     datasetFixtureId: "json-tool-results",
+  },
+  {
+    title: "Tool-schema compaction (lossless plumbing + title strip)",
+    description:
+      "Agentic lever. Tool schemas dominate every cold/cache-miss agent turn and carry JSON-Schema plumbing ($schema/$id/$comment) and titles that restate property names — none of which the model reads. Stripping them is lossless (core keeps descriptions by default).",
+    category: "compaction",
+    bucket: "core",
+    techniqueKey: "minify-tool-schemas",
+    hypothesis:
+      "Removing tool-schema plumbing and redundant titles cuts input tokens on agent turns with no change to tool selection.",
+    shape: "autonomous-agent",
+    controlSurface: "context-compaction",
+    featureInputs: ["structural-counts", "token-counts", "keyed-prefix-hash"],
+    changesCustomerApplication: false,
+    expectedTokenReductionPercent: 10,
+    techniqueId: "minify-tool-schemas",
+    defaultParams: {},
+    datasetFixtureId: "agent-tool-schemas",
+  },
+  {
+    title: "Always-on agent history-prefix dedup",
+    description:
+      "Agentic lever (highest-priority vertical). Long-lived agents re-send the same large system+tools prefix every turn. Dropping the exact-duplicate re-sends is lossless — the model already has the text — and this is where most always-on spend sits.",
+    category: "deduplication",
+    bucket: "core",
+    techniqueKey: "agent-history-prefix-dedup",
+    hypothesis:
+      "Removing exact-duplicate re-sent system/history prefixes from always-on agent turns cuts input tokens with zero quality impact.",
+    shape: "always-on-agent",
+    controlSurface: "deduplication",
+    featureInputs: ["keyed-prefix-hash", "structural-counts", "token-counts"],
+    changesCustomerApplication: false,
+    expectedTokenReductionPercent: 30,
+    techniqueId: "dedupe-repeated-blocks",
+    defaultParams: { minimumBlockTokens: 16 },
+    datasetFixtureId: "agent-history-resend",
+  },
+  {
+    title: "Lossy tool-schema description pruning",
+    description:
+      "Agentic lever. Truncating or dropping verbose tool descriptions on worker routes saves more than the lossless tier — but descriptions are how the model chooses between tools, so it is lossy and needs a task-completion gate.",
+    category: "compaction",
+    bucket: "adjacent",
+    techniqueKey: "tool-schema-description-prune",
+    hypothesis:
+      "Pruning tool descriptions on opt-in worker routes reduces tokens while holding tool-selection accuracy.",
+    shape: "autonomous-agent",
+    controlSurface: "context-compaction",
+    featureInputs: ["structural-counts", "token-counts", "route-id"],
+    changesCustomerApplication: false,
+    expectedTokenReductionPercent: 20,
+    // Spec-only: lossy, so it needs a real task-completion grader before it can
+    // be measured — INCONCLUSIVE until then.
+    techniqueId: "tool-schema-description-prune",
+    defaultParams: { descriptions: "truncate", maximumDescriptionTokens: 16 },
+    datasetFixtureId: "agent-tool-schemas",
+  },
+  {
+    title: "Agent output re-emission metering",
+    description:
+      "Agentic lever (always-on vertical). Agents re-emit prior output into later turns; metering and diffing re-emitted output avoids re-billing content the agent already produced. Lossy/diff-shaped, so gate-required.",
+    category: "output-caps",
+    bucket: "adjacent",
+    techniqueKey: "output-reemission-metering",
+    hypothesis:
+      "Diffing re-emitted agent output against prior turns avoids re-paying for content already generated.",
+    shape: "always-on-agent",
+    controlSurface: "output-caps",
+    featureInputs: ["structural-counts", "token-counts", "keyed-prefix-hash"],
+    changesCustomerApplication: false,
+    expectedTokenReductionPercent: 15,
+    techniqueId: "output-reemission-metering",
+    defaultParams: {},
+    datasetFixtureId: "agent-history-resend",
   },
   {
     title: "Proxy-side output-conciseness governor (Mesh reframe of Ponytail)",
@@ -135,6 +212,7 @@ export const CATALOG: CatalogEntry[] = [
     hypothesis:
       "A proxy-injected conciseness directive on opt-in worker routes reduces output tokens while holding task completion within the quality ceiling.",
     controlSurface: "output-caps",
+    shape: "autonomous-agent",
     featureInputs: ["route-id", "model-id", "structural-counts"],
     changesCustomerApplication: false,
     expectedTokenReductionPercent: 20,
@@ -154,6 +232,7 @@ export const CATALOG: CatalogEntry[] = [
     hypothesis:
       "Coalescing repeated uncached system/tool prefixes onto one cache entry converts prefix rewrites into cheap reads.",
     controlSurface: "cache-placement",
+    shape: "always-on-agent",
     featureInputs: ["keyed-prefix-hash", "structural-counts", "inter-arrival-timing"],
     changesCustomerApplication: false,
     expectedTokenReductionPercent: 14,
