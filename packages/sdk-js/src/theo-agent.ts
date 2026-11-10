@@ -206,8 +206,10 @@ const ENFORCEABLE_LOSSY = new Set(
 );
 
 /** How far the retry rate may rise above an applied lever's baseline before Theo
- * treats it as quality drift and rolls the lever back (absolute fraction). */
-const DRIFT_RISE_THRESHOLD = 0.05;
+ * treats it as quality drift and rolls the lever back (absolute fraction).
+ * Exported so surfaces (e.g. the dashboard's health panel) flag "watch" against
+ * the SAME line Theo actually rolls back on — one source of truth, not a copy. */
+export const DRIFT_RISE_THRESHOLD = 0.05;
 
 function zeroSegments(): Record<WorkloadSegment, number> {
   return { toolSchemas: 0, systemPrompt: 0, retrievedContext: 0, history: 0, userTurn: 0, output: 0 };
