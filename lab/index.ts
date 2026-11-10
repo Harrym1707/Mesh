@@ -7,6 +7,8 @@ export * from "./fixtures.js";
 export * from "./catalog.js";
 export * from "./workloads.js";
 export * from "./captures.js";
+export * from "./paying-shape.js";
+export * from "./numbers.js";
 export * from "./ledger.js";
 export * from "./orchestrator.js";
 export { scoutDispatch } from "./agents/scout.js";

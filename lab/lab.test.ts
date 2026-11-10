@@ -16,6 +16,8 @@ import {
 import { fleetSavings } from "./workloads.js";
 import { GATE_REQUIRED_ARMS, qualifyOnCaptures } from "./captures.js";
 import { repairBlockArraySystem } from "./experiments/block-array-repair.js";
+import { qualifyPayingShape } from "./paying-shape.js";
+import { readLiveNumbers } from "./numbers.js";
 import type { OptimisationLead } from "./types.js";
 
 let root: string;
@@ -335,6 +337,66 @@ describe("qualification on real wire captures", () => {
     // Gate-required arms are never folded into the lossless floor.
     expect(GATE_REQUIRED_ARMS).toContain("blockRepair");
     expect(q.totals.stamp.savingPercent).toBeLessThan(5);
+  });
+});
+
+describe("paying-shape tier (repo agent fixture, simulated grader)", () => {
+  const result = qualifyPayingShape();
+
+  it("reproduces the SIMULATOR rows recorded in docs/NUMBERS.md", () => {
+    // If these drift, either the fixture changed or docs/NUMBERS.md needs reconciling.
+    expect(result.cacheContributionPercent).toBeCloseTo(37.9, 1);
+    expect(result.arms.at(-1)!.savingPercent).toBeCloseTo(57.3, 1);
+    expect(result.basis).toBe("SIMULATOR");
+  });
+
+  it("the lossless arm saves on the paying shape with zero quality loss", () => {
+    const lossless = result.arms.find((arm) => arm.lossless)!;
+    expect(lossless.cleanTasks).toBe(lossless.totalTasks);
+    expect(lossless.qualityDrop).toBe(0);
+    expect(lossless.savingPercent).toBeGreaterThan(20);
+  });
+
+  it("names the lever that breaks the 2% quality ceiling", () => {
+    expect(result.maxQualityDegradation).toBe(DEFAULT_MAX_QUALITY_DEGRADATION);
+    const full = result.arms.at(-1)!;
+    expect(full.withinCeiling).toBe(false);
+    expect(result.ceilingBreaker).toContain("output cap");
+  });
+
+  it("picks the best stack that stays inside the ceiling", () => {
+    const best = result.bestWithinCeiling!;
+    expect(best.withinCeiling).toBe(true);
+    expect(best.qualityDrop).toBeLessThanOrEqual(DEFAULT_MAX_QUALITY_DEGRADATION);
+    // Cleaner than the full stack, and more saving than lossless alone.
+    expect(best.savingPercent).toBeLessThan(result.arms.at(-1)!.savingPercent);
+    expect(best.savingPercent).toBeGreaterThan(result.arms.find((arm) => arm.lossless)!.savingPercent);
+    // Savings only ever grow as levers are added.
+    for (let i = 1; i < result.arms.length; i += 1) {
+      expect(result.arms[i]!.savingPercent).toBeGreaterThanOrEqual(result.arms[i - 1]!.savingPercent - 1e-9);
+    }
+  });
+
+  it("a looser ceiling admits the full stack", () => {
+    const loose = qualifyPayingShape({ maxQualityDegradation: 0.05 });
+    expect(loose.bestWithinCeiling!.id).toBe("outputCap");
+    expect(loose.ceilingBreaker).toBeUndefined();
+  });
+});
+
+describe("docs/NUMBERS.md is the source of truth for LIVE figures", () => {
+  it("reads the current headline and per-agent LIVE numbers from the doc", () => {
+    const live = readLiveNumbers();
+    expect(live.source).toBe("docs/NUMBERS.md");
+    expect(live.headlinePercent).toBeGreaterThan(0);
+    expect(live.perAgent.coding).toBeGreaterThan(0);
+    expect(live.perAgent.rag).toBeGreaterThan(0);
+  });
+
+  it("degrades to 'unknown' rather than inventing a number when the doc is missing", () => {
+    const live = readLiveNumbers("/nonexistent/NUMBERS.md");
+    expect(live.headlinePercent).toBeUndefined();
+    expect(live.perAgent).toEqual({});
   });
 });
 

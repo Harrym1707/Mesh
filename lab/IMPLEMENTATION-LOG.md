@@ -14,15 +14,17 @@ log it here · commit locally only when green · do not push (left for review).
 
 1. ~~Block-array prefix repair, measured.~~ **Done — iteration 2** (74.8% of the
    volatile session, SIMULATOR, gate-required).
-2. **Simulated task-completion grader.** Reuse `evals/agent-fixture.ts`
-   (`buildAnthropicRequest` + `answer()`, which has real quality consequences) so
-   LOSSY levers — description truncation, fresh tool-result cap, history
-   compaction, output effort — can run the pipeline with a measured quality
-   delta instead of sitting INCONCLUSIVE. Label the grader as simulated. Include
-   a date-anchor probe so the block-array repair gets a quality reading too.
-3. **Paying-shape tier.** Qualify on the repo's uncached agent-fixture sessions
-   through `reduceRequest` + `simulateCache` — a third, labelled tier between
-   constructed fixtures (upper bound) and the wire captures (floor).
+2. ~~Simulated task-completion grader~~ and 3. ~~Paying-shape tier~~ —
+   **Done together — iteration 3** (`lab/paying-shape.ts`).
+3a. **Wire the tiers into the pipeline.** Let the Evaluation agent judge lossy
+   leads with the paying-shape harness (simulated grader, 2% ceiling) instead of
+   leaving them INCONCLUSIVE; record basis + grader on every verdict.
+3b. **Long-session variant.** History compaction added 0 on the 5-turn fixture.
+   Run 12+ turn sessions (the fixture's builders accept any turn) to see where
+   compaction and the fresh-result cap actually pay, under the same gate.
+3c. **Calibrate the modelled mix against LIVE.** Use the LIVE per-agent figures
+   from `docs/NUMBERS.md` where they exist (coding 38.1%, RAG 22.0%); the RAG
+   fixture overstates real traffic 2.5× and should be rebuilt or down-weighted.
 4. **Already-caching share.** Make the fleet number an explicit range model over
    the share of customer traffic that already caches.
 5. **Cache-TTL sensitivity.** Spacing sweep (30s / 8m / 45m) × 5m vs 1h TTL via
@@ -30,6 +32,57 @@ log it here · commit locally only when green · do not push (left for review).
 6. **Red-team hardening.** Property tests for every reducer: never increases
    tokens, idempotent, preserves fenced code, byte-identical on clean input.
 7. README + floorplan refresh; final report at 24h.
+
+### Iteration 3 — 23:45 · paying-shape tier, quality gate, and the LIVE anchor
+
+**Found** `docs/NUMBERS.md` is the source of truth: one LIVE number (18.2% on a
+mixed 30-request basket; coding 38.1%, RAG 22.0%, support 10.3%, batch 0%,
+lean 0%), everything else SIMULATOR, and "0–5%" as the documented
+do-not-pay-us band — which is where the wire-capture floor (0.06%) sits.
+
+**Built**
+- `lab/paying-shape.ts`: drives the repo's shared agent fixture (uncached
+  Claude agent, 40 tasks × 5 turns) through `reduceRequest` + `simulateCache`,
+  adding one lever per rung, graded by the fixture's simulated model and judged
+  against the lab's 2% quality ceiling. Ladder runs are memoised per spacing.
+- `lab/numbers.ts`: reads the LIVE headline and per-agent figures out of
+  `docs/NUMBERS.md` at runtime (linked, never copied; never invents a number).
+- `lab:status` now leads with LIVE, then labels every lab figure SIMULATOR /
+  experimental / not for external quoting, and shows LIVE beside modelled where
+  the doc has a per-agent figure.
+
+**Measured (SIMULATOR; whole bill, input + output; 30s task spacing)**
+
+| Arm | Saving | Clean | vs 2% ceiling |
+|---|---|---|---|
+| Lossless only (schema + dedup + 5m stamp) | 39.6% | 40/40 | PASS |
+| + cache-prefix repair | 41.1% | 40/40 | PASS* |
+| + description truncation (40 tok) | 41.5% | 40/40 | PASS* |
+| + fresh tool-result cap | **51.4%** | 40/40 | PASS* |
+| + history compaction | 51.4% | 40/40 | PASS* (adds nothing here) |
+| + output cap 2,000 (full stack) | 57.3% | 38/40 | **FAIL (−5.0pp)** |
+
+- **Harness cross-check:** full stack 57.3% and cache contribution 37.9% match
+  the SIMULATOR rows in `docs/NUMBERS.md` to one decimal; pinned by a test.
+- **Ceiling-breaker: the output cap.** It buys 5.9 points for 2 failed tasks in
+  40. The best stack inside the ceiling is the full stack *minus* the cap:
+  51.4% at 40/40. This independently reproduces the lever-backlog verdict that
+  max-token right-sizing only saves by truncating.
+- **History compaction adds nothing on 5-turn sessions** → queue 3b.
+
+**Qualification / caveats.**
+- \* "PASS" on a lossy rung is only as good as the simulated grader. It does not
+  model sensitivity to where a date anchor sits (prefix repair), and the
+  fixture's discriminating phrase survives a 40-token description cut. These
+  rungs still need the real replay gate before any saving is billed.
+- Calibration against LIVE: the constructed RAG fixture (54.8%) overstates real
+  traffic (LIVE 22.0%) by 2.5×; coding is modelled at 30.9% vs LIVE 38.1%.
+  The modelled mix is therefore renamed from "upper bound" to "modelled mix" —
+  it is neither a bound nor a measurement → queue 3c.
+- None of the lab's figures are in `docs/NUMBERS.md`; that file is Harry's to
+  update. Flag for the final report.
+
+**Verification:** 566 tests green (7 new), `typecheck:lab` clean.
 
 ### Iteration 2 — 22:42 · block-array prefix repair, measured on the capture
 

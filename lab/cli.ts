@@ -13,6 +13,8 @@ import { join } from "node:path";
 import { LabLedger } from "./ledger.js";
 import { runContinuous, runToQuiescence, step } from "./orchestrator.js";
 import { capturesAvailable, qualifyOnCaptures } from "./captures.js";
+import { readLiveNumbers } from "./numbers.js";
+import { qualifyPayingShape } from "./paying-shape.js";
 import { fleetSavings } from "./workloads.js";
 import type { OptimisationRecord } from "./types.js";
 
@@ -51,29 +53,57 @@ function printStatus(ledger: LabLedger): void {
     );
   }
   const fleet = fleetSavings(ledger);
-  console.log(`\n% SAVED FOR THE END USER  (every figure below is SIMULATOR, none is LIVE provider usage)`);
-  console.log(`  UPPER BOUND — ${fleet.fleetPercentSaved.toFixed(1)}% modelled on constructed fixtures (uncached, redundancy-heavy shapes)`);
+  const live = readLiveNumbers();
+  console.log(`\n% SAVED FOR THE END USER`);
+  console.log(
+    live.headlinePercent !== undefined
+      ? `  LIVE          ${live.headlinePercent.toFixed(1)}%  ${live.headlineDescription ?? ""}`.trimEnd() +
+          `\n                (docs/NUMBERS.md, reconciled ${live.reconciled ?? "unknown"} — the only number measured on real traffic)`
+      : `  LIVE          see docs/NUMBERS.md — the only numbers measured on real traffic`,
+  );
+  console.log(`  ── everything below is LAB SIMULATOR: experimental, not in docs/NUMBERS.md, never to be quoted externally ──`);
   if (capturesAvailable()) {
     const qualified = qualifyOnCaptures();
     console.log(
-      `  FLOOR       — ${qualified.totals.stamp.savingPercent.toFixed(1)}% on real wire captures with lossless levers ` +
-        `(${qualified.sessions.length} sessions; small or already-cached traffic; net of the customer's own caching)`,
+      `  FLOOR         ${qualified.totals.stamp.savingPercent.toFixed(1)}%  real wire captures, lossless levers ` +
+        `(${qualified.sessions.length} sessions; small or already-cached traffic — the "do not pay us" band)`,
     );
     console.log(
-      `  GATED       — ${qualified.totals.blockRepair.savingPercent.toFixed(1)}% on the same captures with the experimental block-array ` +
-        `prefix repair (cost measured, quality NOT — needs a replay gate; driven by one volatile session)`,
+      `  GATED         ${qualified.totals.blockRepair.savingPercent.toFixed(1)}%  same captures + experimental block-array prefix repair ` +
+        `(cost measured, quality NOT; carried by one volatile session)`,
     );
-    console.log(`  A real customer lands between floor and upper bound, set by how much of their traffic is uncached and redundant.`);
   }
-  console.log(`  (Mesh-addressable spend: ${(fleet.addressableShare * 100).toFixed(0)}%, parked: ${(fleet.parkedShare * 100).toFixed(0)}% — weights are an illustrative ESTIMATE)`);
+  const paying = qualifyPayingShape();
+  const losslessArm = paying.arms.find((arm) => arm.lossless);
+  const fullArm = paying.arms.at(-1)!;
+  console.log(
+    `  PAYING SHAPE  ${losslessArm?.savingPercent.toFixed(1)}% lossless · ${paying.bestWithinCeiling?.savingPercent.toFixed(1)}% best stack inside the ` +
+      `${(paying.maxQualityDegradation * 100).toFixed(0)}% quality ceiling (uncached Claude agent, repo fixture, simulated grader)`,
+  );
+  if (paying.ceilingBreaker) {
+    console.log(
+      `                ceiling-breaker: ${paying.ceilingBreaker} — full stack reaches ${fullArm.savingPercent.toFixed(1)}% ` +
+        `but drops quality ${(fullArm.qualityDrop * 100).toFixed(1)}pp (${fullArm.cleanTasks}/${fullArm.totalTasks} clean)`,
+    );
+  }
+  console.log(
+    `  MODELLED MIX  ${fleet.fleetPercentSaved.toFixed(1)}%  constructed fixtures × an ESTIMATE spend mix ` +
+      `(addressable ${(fleet.addressableShare * 100).toFixed(0)}%, parked ${(fleet.parkedShare * 100).toFixed(0)}%)`,
+  );
+  // Where docs/NUMBERS.md has a LIVE per-agent figure, show it beside the modelled one.
+  const liveFor: Record<string, number | undefined> = {
+    "coding-agent": live.perAgent.coding,
+    rag: live.perAgent.rag,
+  };
   for (const w of fleet.workloads) {
     const tag =
       w.addressable === "parked-advisory-only"
         ? "PARKED (advisory only)"
         : w.savingsPercent > 0
-          ? `${w.savingsPercent.toFixed(1)}% saved (${w.bestLeverId})`
+          ? `${w.savingsPercent.toFixed(1)}% modelled (${w.bestLeverId})`
           : "0% — no proven lever yet";
-    console.log(`  ${(w.spendShare * 100).toFixed(0).padStart(3)}% spend  ${w.label.padEnd(34)} ${tag}`);
+    const liveTag = liveFor[w.domain] !== undefined ? `   | LIVE ${liveFor[w.domain]!.toFixed(1)}%` : "";
+    console.log(`    ${(w.spendShare * 100).toFixed(0).padStart(3)}% spend  ${w.label.padEnd(34)} ${tag}${liveTag}`);
   }
 
   const coverage = ledger.coverageByShape();
