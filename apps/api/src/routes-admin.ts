@@ -2,8 +2,10 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import {
   decideBilling,
   invoiceForAccount,
+  publishedModelPrices,
+  reconcileInvoiceSavings,
   redactAccount,
-  runAccountBilling,
+  settleAccountBilling,
   verifyLedgerChain,
   type Account,
   type AccountBillingOutcome,
@@ -89,17 +91,21 @@ export async function handleAdminRequest(
     const previews = targets.map((account) => {
       const records = ctx.ledger.readRecords(account.id);
       const { invoice, chainVerified } = invoiceForAccount(account, records, previewPeriod);
-      const decision = decideBilling(account, invoice, chainVerified);
-      return decision.action === "skip"
-        ? { accountId: account.id, githubLogin: account.githubLogin, action: "skip" as const, reason: decision.reason }
-        : {
-            accountId: account.id,
-            githubLogin: account.githubLogin,
-            action: "bill" as const,
-            rail: decision.rail,
-            amountCents: decision.amountCents,
-            currency: decision.currency,
-          };
+      const recon = reconcileInvoiceSavings(records.map((r) => r.event), publishedModelPrices, {
+        ...(previewPeriod === undefined ? {} : { period: previewPeriod }),
+      });
+      const prior = previewPeriod === undefined ? undefined : ctx.accounts.getBilledPeriod(account.id, previewPeriod);
+      const decision = decideBilling(account, invoice, chainVerified, {
+        maxChargeCents: ctx.maxChargeCents,
+        savingsCheck: { ok: recon.ok, ...(recon.reason === undefined ? {} : { reason: recon.reason }) },
+        advanceNoticeIssued: prior?.advanceNoticeAt !== undefined,
+        ...(prior === undefined ? {} : { priorBilling: prior }),
+      });
+      const base = { accountId: account.id, githubLogin: account.githubLogin };
+      if (decision.action === "skip") return { ...base, action: "skip" as const, reason: decision.reason };
+      if (decision.action === "already_billed") return { ...base, action: "already_billed" as const, reason: decision.reason };
+      if (decision.action === "hold") return { ...base, action: "hold" as const, reason: decision.reason, amountCents: decision.amountCents, currency: decision.currency };
+      return { ...base, action: "bill" as const, rail: decision.rail, amountCents: decision.amountCents, currency: decision.currency };
     });
     sendJson(res, 200, { period: previewPeriod ?? null, previews });
     return true;
@@ -119,15 +125,24 @@ export async function handleAdminRequest(
     const opts = isRecord(body.value) ? body.value : {};
     const runPeriod = typeof opts.period === "string" ? opts.period : period;
     const mode = opts.mode === "advance_notice" ? "advance_notice" : "charge";
+    // MANDATORY period (Fix 2): a run always targets ONE explicit period, never
+    // the cumulative total of every recorded period.
+    if (runPeriod === undefined || runPeriod.trim() === "") {
+      sendJson(res, 400, { error: "period_required", detail: "A billing run requires an explicit period (YYYY-MM)." });
+      return true;
+    }
     const targets = selectTargets(ctx, typeof opts.accountId === "string" ? opts.accountId : undefined);
     const outcomes: Array<{ accountId: string; outcome: AccountBillingOutcome }> = [];
     for (const account of targets) {
       const records = ctx.ledger.readRecords(account.id);
-      const { invoice, chainVerified } = invoiceForAccount(account, records, runPeriod);
-      const outcome = await runAccountBilling(ctx.stripe, account, invoice, chainVerified, { mode });
+      const outcome = await settleAccountBilling(ctx.stripe, ctx.accounts, account, records, runPeriod, {
+        mode,
+        maxChargeCents: ctx.maxChargeCents,
+        catalogue: publishedModelPrices,
+      });
       outcomes.push({ accountId: account.id, outcome });
     }
-    sendJson(res, 200, { period: runPeriod ?? null, mode, stripeMode: ctx.stripe.mode, outcomes });
+    sendJson(res, 200, { period: runPeriod, mode, stripeMode: ctx.stripe.mode, outcomes });
     return true;
   }
 

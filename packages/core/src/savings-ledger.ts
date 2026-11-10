@@ -392,6 +392,140 @@ export function auditEventPricing(event: BillableEvent, catalogue: PriceCatalogu
   return { status: "verified" };
 }
 
+/**
+ * The catalogue-derived input to {@link priceLedgerUsage} for one event: the
+ * same derivation {@link auditEventPricing} uses, so a re-derivation prices an
+ * event exactly the way it was priced when written.
+ */
+function pricingInputForEvent(event: BillableEvent): LedgerPricingInput | undefined {
+  if (!event.usage) return undefined;
+  const cacheLever = event.levers.find((lever) => lever.kind === "provider_cache");
+  const meshPlacedCacheControl = cacheLever !== undefined;
+  const meshPlacedTtl = cacheLever?.leverId === "cache-ttl-5m"
+    ? "5m"
+    : cacheLever?.leverId === "cache-ttl-1h"
+      ? "1h"
+      : undefined;
+  return {
+    provider: event.provider,
+    model: event.model,
+    at: event.timestamp.slice(0, 10),
+    executionMode: event.executionMode,
+    usage: event.usage,
+    meshPlacedCacheControl,
+    ...(meshPlacedTtl === undefined ? {} : { meshPlacedTtl }),
+  };
+}
+
+/**
+ * The catalogue-derived expected savedUsd for one lever, re-computed from the
+ * event's provider-verbatim usage, or undefined when the lever's basis is not
+ * deterministically derivable from usage × catalogue alone (exact_cache, and
+ * the measured lossless/lossy levers, whose savings come from a measurement
+ * path the usage does not by itself reconstruct — those are integrity-checked
+ * via {@link auditEventPricing} but their stored figure is accepted).
+ */
+function expectedLeverSavedUsd(lever: LedgerLever, priced: LedgerPricing): number | undefined {
+  if (priced.pricingStatus !== "priced") return undefined;
+  switch (lever.kind) {
+    case "tier":
+      return priced.tierSavedUsd ?? 0;
+    case "provider_cache":
+      return priced.cacheAttributedUsd ?? 0;
+    default:
+      return undefined;
+  }
+}
+
+export type SavingsReconciliation = {
+  /** True when every re-derivable lever's stored savedUsd is within tolerance. */
+  ok: boolean;
+  /** Levers whose savedUsd could be re-derived and were therefore checked. */
+  leversChecked: number;
+  /** The largest amount by which a stored savedUsd EXCEEDED its re-derived value. */
+  maxOverstatementUsd: number;
+  /** The first failing lever's human-readable reason, when ok is false. */
+  reason?: string;
+};
+
+/**
+ * Server-side savings re-derivation — the guard that stops the invoice trusting
+ * a stored `savedUsd` it cannot reproduce.
+ *
+ * At bill time we do NOT take the ledger's word for how much each lever saved.
+ * For every lever whose savings are a deterministic function of the event's
+ * provider-verbatim usage and the price catalogue (execution-tier deltas and
+ * MESH-placed provider-cache economics), we re-derive the figure and reconcile
+ * it against what is stored. A stored figure that EXCEEDS its re-derived value
+ * by more than a tiny tolerance is an overstatement: the caller must withhold
+ * the charge rather than bill the inflated amount. A stored figure at or below
+ * the re-derived value is a conservative under-claim and is allowed.
+ *
+ * The event's own pricing integrity is checked first: a `usage`/`actualUsd`
+ * that no longer prices to the stored cost (a tampered measurement) fails the
+ * reconciliation outright. Levers priced against a different catalogue version,
+ * or whose savings are not usage-derivable, are integrity-checked but their
+ * stored figure is accepted (and counted separately so callers can see how much
+ * of the bill was NOT independently re-derived).
+ */
+export function reconcileInvoiceSavings(
+  events: readonly BillableEvent[],
+  catalogue: PriceCatalogue,
+  options: Pick<InvoiceOptions, "period" | "failedTaskIds" | "gateVerdictOverrides"> & { toleranceUsd?: number } = {},
+): SavingsReconciliation {
+  const tolerance = options.toleranceUsd ?? 1e-6;
+  if (!Number.isFinite(tolerance) || tolerance < 0) {
+    throw new Error("toleranceUsd must be a non-negative, finite USD amount.");
+  }
+  const { billableEvents } = selectBillableEvents(events, options);
+
+  let leversChecked = 0;
+  let maxOverstatementUsd = 0;
+  let reason: string | undefined;
+
+  for (const event of billableEvents) {
+    // Re-derivation needs provider-verbatim usage. An event carrying none is
+    // outside this guard (its savings came from a measurement path usage does
+    // not reconstruct); its stored figure is accepted and left to the event's
+    // own pricingStatus, never flagged as fraud for being un-reconstructable.
+    if (!event.usage) continue;
+
+    // Integrity: a stored actualUsd that no longer prices from the stored usage
+    // is a tampered measurement — fail before trusting any lever on the event.
+    const audit = auditEventPricing(event, catalogue);
+    if (audit.status === "mismatch") {
+      return {
+        ok: false,
+        leversChecked,
+        maxOverstatementUsd,
+        reason: `event ${event.requestId}: stored actualUsd ${audit.storedUsd ?? "∅"} does not re-derive from usage (recomputed ${audit.recomputedUsd}).`,
+      };
+    }
+    // A version mismatch or an unpriced recompute means we cannot re-derive
+    // against THIS catalogue; the stored, version-pinned figure stands.
+    if (audit.status !== "verified") continue;
+
+    const pricingInput = pricingInputForEvent(event);
+    const priced = pricingInput === undefined
+      ? ({ pricingStatus: "unpriced", reason: "no usage" } as LedgerPricing)
+      : priceLedgerUsage(catalogue, pricingInput);
+
+    for (const lever of event.levers) {
+      if (leverUnbilledReason(lever, options.gateVerdictOverrides) !== undefined) continue;
+      const expected = expectedLeverSavedUsd(lever, priced);
+      if (expected === undefined) continue; // not usage-derivable; accepted
+      leversChecked += 1;
+      const overstatement = lever.savedUsd! - expected;
+      if (overstatement > maxOverstatementUsd) maxOverstatementUsd = overstatement;
+      if (overstatement > tolerance && reason === undefined) {
+        reason = `event ${event.requestId} lever ${lever.leverId}: stored savedUsd ${lever.savedUsd} exceeds re-derived ${expected} by ${overstatement.toFixed(6)}.`;
+      }
+    }
+  }
+
+  return { ok: reason === undefined, leversChecked, maxOverstatementUsd, ...(reason === undefined ? {} : { reason }) };
+}
+
 // ---------------------------------------------------------------------------
 // Invoice
 // ---------------------------------------------------------------------------
