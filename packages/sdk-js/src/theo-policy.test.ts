@@ -13,6 +13,7 @@ import {
   policyForRoute,
   bundleToReductionConfig,
   upsertRoutePolicy,
+  mergePolicyIntoBundle,
   type TheoPolicy,
   type TheoPolicyBundle,
   type TheoLever,
@@ -206,6 +207,43 @@ describe("per-route policy bundles", () => {
     expect(bundleToReductionConfig(bundle, "gpt-4o").outputEffort).toBeUndefined(); // 3% > 2% route ceiling
     expect(bundleToReductionConfig(bundle, "claude-sonnet-5-5").outputEffort).toBe("low"); // 3% ≤ 4%
     expect(bundleToReductionConfig(bundle, "claude-opus-5-5").outputEffort).toBeUndefined(); // 6% > hard cap 5%
+  });
+
+  it("mergePolicyIntoBundle (no route) replaces the default and PRESERVES existing routes", () => {
+    const def = defaultPolicy("u", AT);
+    const routePolicy: TheoPolicy = { ...def, route: "gpt-4o", qualityCeilingPercent: 4 };
+    const existing: TheoPolicyBundle = { schemaVersion: 1, user: "u", default: def, routes: [routePolicy], updatedAt: AT };
+    const newDefault: TheoPolicy = { ...def, version: 9, route: "should-be-dropped" };
+    const merged = mergePolicyIntoBundle(existing, newDefault, undefined, "2026-10-30T00:00:00.000Z");
+    expect(merged.default.version).toBe(9);
+    expect(merged.default.route).toBeUndefined(); // the default carries no matcher
+    expect(merged.routes).toHaveLength(1); // the gpt-4o route survived
+    expect(merged.routes![0]).toBe(routePolicy);
+  });
+
+  it("mergePolicyIntoBundle (with route) upserts the route and PRESERVES the default + other routes", () => {
+    const def = defaultPolicy("u", AT);
+    const existing: TheoPolicyBundle = { schemaVersion: 1, user: "u", default: def,
+      routes: [{ ...def, route: "gpt-4o" }], updatedAt: AT };
+    const provenPolicy: TheoPolicy = { ...def, qualityCeilingPercent: 5,
+      levers: [{ lever: "output-effort-low", class: "lossy", gate: proven(-1) }] };
+    const merged = mergePolicyIntoBundle(existing, provenPolicy, "claude-haiku-5-5", "2026-10-30T00:00:00.000Z");
+    expect(merged.default).toBe(def); // default untouched
+    expect(merged.routes).toHaveLength(2); // gpt-4o kept + haiku added
+    expect(policyForRoute(merged, "claude-haiku-5-5").route).toBe("claude-haiku-5-5");
+    expect(bundleToReductionConfig(merged, "claude-haiku-5-5").outputEffort).toBe("low");
+    expect(bundleToReductionConfig(merged, "gpt-4o").outputEffort).toBeUndefined();
+  });
+
+  it("mergePolicyIntoBundle with no existing bundle: default-write wraps; route-write seeds a strict default", () => {
+    const policy: TheoPolicy = { ...defaultPolicy("u", AT), qualityCeilingPercent: 4 };
+    const asDefault = mergePolicyIntoBundle(undefined, policy, undefined, AT);
+    expect(asDefault.default.qualityCeilingPercent).toBe(4);
+    expect(asDefault.routes).toBeUndefined();
+    const asRoute = mergePolicyIntoBundle(undefined, policy, "claude-*", AT);
+    expect(asRoute.default.qualityCeilingPercent).toBe(2); // a fresh STRICT default guards other models
+    expect(asRoute.routes).toHaveLength(1);
+    expect(asRoute.routes![0]?.route).toBe("claude-*");
   });
 
   it("upsertRoutePolicy adds then replaces a route, never mutating the input, and refuses a routeless policy", () => {

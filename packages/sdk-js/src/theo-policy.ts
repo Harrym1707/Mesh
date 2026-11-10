@@ -252,6 +252,31 @@ export function upsertRoutePolicy(bundle: TheoPolicyBundle, policy: TheoPolicy, 
   return { ...bundle, routes, updatedAt: at };
 }
 
+/**
+ * Land a policy Theo has evolved into a bundle WITHOUT clobbering the rest of it,
+ * returning a NEW bundle. With a `route`, the policy becomes that route's override
+ * (every other route and the default preserved); without one, it replaces the
+ * bundle's default (every route preserved). This is what `mesh theo --apply`
+ * writes: Theo optimises one model at a time, so he can publish to that model's
+ * route and leave the others exactly as they were.
+ */
+export function mergePolicyIntoBundle(
+  existing: TheoPolicyBundle | undefined,
+  policy: TheoPolicy,
+  route: string | undefined,
+  at: string,
+): TheoPolicyBundle {
+  if (route !== undefined && route !== "") {
+    const base = existing ?? asBundle(defaultPolicy(policy.user, at));
+    return upsertRoutePolicy(base, { ...policy, route }, at);
+  }
+  const base = existing ?? asBundle(policy);
+  // The default policy carries no route matcher of its own.
+  const def = { ...policy };
+  delete def.route;
+  return { ...base, default: def, updatedAt: at };
+}
+
 /** The lossy levers present in the policy but NOT enforced, with the reason — for Theo's UX. */
 export function withheldLevers(policy: TheoPolicy): WithheldLever[] {
   const out: WithheldLever[] = [];

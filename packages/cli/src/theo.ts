@@ -45,7 +45,7 @@ import {
   saveTheoMemory,
 } from "../../sdk-js/src/theo-agent-store.js";
 import { proveCandidates } from "../../sdk-js/src/theo-gate.js";
-import { effectiveQualityCeiling } from "../../sdk-js/src/theo-policy.js";
+import { asBundle, effectiveQualityCeiling, mergePolicyIntoBundle, type TheoPolicy, type TheoPolicyBundle } from "../../sdk-js/src/theo-policy.js";
 
 const USAGE = `Usage: mesh theo [options]
 
@@ -58,6 +58,9 @@ const USAGE = `Usage: mesh theo [options]
                         test      — also queue the next lossy levers to prove.
                         optimise  — auto-apply a lossy lever once it is proven.
   --customer <id>     Which environment's memory to use. Default: local.
+  --route <matcher>   With --apply, land the policy as this route's override
+                        (model id: exact, a trailing-* prefix, or *) instead of
+                        the default — other routes are preserved. Default: none.
   --ledger <dir>      Ledger directory to read. Default ~/.mesh/ledger.
   --gate <file>       Prove the queued lossy levers by replaying this JSONL
                         sample of your OWN requests through the provider. Each
@@ -87,6 +90,9 @@ const AUTONOMY_LEVELS: readonly TheoAutonomyLevel[] = ["observe", "recommend", "
 export type TheoRunOptions = {
   ledgerDir: string;
   customer: string;
+  /** When set with --apply, land the policy as this route's override (matched on
+   * the model id: exact, a trailing-`*` prefix, or `*`); otherwise the default. */
+  route?: string;
   autonomy?: TheoAutonomyLevel;
   gate?: string;
   providerUrl?: string;
@@ -128,6 +134,7 @@ function parse(argv: string[]): TheoRunOptions {
         break;
       }
       case "--customer": args.customer = value; break;
+      case "--route": args.route = value; break;
       case "--ledger": args.ledgerDir = resolve(value); break;
       case "--gate": args.gate = resolve(value); break;
       case "--provider-url": args.providerUrl = value; break;
@@ -407,8 +414,9 @@ export async function runTheoOnce(args: TheoRunOptions): Promise<void> {
   console.log(`\nMemory saved to ${memoryPath}`);
 
   if (args.apply) {
-    const policyPath = applyPolicyToProxy(result.memory.policy);
-    console.log(`Applied policy to ${policyPath} — the proxy enforces it on the next \`mesh start\`.`);
+    const policyPath = applyPolicyToProxy(result.memory.policy, args.route);
+    const where = args.route ? `route '${args.route}'` : "the default route";
+    console.log(`Applied policy to ${where} in ${policyPath} — the proxy enforces it on the next \`mesh start\`.`);
   }
 }
 
@@ -450,12 +458,27 @@ export async function theoWatch(options: {
   return ticks;
 }
 
-/** Write Theo's policy to the proxy's control file (~/.mesh/theo-policy.json). */
-function applyPolicyToProxy(policy: unknown): string {
+/**
+ * Write Theo's policy to the proxy's control file (~/.mesh/theo-policy.json),
+ * MERGING it into any existing bundle rather than overwriting it. With a `route`,
+ * the policy lands as that route's override; without one, as the bundle's default.
+ * Either way every OTHER route is preserved, so optimising one model never wipes
+ * another model's proven policy.
+ */
+function applyPolicyToProxy(policy: TheoPolicy, route: string | undefined): string {
   const dir = join(homedir(), ".mesh");
   mkdirSync(dir, { recursive: true });
   const policyPath = join(dir, "theo-policy.json");
-  writeFileSync(policyPath, `${JSON.stringify(policy, null, 2)}\n`, { mode: 0o600 });
+  let existing: TheoPolicyBundle | undefined;
+  if (existsSync(policyPath)) {
+    try {
+      existing = asBundle(JSON.parse(readFileSync(policyPath, "utf8")) as TheoPolicy | TheoPolicyBundle);
+    } catch {
+      existing = undefined; // a corrupt file is replaced, not merged into
+    }
+  }
+  const bundle = mergePolicyIntoBundle(existing, policy, route, new Date().toISOString());
+  writeFileSync(policyPath, `${JSON.stringify(bundle, null, 2)}\n`, { mode: 0o600 });
   return policyPath;
 }
 

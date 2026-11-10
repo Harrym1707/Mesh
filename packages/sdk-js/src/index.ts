@@ -64,6 +64,7 @@ export {
   policyForRoute,
   bundleToReductionConfig,
   upsertRoutePolicy,
+  mergePolicyIntoBundle,
   type TheoPolicy,
   type TheoPolicyBundle,
   type TheoLever,
