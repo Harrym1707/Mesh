@@ -22,7 +22,7 @@ import { isTerminal, type LeadStatus } from "./types.js";
 
 export type StepResult =
   | { action: "advance"; recordId: string; from: LeadStatus; to: LeadStatus; by: string }
-  | { action: "scout"; created: string[] }
+  | { action: "scout"; created: string[]; generated?: number }
   | { action: "idle" };
 
 // Process the furthest-along work first: a record mid-pipeline is finished
@@ -42,6 +42,8 @@ export type OrchestratorOptions = {
   scoutCount?: number;
   /** Disable scouting (process only in-flight work). */
   noScout?: boolean;
+  /** Let the Scout generate parameter-sweep leads once the catalogue is drained. */
+  generate?: boolean;
 };
 
 function runStage(ledger: LabLedger, status: LeadStatus, recordId: string): StepResult {
@@ -80,8 +82,14 @@ export function step(ledger: LabLedger, options: OrchestratorOptions = {}): Step
   }
   // Nothing in flight — discover new leads.
   if (!options.noScout) {
-    const result = scoutDispatch(ledger, { count: options.scoutCount, now: options.now });
-    if (result.created.length > 0) return { action: "scout", created: result.created };
+    const result = scoutDispatch(ledger, {
+      count: options.scoutCount,
+      now: options.now,
+      generate: options.generate,
+    });
+    if (result.created.length > 0) {
+      return { action: "scout", created: result.created, generated: result.generated };
+    }
   }
   return { action: "idle" };
 }
@@ -115,6 +123,78 @@ export function runToQuiescence(
     statusCounts,
     promoted: records.filter((r) => r.status === "promoted").map((r) => r.id),
     integrity: ledger.verifyIntegrity(),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Continuous operation
+// ---------------------------------------------------------------------------
+
+export type ContinuousOptions = OrchestratorOptions & {
+  /** Delay between ticks (ms). */
+  intervalMs?: number;
+  /** Hard cap on ticks (default: unbounded). */
+  maxTicks?: number;
+  /**
+   * Stop after this many consecutive idle ticks — i.e. once there is nothing
+   * left to process, discover or generate. Default 3. Pass Infinity to run as a
+   * true daemon that keeps polling forever.
+   */
+  maxIdleTicks?: number;
+  /** Called after every tick (for live logging). */
+  onStep?: (result: StepResult, tick: number) => void;
+  /** Injectable delay (tests pass a no-op). */
+  sleep?: (ms: number) => Promise<void>;
+};
+
+const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+export type ContinuousSummary = RunSummary & { ticks: number; stoppedIdle: boolean };
+
+/**
+ * Run the Discover → … → Repeat loop continuously. Generation is on by default
+ * so the Scout keeps finding real work after the catalogue is drained. Stops
+ * after `maxIdleTicks` consecutive idle ticks (nothing left to do) unless that
+ * is Infinity, in which case it runs until `maxTicks` or forever.
+ */
+export async function runContinuous(
+  ledger: LabLedger,
+  options: ContinuousOptions = {},
+): Promise<ContinuousSummary> {
+  const intervalMs = options.intervalMs ?? 200;
+  const maxTicks = options.maxTicks ?? Number.POSITIVE_INFINITY;
+  const maxIdleTicks = options.maxIdleTicks ?? 3;
+  const sleep = options.sleep ?? defaultSleep;
+  const stepOptions: OrchestratorOptions = { ...options, generate: options.generate ?? true };
+
+  const steps: StepResult[] = [];
+  let tick = 0;
+  let idle = 0;
+  while (tick < maxTicks && idle < maxIdleTicks) {
+    const result = step(ledger, stepOptions);
+    tick += 1;
+    options.onStep?.(result, tick);
+    if (result.action === "idle") {
+      idle += 1;
+    } else {
+      idle = 0;
+      steps.push(result);
+    }
+    if (idle >= maxIdleTicks || tick >= maxTicks) break;
+    await sleep(intervalMs);
+  }
+
+  const records = ledger.listRecords();
+  const statusCounts: Record<string, number> = {};
+  for (const record of records) statusCounts[record.status] = (statusCounts[record.status] ?? 0) + 1;
+
+  return {
+    steps,
+    statusCounts,
+    promoted: records.filter((r) => r.status === "promoted").map((r) => r.id),
+    integrity: ledger.verifyIntegrity(),
+    ticks: tick,
+    stoppedIdle: idle >= maxIdleTicks,
   };
 }
 

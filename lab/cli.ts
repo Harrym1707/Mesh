@@ -11,7 +11,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LabLedger } from "./ledger.js";
-import { runToQuiescence, step } from "./orchestrator.js";
+import { runContinuous, runToQuiescence, step } from "./orchestrator.js";
 import type { OptimisationRecord } from "./types.js";
 
 const DEFAULT_ROOT = "lab/ledger";
@@ -152,6 +152,37 @@ switch (command) {
     printStatus(ledger);
     break;
   }
+  case "watch": {
+    const ledger = new LabLedger(options.root ?? DEFAULT_ROOT);
+    const intervalMs = options.interval ? Number(options.interval) : 200;
+    const maxTicks = options.ticks ? Number(options.ticks) : Number.POSITIVE_INFINITY;
+    const maxIdleTicks = options.forever
+      ? Number.POSITIVE_INFINITY
+      : options.idle
+        ? Number(options.idle)
+        : 3;
+    console.log(
+      `Scouting continuously (interval ${intervalMs}ms, ` +
+        (options.forever ? "forever — Ctrl-C to stop" : `stop after ${maxIdleTicks} idle ticks`) +
+        ")...",
+    );
+    const summary = await runContinuous(ledger, {
+      intervalMs,
+      maxTicks,
+      maxIdleTicks,
+      onStep: (result, tick) => {
+        if (result.action === "advance") {
+          console.log(`  t${tick} ${result.recordId}: ${result.from} -> ${result.to} (${result.by})`);
+        } else if (result.action === "scout") {
+          const tag = result.generated ? ` (${result.generated} generated)` : "";
+          console.log(`  t${tick} scouts discovered${tag}: ${result.created.join(", ")}`);
+        }
+      },
+    });
+    console.log(`\nStopped after ${summary.ticks} tick(s)${summary.stoppedIdle ? " (idle — nothing left to do)" : ""}.`);
+    printStatus(ledger);
+    break;
+  }
   case "status": {
     const ledger = new LabLedger(options.root ?? DEFAULT_ROOT);
     printStatus(ledger);
@@ -169,6 +200,9 @@ switch (command) {
     break;
   }
   default:
-    console.log("Usage: lab <demo|run|status|verify> [--root <dir>]");
+    console.log(
+      "Usage: lab <demo|run|watch|status|verify> [--root <dir>]\n" +
+        "  watch [--interval <ms>] [--idle <n>] [--ticks <n>] [--forever]",
+    );
     process.exitCode = 1;
 }

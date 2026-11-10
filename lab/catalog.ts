@@ -109,6 +109,114 @@ export const CATALOG: CatalogEntry[] = [
     datasetFixtureId: "rag-duplicate-passages",
   },
   {
+    title: "JSON tool-result minification",
+    description:
+      "Lab-generated. Agent loops re-send pretty-printed JSON tool results whose indentation the model never needs. Minifying JSON inside fenced blocks is lossless to the model and attacks the fat-tool-result cost the lever backlog (P7) flags.",
+    category: "compaction",
+    bucket: "core",
+    techniqueKey: "minify-json-blocks",
+    hypothesis:
+      "Stripping whitespace from JSON tool-result bodies reduces input tokens with no change to the values the model reads.",
+    controlSurface: "context-compaction",
+    featureInputs: ["structural-counts", "token-counts"],
+    changesCustomerApplication: false,
+    expectedTokenReductionPercent: 12,
+    techniqueId: "minify-json-blocks",
+    defaultParams: {},
+    datasetFixtureId: "json-tool-results",
+  },
+  {
+    title: "Proxy-side output-conciseness governor (Mesh reframe of Ponytail)",
+    description:
+      "Lab-generated. Captures Ponytail's lever — constrain a verbose agent's output — without its delivery: instead of editing the customer's repo config, Mesh transiently injects a terse-output directive (or uses provider effort dials) into the outgoing request on opt-in worker routes. The customer's application is untouched; lossy, so gated on a customer task-completion metric.",
+    category: "output-caps",
+    bucket: "adjacent",
+    techniqueKey: "output-conciseness-governor",
+    hypothesis:
+      "A proxy-injected conciseness directive on opt-in worker routes reduces output tokens while holding task completion within the quality ceiling.",
+    controlSurface: "output-caps",
+    featureInputs: ["route-id", "model-id", "structural-counts"],
+    changesCustomerApplication: false,
+    expectedTokenReductionPercent: 20,
+    // Spec-only: needs a real implementation and, critically, a customer
+    // task-completion grader before it can be measured — INCONCLUSIVE until then.
+    techniqueId: "output-conciseness-governor",
+    defaultParams: { routes: "worker-only", directive: "concise" },
+    datasetFixtureId: "json-tool-results",
+  },
+  {
+    title: "Cross-request system-prefix cache coalescing",
+    description:
+      "Lab-generated. Uses keyed prefix hashes to spot identical system/tool prefixes re-sent uncached across requests, and ensures a single cached copy so later requests read the prefix instead of re-paying for it. Lossless; cache metadata only, model-read bytes identical.",
+    category: "cache-placement",
+    bucket: "adjacent",
+    techniqueKey: "system-prefix-cache-coalesce",
+    hypothesis:
+      "Coalescing repeated uncached system/tool prefixes onto one cache entry converts prefix rewrites into cheap reads.",
+    controlSurface: "cache-placement",
+    featureInputs: ["keyed-prefix-hash", "structural-counts", "inter-arrival-timing"],
+    changesCustomerApplication: false,
+    expectedTokenReductionPercent: 14,
+    techniqueId: "system-prefix-cache-coalesce",
+    defaultParams: {},
+    datasetFixtureId: "rag-duplicate-passages",
+  },
+  {
+    title: "Local-embedding semantic chunk dedup",
+    description:
+      "Lab-generated. Exact dedup misses near-duplicate retrieved chunks. On-machine embeddings (no content leaves the box) drop semantically redundant passages. Lossy, so gate-required; exploratory upside beyond exact-match dedup.",
+    category: "rag-efficiency",
+    bucket: "exploratory",
+    techniqueKey: "semantic-chunk-dedup",
+    hypothesis:
+      "Dropping near-duplicate retrieved chunks by local-embedding similarity reduces input tokens while holding answer quality.",
+    controlSurface: "deduplication",
+    featureInputs: ["structural-counts", "token-counts"],
+    changesCustomerApplication: false,
+    expectedTokenReductionPercent: 22,
+    techniqueId: "semantic-chunk-dedup",
+    defaultParams: { similarityThreshold: 0.92 },
+    datasetFixtureId: "rag-duplicate-passages",
+  },
+  {
+    title: "Document-to-Markdown conversion (Microsoft MarkItDown)",
+    description:
+      "Microsoft's open-source MarkItDown (github.com/microsoft/markitdown) converts PDF/Office/HTML into compact, LLM-oriented Markdown. Applied in-path to verbose document payloads, it cuts input tokens; lossy, so gate-required, and must run on-machine so prompts never leave the box.",
+    category: "rag-efficiency",
+    bucket: "adjacent",
+    techniqueKey: "markitdown-doc-to-markdown",
+    hypothesis:
+      "Converting verbose document formats to clean Markdown before the request is sent reduces input tokens with acceptable, gate-verified quality loss.",
+    controlSurface: "context-compaction",
+    // Decision inputs are structural (content-type, size); the transform runs
+    // in-path like the other reducers, exposing content to no agent.
+    featureInputs: ["structural-counts", "token-counts"],
+    changesCustomerApplication: false,
+    // Third-party blogs claim up to ~80%; unverified, so a conservative figure.
+    expectedTokenReductionPercent: 30,
+    // Spec-only: no runnable adapter or document fixture yet, so this should
+    // evaluate INCONCLUSIVE until one is built and measured.
+    techniqueId: "markitdown-doc-to-markdown",
+    defaultParams: { formats: ["pdf", "docx", "pptx", "xlsx", "html"] },
+    datasetFixtureId: "rag-duplicate-passages",
+  },
+  {
+    title: "Agent output-bloat ruleset (Ponytail)",
+    description:
+      "Ponytail (github.com/DietrichGebert/ponytail) is a coding-agent ruleset/skill engine that constrains an AI agent to emit less code, cutting output tokens. It works by injecting rules into the customer's agent (.ponytail, CLAUDE.md, .cursorrules) — i.e. it changes the customer's own application, not Mesh's proxy layer.",
+    category: "output-caps",
+    bucket: "exploratory",
+    techniqueKey: "ponytail-agent-ruleset",
+    hypothesis:
+      "A ruleset that constrains a coding agent's output reduces the tokens it generates.",
+    controlSurface: "output-caps",
+    featureInputs: [],
+    // Out of scope for Mesh: it restructures the customer's agent, so Research
+    // should reject it on the no-customer-app-changes constraint.
+    changesCustomerApplication: true,
+    expectedTokenReductionPercent: 54,
+  },
+  {
     title: "Rewrite customer prompts for brevity",
     description:
       "Shorten the customer's own prompts by paraphrasing them before sending. Would require reading and restructuring the customer's application content.",

@@ -11,6 +11,7 @@ import {
   applyReducers,
   collapseWhitespace,
   dedupeRepeatedBlocks,
+  minifyJsonBlocks,
   approximateTokenCount,
   type Reducer,
   type ReductionRisk,
@@ -63,6 +64,14 @@ const TECHNIQUES: Record<string, Technique> = {
     risk: "lossless",
     runnable: true,
     apply: (input) => runReducers(input, [collapseWhitespace()], "lossless"),
+  },
+
+  "minify-json-blocks": {
+    id: "minify-json-blocks",
+    title: "JSON tool-result minification",
+    risk: "lossless",
+    runnable: true,
+    apply: (input) => runReducers(input, [minifyJsonBlocks()], "lossless"),
   },
 
   "dedupe-then-collapse": {

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { LabLedger, DuplicateLeadError, fingerprint } from "./ledger.js";
 import { assertCan, can, PermissionError } from "./permissions.js";
-import { runToQuiescence, step } from "./orchestrator.js";
+import { runContinuous, runToQuiescence, step } from "./orchestrator.js";
 import { scoutDispatch } from "./agents/scout.js";
 import { researchRun } from "./agents/research.js";
 import {
@@ -136,6 +136,48 @@ describe("scout", () => {
     const second = scoutDispatch(ledger, { now });
     expect(second.created.length).toBe(0);
     expect(second.skipped.length).toBeGreaterThan(0);
+  });
+});
+
+describe("continuous scouting", () => {
+  it("generates parameter-sweep leads once the catalogue is drained", () => {
+    const ledger = new LabLedger(root, { now });
+    // Drain the catalogue (no generation).
+    while (scoutDispatch(ledger, { now }).created.length > 0) {
+      /* keep discovering catalogue leads */
+    }
+    const before = ledger.listRecords().length;
+    const generated = scoutDispatch(ledger, { now, generate: true });
+    expect(generated.generated).toBeGreaterThan(0);
+    expect(generated.created.length).toBe(generated.generated);
+    expect(ledger.listRecords().length).toBeGreaterThan(before);
+    // Generated leads are real, content-blind, runnable variants.
+    const variant = ledger.listRecords().find((r) => r.techniqueKey.includes("@minimumBlockTokens="));
+    expect(variant).toBeDefined();
+    expect(variant!.lead!.changesCustomerApplication).toBe(false);
+  });
+
+  it("runs the loop continuously to quiescence and keeps the audit trail intact", async () => {
+    const ledger = new LabLedger(root, { now });
+    const noSleep = async () => {};
+    const summary = await runContinuous(ledger, { now, sleep: noSleep, intervalMs: 0, maxIdleTicks: 3, maxTicks: 2000 });
+    expect(summary.stoppedIdle).toBe(true); // stopped because nothing was left to do
+    expect(summary.integrity.ok).toBe(true);
+    // It explored beyond the seed catalogue: more records than the catalogue holds.
+    expect(ledger.listRecords().length).toBeGreaterThan(12);
+    // A tuned variant was measured and promoted alongside the seed winners.
+    const promotedVariant = ledger
+      .listRecords({ status: "promoted" })
+      .find((r) => r.techniqueKey.includes("@minimumBlockTokens="));
+    expect(promotedVariant).toBeDefined();
+    expect(promotedVariant!.evaluation!.tokenReductionPercent).toBeGreaterThan(0);
+  });
+
+  it("honours maxTicks as a hard cap", async () => {
+    const ledger = new LabLedger(root, { now });
+    const noSleep = async () => {};
+    const summary = await runContinuous(ledger, { now, sleep: noSleep, maxTicks: 3, maxIdleTicks: 99 });
+    expect(summary.ticks).toBe(3);
   });
 });
 

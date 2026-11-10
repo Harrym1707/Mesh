@@ -97,6 +97,48 @@ export const FIXTURES: Record<string, Fixture> = {
   },
 };
 
+// A prompt whose tool result is a pretty-printed JSON blob — the shape agent
+// loops carry all the time. Minifying the JSON is lossless to the model.
+function jsonToolPrompt(status: string): string {
+  const body = JSON.stringify(
+    {
+      request: { method: "GET", path: "/v1/orders", retries: 0 },
+      response: {
+        status,
+        headers: { "content-type": "application/json", "cache-control": "no-store", "x-request-id": "abc-123" },
+        items: [
+          { id: 1, state: "open", total: 42.5, currency: "USD", note: "priority" },
+          { id: 2, state: "closed", total: 11.0, currency: "USD", note: "standard" },
+          { id: 3, state: "open", total: 7.25, currency: "USD", note: "standard" },
+        ],
+      },
+    },
+    null,
+    2,
+  );
+  return [
+    "You are a monitoring assistant. Here is the latest tool result:",
+    "",
+    "```json",
+    body,
+    "```",
+    "",
+    "Did the request succeed? Answer yes or no.",
+  ].join("\n");
+}
+
+FIXTURES["json-tool-results"] = {
+  id: "json-tool-results",
+  description: "Agent prompts carrying pretty-printed JSON tool results in fenced json blocks.",
+  evaluator: "classification",
+  cases: Array.from({ length: 8 }, (_unused, index) => ({
+    id: `json-${index + 1}`,
+    input: jsonToolPrompt(index % 2 === 0 ? "200 OK" : "500 Error"),
+    expected: index % 2 === 0 ? "yes" : "no",
+    inputPerMillionUsd: 3,
+  })),
+};
+
 export function getFixture(id: string | undefined): Fixture | undefined {
   if (!id) return undefined;
   return FIXTURES[id];

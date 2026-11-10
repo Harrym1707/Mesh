@@ -43,6 +43,7 @@
     "build:cli": "node --import tsx scripts/build-cli-package.ts",
     "lab:demo": "node --import tsx lab/cli.ts demo",
     "lab:run": "node --import tsx lab/cli.ts run",
+    "lab:watch": "node --import tsx lab/cli.ts watch",
     "lab:status": "node --import tsx lab/cli.ts status",
     "lab:verify": "node --import tsx lab/cli.ts verify",
     "typecheck:lab": "tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --strict --skipLibCheck lab/index.ts lab/cli.ts lab/lab.test.ts"
