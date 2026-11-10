@@ -294,6 +294,26 @@ export const CATALOG: CatalogEntry[] = [
     datasetFixtureId: "chat-session",
   },
   {
+    title: "Block-array system prefix repair (volatile-line relocation)",
+    description:
+      "Found by replaying the real LiteLLM wire capture: a per-request clock at the top of a block-array system prompt makes the customer's own cache stamp pure write premium — the volatile session costs 4.2x the stable one (76.4% of its input bill, derived-from-captures). Mesh's prefix repair only handles a string system today. Relocating the volatile line inside a text block would recover it, but it reorders what the model reads, so it is gate-required.",
+    category: "cache-placement",
+    bucket: "core",
+    techniqueKey: "block-array-prefix-repair",
+    hypothesis:
+      "Moving per-request values out of the head of a block-array system prompt restores the cached prefix and removes the per-turn write premium, with no change in task behaviour.",
+    shape: "always-on-agent",
+    controlSurface: "cache-placement",
+    featureInputs: ["keyed-prefix-hash", "structural-counts", "token-counts", "inter-arrival-timing"],
+    changesCustomerApplication: false,
+    expectedTokenReductionPercent: 76,
+    // Spec-only: needs the reducer change plus a replay gate with date-anchor
+    // probes (lever-backlog P3 condition 2) — INCONCLUSIVE until both exist.
+    techniqueId: "block-array-prefix-repair",
+    defaultParams: {},
+    datasetFixtureId: "agent-session",
+  },
+  {
     title: "Full lossless stack — coding agent",
     description:
       "Captures every lossless feature a coding-agent turn carries at once: the re-read duplicate file, the pretty-printed JSON test result, and layout whitespace. Strictly beats any single reducer on the realistic shape.",

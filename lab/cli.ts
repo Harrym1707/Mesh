@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LabLedger } from "./ledger.js";
 import { runContinuous, runToQuiescence, step } from "./orchestrator.js";
+import { capturesAvailable, qualifyOnCaptures } from "./captures.js";
 import { fleetSavings } from "./workloads.js";
 import type { OptimisationRecord } from "./types.js";
 
@@ -50,7 +51,16 @@ function printStatus(ledger: LabLedger): void {
     );
   }
   const fleet = fleetSavings(ledger);
-  console.log(`\n% SAVED FOR THE END USER — ${fleet.fleetPercentSaved.toFixed(1)}% blended across the consumer workload mix`);
+  console.log(`\n% SAVED FOR THE END USER`);
+  console.log(`  UPPER BOUND — ${fleet.fleetPercentSaved.toFixed(1)}% modelled on constructed fixtures (uncached, redundancy-heavy shapes)`);
+  if (capturesAvailable()) {
+    const qualified = qualifyOnCaptures();
+    console.log(
+      `  FLOOR       — ${qualified.totals.stamp.savingPercent.toFixed(1)}% measured on real wire captures with lossless levers ` +
+        `(${qualified.sessions.length} sessions; small or already-cached traffic; net of the customer's own caching)`,
+    );
+    console.log(`  A real customer lands between the two, set by how much of their traffic is uncached and redundant.`);
+  }
   console.log(`  (Mesh-addressable spend: ${(fleet.addressableShare * 100).toFixed(0)}%, parked: ${(fleet.parkedShare * 100).toFixed(0)}% — weights are an illustrative ESTIMATE)`);
   for (const w of fleet.workloads) {
     const tag =

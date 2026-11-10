@@ -14,6 +14,7 @@ import {
   DEFAULT_MAX_QUALITY_DEGRADATION,
 } from "./constraints.js";
 import { fleetSavings } from "./workloads.js";
+import { qualifyOnCaptures } from "./captures.js";
 import type { OptimisationLead } from "./types.js";
 
 let root: string;
@@ -283,6 +284,41 @@ describe("fleet % saved for the end user", () => {
     expect(byDomain.reasoning.savingsPercent).toBe(0);
     // Spend weights are a coherent mix.
     expect(fleet.workloads.reduce((s, w) => s + w.spendShare, 0)).toBeCloseTo(1, 5);
+  });
+});
+
+describe("qualification on real wire captures", () => {
+  it("replays the captures through the product reducer + cache model", () => {
+    const q = qualifyOnCaptures();
+    expect(q.basis).toBe("derived-from-captures");
+    expect(q.sessions.length).toBeGreaterThanOrEqual(6);
+    for (const session of q.sessions) {
+      // A lever may never make a real session cost more.
+      for (const arm of Object.values(session.arms)) expect(arm.savingPercent).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it("documents the honest floor: lossless levers add almost nothing on well-built traffic", () => {
+    const q = qualifyOnCaptures();
+    // Small (< cache minimum) and already-cached traffic: the constructed-fixture
+    // numbers must NOT be read as a real-traffic saving. If this starts failing
+    // upward, a lever genuinely improved on real captures — update the floor.
+    expect(q.totals.text.savingPercent).toBeLessThan(5);
+    expect(q.totals.stamp.savingPercent).toBeLessThan(5);
+  });
+
+  it("never credits Mesh for caching the customer already has", () => {
+    const q = qualifyOnCaptures();
+    const customerCached = q.sessions.filter((s) => s.baselinePolicy === "anthropic-ephemeral-5m");
+    expect(customerCached.length).toBeGreaterThan(0);
+    for (const session of customerCached) expect(session.arms.stamp.savingPercent).toBeLessThan(1);
+  });
+
+  it("exposes the volatile-prefix opportunity the captures contain", () => {
+    const lite = qualifyOnCaptures().sessions.filter((s) => s.capture.startsWith("litellm"));
+    const [volatile, stable] = lite;
+    // Same prompt, same stamps — a clock at the head of the prefix makes it far dearer.
+    expect(volatile!.baselineCostUsd).toBeGreaterThan(stable!.baselineCostUsd * 2);
   });
 });
 
