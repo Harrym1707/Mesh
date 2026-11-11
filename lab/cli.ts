@@ -15,6 +15,7 @@ import { runContinuous, runToQuiescence, step } from "./orchestrator.js";
 import { capturesAvailable, qualifyOnCaptures } from "./captures.js";
 import { readLiveNumbers } from "./numbers.js";
 import { qualifyPayingShape } from "./paying-shape.js";
+import { cadenceSweep, sessionLengthSweep } from "./sweeps.js";
 import { fleetSavings } from "./workloads.js";
 import type { OptimisationRecord } from "./types.js";
 
@@ -248,6 +249,30 @@ switch (command) {
     printStatus(ledger);
     break;
   }
+  case "sweep": {
+    // On demand: these re-run the cache simulation many times. --full adds the
+    // 20-turn sessions, which take several minutes.
+    const tasks = options.tasks ? Number(options.tasks) : 5;
+    const turnCounts = options.full ? [5, 12, 20] : [5, 12];
+    console.log("PAYING-SHAPE SWEEPS — SIMULATOR (repo agent fixture, simulated grader); turn gaps are synthetic ESTIMATES\n");
+    console.log(`Session length (${tasks} tasks; whole-bill saving vs raw uncached, clean tasks):`);
+    for (const row of sessionLengthSweep(turnCounts, tasks)) {
+      const f = (c: { savingPercent: number; cleanTasks: number; totalTasks: number }) =>
+        `${c.savingPercent.toFixed(1)}% (${c.cleanTasks}/${c.totalTasks})`;
+      console.log(
+        `  ${String(row.turns).padStart(2)} turns  lossless ${f(row.lossless)}  + fresh cap ${f(row.freshCap)}  ` +
+          `+ history ${f(row.history)}  [history adds ${row.historyAddsPoints.toFixed(1)} pt]`,
+      );
+    }
+    console.log(`\nTurn cadence × cache TTL (lossless stack, ${tasks} tasks × 5 turns):`);
+    for (const row of cadenceSweep([3, 120, 480, 2_700], tasks)) {
+      console.log(
+        `  gap ${String(row.turnGapSeconds).padStart(4)}s  5m TTL ${row.ttl5m.savingPercent.toFixed(1)}% (hits ${(row.ttl5m.cacheHitRate * 100).toFixed(0)}%)  ` +
+          `1h TTL ${row.ttl1h.savingPercent.toFixed(1)}% (hits ${(row.ttl1h.cacheHitRate * 100).toFixed(0)}%)  → ${row.better}`,
+      );
+    }
+    break;
+  }
   case "status": {
     const ledger = new LabLedger(options.root ?? DEFAULT_ROOT);
     printStatus(ledger);
@@ -266,8 +291,9 @@ switch (command) {
   }
   default:
     console.log(
-      "Usage: lab <demo|run|watch|status|verify> [--root <dir>]\n" +
-        "  watch [--interval <ms>] [--idle <n>] [--ticks <n>] [--forever]",
+      "Usage: lab <demo|run|watch|status|sweep|verify> [--root <dir>]\n" +
+        "  watch [--interval <ms>] [--idle <n>] [--ticks <n>] [--forever]\n" +
+        "  sweep [--tasks <n>] [--full]",
     );
     process.exitCode = 1;
 }

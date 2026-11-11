@@ -21,6 +21,7 @@
 // clear prefix repair's own date-anchor gate (lever-backlog P3, condition 2).
 
 import {
+  ANTHROPIC_CACHE_1H,
   ANTHROPIC_CACHE_5M,
   ANTHROPIC_NO_CACHE,
   simulateCache,
@@ -68,7 +69,7 @@ export type PayingShapeResult = {
 };
 
 // Cumulative ablation ladder: each arm adds exactly one lever to the one before.
-const LADDER: { id: string; label: string; adds: string; lossless: boolean; config: MeshTokenReductionConfig }[] = [
+export const PAYING_SHAPE_LADDER: { id: string; label: string; adds: string; lossless: boolean; config: MeshTokenReductionConfig }[] = [
   {
     id: "lossless",
     label: "Lossless only",
@@ -139,9 +140,41 @@ const LADDER: { id: string; label: string; adds: string; lossless: boolean; conf
   },
 ];
 
-type ArmRun = { costUsd: number; clean: number; hitRate: number; stamped: number; total: number };
+const LADDER = PAYING_SHAPE_LADDER;
 
-function runArm(config: MeshTokenReductionConfig | undefined, spacingSeconds: number): ArmRun {
+export type ArmRun = {
+  costUsd: number;
+  clean: number;
+  tasks: number;
+  hitRate: number;
+  stamped: number;
+  total: number;
+  policy: string;
+};
+
+export type ArmShape = {
+  /** Seconds between task starts (default 30 — "busy multi-turn"). */
+  spacingSeconds?: number;
+  /** Seconds between turns of the same task (default 3). */
+  turnGapSeconds?: number;
+  /** Turns per task (default: the fixture's 5). */
+  turns?: number;
+  /** Task count (default: the fixture's 40). */
+  tasks?: number;
+};
+
+/**
+ * One arm of the paying shape: the fixture's tasks driven through reduceRequest
+ * (or sent raw when `config` is undefined), graded by the fixture's simulated
+ * model, and priced by the product's cache simulator. With every option at its
+ * default this is byte-for-byte the run evals/run-cache-decomposition.ts does.
+ */
+export function runPayingShapeArm(config: MeshTokenReductionConfig | undefined, shape: ArmShape = {}): ArmRun {
+  const spacingSeconds = shape.spacingSeconds ?? 30;
+  const turnGapSeconds = shape.turnGapSeconds ?? 3;
+  const turns = shape.turns ?? TURNS_PER_TASK;
+  const tasks = shape.tasks ?? TASKS;
+
   // Same price lookup and stamping rule as evals/run-cache-decomposition.ts, so
   // the two harnesses agree to the cent.
   const price = lookupPrice(publishedModelPrices, { provider: "openai", model: "gpt-5", at: "2026-10-13" });
@@ -150,30 +183,52 @@ function runArm(config: MeshTokenReductionConfig | undefined, spacingSeconds: nu
   const simulated: SimulatedRequest[] = [];
   let clean = 0;
   let stamped = 0;
-  for (let task = 0; task < TASKS; task += 1) {
+  for (let task = 0; task < tasks; task += 1) {
     const clockHour = 8 + (task % 10);
     let fullyGood = true;
-    for (let turn = 0; turn < TURNS_PER_TASK; turn += 1) {
+    for (let turn = 0; turn < turns; turn += 1) {
       const original = buildAnthropicRequest(task, turn, clockHour);
       let sent = original as AnyObject;
       if (config !== undefined) {
         const reduced = reduceRequest(original, config);
         sent = reduced.request as AnyObject;
-        if (reduced.summary.changes.some((change) => change.lever.startsWith("cache-ttl-"))) stamped += 1;
+        // Count real stamps only — a "cache-ttl-suppressed" record is a stamp withheld.
+        if (reduced.summary.changes.some((c) => c.lever === "cache-ttl-5m" || c.lever === "cache-ttl-1h")) {
+          stamped += 1;
+        }
       }
       const outcome = answer(sent);
       if (!outcome.correct || outcome.completeness < 0.95) fullyGood = false;
       simulated.push({
-        atSeconds: task * spacingSeconds + turn * 3,
+        atSeconds: task * spacingSeconds + turn * turnGapSeconds,
         prompt: wirePrompt(sent),
         outputTokens: outcome.outputTokens,
       });
     }
     if (fullyGood) clean += 1;
   }
-  const policy = stamped === simulated.length && stamped > 0 ? ANTHROPIC_CACHE_5M : ANTHROPIC_NO_CACHE;
+  // Cached pricing applies only when EVERY request carries a stamp; otherwise
+  // the stream is priced uncached rather than assumed cached.
+  const allStamped = stamped === simulated.length && stamped > 0;
+  const policy = !allStamped
+    ? ANTHROPIC_NO_CACHE
+    : config?.cacheTtl === "1h"
+      ? ANTHROPIC_CACHE_1H
+      : ANTHROPIC_CACHE_5M;
   const result = simulateCache(simulated, policy, price.price, { countTokens: approximateTokenCount });
-  return { costUsd: result.totalCostUsd, clean, hitRate: result.hitRate, stamped, total: simulated.length };
+  return {
+    costUsd: result.totalCostUsd,
+    clean,
+    tasks,
+    hitRate: result.hitRate,
+    stamped,
+    total: simulated.length,
+    policy: policy.name,
+  };
+}
+
+function runArm(config: MeshTokenReductionConfig | undefined, spacingSeconds: number): ArmRun {
+  return runPayingShapeArm(config, { spacingSeconds });
 }
 
 type LadderRuns = { raw: ArmRun; rungs: ArmRun[]; fullUncached: ArmRun };

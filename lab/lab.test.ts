@@ -17,6 +17,7 @@ import { fleetSavings } from "./workloads.js";
 import { GATE_REQUIRED_ARMS, qualifyOnCaptures } from "./captures.js";
 import { repairBlockArraySystem } from "./experiments/block-array-repair.js";
 import { qualifyPayingShape } from "./paying-shape.js";
+import { cadenceSweep, sessionLengthSweep } from "./sweeps.js";
 import { readLiveNumbers } from "./numbers.js";
 import type { OptimisationLead } from "./types.js";
 
@@ -382,6 +383,37 @@ describe("paying-shape tier (repo agent fixture, simulated grader)", () => {
     expect(loose.bestWithinCeiling!.id).toBe("outputCap");
     expect(loose.ceilingBreaker).toBeUndefined();
   });
+});
+
+describe("sweeps over the paying shape", () => {
+  it("a 5-minute stamp LOSES money once turns are more than 5 minutes apart; the 1-hour TTL does not", () => {
+    const [fast, slow] = cadenceSweep([3, 480], 4);
+    // Busy cadence: the cheap 5m write wins.
+    expect(fast!.ttl5m.savingPercent).toBeGreaterThan(0);
+    expect(fast!.better).toBe("5m");
+    // Slow cadence: every 5m write expires unread — pure premium, a real loss.
+    expect(slow!.ttl5m.cacheHitRate).toBe(0);
+    expect(slow!.ttl5m.savingPercent).toBeLessThan(0);
+    expect(slow!.ttl1h.savingPercent).toBeGreaterThan(0);
+    expect(slow!.better).toBe("1h");
+    // Stamping never changes content, so quality is untouched at any cadence.
+    for (const row of [fast!, slow!]) {
+      expect(row.ttl5m.qualityDrop).toBe(0);
+      expect(row.ttl1h.qualityDrop).toBe(0);
+    }
+  }, 60_000);
+
+  it("savings grow with session length, and the fresh cap subsumes history compaction", () => {
+    const [short, long] = sessionLengthSweep([3, 8], 3);
+    expect(long!.lossless.savingPercent).toBeGreaterThan(short!.lossless.savingPercent);
+    expect(long!.freshCap.savingPercent).toBeGreaterThan(long!.lossless.savingPercent);
+    // With the cap on at injection there is nothing stale and oversized left to compact.
+    expect(Math.abs(long!.historyAddsPoints)).toBeLessThan(0.5);
+    for (const row of [short!, long!]) {
+      expect(row.history.cleanTasks).toBe(row.history.totalTasks);
+      expect(row.history.withinCeiling).toBe(true);
+    }
+  }, 60_000);
 });
 
 describe("docs/NUMBERS.md is the source of truth for LIVE figures", () => {

@@ -33,6 +33,57 @@ log it here · commit locally only when green · do not push (left for review).
    tokens, idempotent, preserves fenced code, byte-identical on clean input.
 7. README + floorplan refresh; final report at 24h.
 
+### Iteration 4 — 03:02 → 13:00 · session-length and cadence × TTL sweeps
+
+(Wall-clock stretched because the host machine kept sleeping; see "Environment".)
+
+**Built** `lab/sweeps.ts` (+ `pnpm lab:sweep [--tasks n] [--full]`) on a
+generalised `runPayingShapeArm` (turns, tasks, task spacing, turn gap, 5m/1h
+TTL). Default arguments are byte-for-byte the previous run, so the
+`docs/NUMBERS.md` cross-check still pins it.
+
+**Measured (SIMULATOR; repo agent fixture; 10 tasks; whole bill)**
+
+Session length — savings compound as history grows, all at 10/10 clean:
+
+| Turns | Lossless | + fresh tool-result cap | + history compaction |
+|---|---|---|---|
+| 5 | 31.4% | 46.4% | 46.4% |
+| 12 | 49.4% | 61.4% | 61.4% |
+| 20 | 59.4% | 70.4% | 70.4% |
+
+Turn cadence × cache TTL (lossless stack, 5 turns; gaps are synthetic ESTIMATES):
+
+| Gap between turns | 5m TTL | 1h TTL | Better |
+|---|---|---|---|
+| 3s | 31.4% (hits 71%) | 27.0% | 5m |
+| 2m | 31.4% (hits 71%) | 27.0% | 5m |
+| 8m | **−12.3%** (hits 0%) | 27.0% (hits 71%) | 1h |
+| 45m | **−12.3%** (hits 0%) | 27.0% (hits 71%) | 1h |
+
+**Findings**
+- **A 5-minute stamp on a slow conversation makes the bill worse.** Once turns
+  are more than 5 minutes apart every write expires unread: −12.3%, where the
+  1-hour TTL saves 27.0%. Picking the TTL from observed inter-arrival gaps (a
+  blind feature) is worth ~39 points on slow traffic. This makes the
+  cadence-aware TTL lead (lever-backlog P2) measurable for the first time here.
+- **History compaction is subsumed by the fresh tool-result cap.** Isolated at
+  12 turns: compaction alone +2.2 pt (and it costs cache hits, 87% → 75%); the
+  cap alone +7.8 pt; both together = the cap alone. With the cap on at
+  injection, nothing stale and oversized is left to compact.
+- **Longer sessions pay more.** Lossless alone goes 31% → 59% from 5 to 20
+  turns. The 5-turn fixture understates long-running agents.
+
+**Qualification / caveats.** Simulated grader; synthetic gaps; the fixture's
+tool results are uniform ~2.5 KB, so the cap-vs-compaction result may differ on
+traffic with a few very large and many small results. The stamping count now
+ignores `cache-ttl-suppressed` records (a withheld stamp is not a stamp).
+
+**Environment.** The host slept repeatedly (wakeups hours late, load average
+58 on wake). A vitest run that spans a sleep reports wall-clock "timeouts" in
+unrelated tests. Verification runs are therefore made under `caffeinate -i`
+with a raised test timeout; no test logic depends on wall-clock.
+
 ### Iteration 3 — 23:45 · paying-shape tier, quality gate, and the LIVE anchor
 
 **Found** `docs/NUMBERS.md` is the source of truth: one LIVE number (18.2% on a
