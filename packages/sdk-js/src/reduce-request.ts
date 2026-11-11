@@ -109,8 +109,15 @@ export type MeshTokenReductionConfig = {
    * default 64-token minimum block size; pass an object to tune it. Applies
    * only to messages whose content is a plain string or whose first content
    * block is `{type: "text", text}`; anything else is left untouched.
+   *
+   * `restateEveryTurns`, when set, restates the block verbatim every Nth
+   * user turn instead of only the first, bounding how far back the nearest
+   * verbatim copy sits (at most N-1 turns) at the cost of some of the
+   * saving. See `dedupeRepeatedLeadingBlock` in `packages/core` and
+   * `evals/run-replay-gate-memory-dedup.ts`, which is the replay-gate
+   * evidence for using this over the unbounded default.
    */
-  crossTurnMemoryDedup?: boolean | { minimumBlockTokens?: number };
+  crossTurnMemoryDedup?: boolean | { minimumBlockTokens?: number; restateEveryTurns?: number };
   /**
    * Cap oversized tool-result and assistant bodies at injection, BEFORE first
    * send. A fresh oversized result is billed once at the FULL input rate and
@@ -635,13 +642,17 @@ function withLeadingText(message: AnyObject, text: string): AnyObject {
  */
 function dedupeMemoryAcrossTurns(
   input: unknown[],
-  options: { minimumBlockTokens?: number },
+  options: { minimumBlockTokens?: number; restateEveryTurns?: number },
   countTokens: TokenCounter,
   changes: MeshReductionChange[],
 ): unknown[] {
   const minimumBlockTokens = options.minimumBlockTokens ?? 64;
   if (!Number.isInteger(minimumBlockTokens) || minimumBlockTokens < 1) {
     throw new Error("crossTurnMemoryDedup minimumBlockTokens must be a positive integer.");
+  }
+  const { restateEveryTurns } = options;
+  if (restateEveryTurns !== undefined && (!Number.isInteger(restateEveryTurns) || restateEveryTurns < 2)) {
+    throw new Error("crossTurnMemoryDedup restateEveryTurns must be an integer of at least 2.");
   }
   const indices: number[] = [];
   for (const [index, message] of input.entries()) {
@@ -653,7 +664,7 @@ function dedupeMemoryAcrossTurns(
 
   const texts = indices.map((index) => leadingText(input[index] as AnyObject)!);
   const before = texts.reduce((sum, text) => sum + countTokens(text), 0);
-  const result = dedupeRepeatedLeadingBlock(texts, minimumBlockTokens, countTokens);
+  const result = dedupeRepeatedLeadingBlock(texts, minimumBlockTokens, countTokens, restateEveryTurns);
   if (result.notes.length === 0) return input;
   const after = result.texts.reduce((sum, text) => sum + countTokens(text), 0);
 
@@ -668,9 +679,13 @@ function dedupeMemoryAcrossTurns(
     lossless: false,
     estimatedTokensSaved: Math.max(0, before - after),
     detail: `Replaced ${result.notes.length} repeated leading block(s) across user turns with reference ` +
-      "markers (the first turn's block, and every turn's own differing remainder, kept verbatim). This is a " +
-      "behaviour change, not a cache-rate change, so it needs a replay-gate pass on the customer's own traffic " +
-      "before the saving may be billed.",
+      "markers (the first turn's block, and every turn's own differing remainder, kept verbatim)." +
+      (restateEveryTurns === undefined
+        ? ""
+        : ` Restated verbatim every ${restateEveryTurns} turns, so the nearest verbatim copy is never more ` +
+          `than ${restateEveryTurns - 1} turns back.`) +
+      " This is a behaviour change, not a cache-rate change, so it needs a replay-gate pass on the customer's " +
+      "own traffic before the saving may be billed.",
   });
   return next;
 }
