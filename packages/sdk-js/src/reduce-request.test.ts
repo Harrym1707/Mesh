@@ -239,6 +239,32 @@ describe("cross-turn memory dedup", () => {
     expect(summary.skippedReason).toMatch(/positive integer/);
   });
 
+  it("restateEveryTurns bounds the distance to the nearest verbatim restatement", () => {
+    const { request: reduced, summary } = reduceRequest(memoryRequest(6), {
+      crossTurnMemoryDedup: { restateEveryTurns: 3 },
+    });
+    const change = summary.changes.find((entry) => entry.lever === "cross-turn-memory-dedup")!;
+    expect(change.detail).toContain("Restated verbatim every 3 turns");
+    const messages = (reduced as Record<string, unknown>).messages as Array<{ role: string; content: string }>;
+    const userTurns = messages.filter((m) => m.role === "user");
+    // Turns 0 and 3 (the re-anchor points) stay verbatim; the rest are referenced.
+    expect(userTurns[0]!.content).toContain("AGENT MEMORY");
+    expect(userTurns[3]!.content).toContain("AGENT MEMORY");
+    for (const index of [1, 2, 4, 5]) {
+      expect(userTurns[index]!.content).not.toContain("AGENT MEMORY");
+    }
+  });
+
+  it("rejects a restateEveryTurns below 2", () => {
+    const original = memoryRequest(4);
+    const { request: reduced, summary } = reduceRequest(original, {
+      crossTurnMemoryDedup: { restateEveryTurns: 1 },
+    });
+    expect(reduced).toBe(original);
+    expect(summary.skipped).toBe(true);
+    expect(summary.skippedReason).toMatch(/restateEveryTurns must be an integer of at least 2/);
+  });
+
   it("works on Responses-style `input` arrays too", () => {
     const input = [
       { role: "user", content: `${MEMORY}\nTurn 0: handle today's request 0.` },

@@ -297,17 +297,28 @@ export function commonPrefixLength(left: string, right: string): number {
  * means a false positive - two texts that happen to start with the same
  * few words before diverging mid-line, e.g. two turns both opening "Turn "
  * - can only ever leave that differing line untouched, never truncate into it.
+ *
+ * `restateEveryTurns`, when set, sends the block verbatim again every Nth
+ * text (indices 0, N, 2N, ...) instead of only at index 0. This bounds how
+ * far back the nearest verbatim copy ever sits - unbounded (all the way to
+ * turn 1) with the default, at most N-1 turns with it set - which is the
+ * knob a replay-gate pass tunes: unbounded distance is what
+ * `evals/run-replay-gate-memory-dedup.ts` finds unsafe on its fixture,
+ * bounded distance is what it finds safe. Still LOSSY and still gate-bound;
+ * this only changes HOW lossy, not whether a gate is required.
  */
 export function dedupeRepeatedLeadingBlock(
   texts: readonly string[],
   minimumBlockTokens = 24,
   countTokens: TokenCounter = approximateTokenCount,
+  restateEveryTurns?: number,
 ): { texts: string[]; notes: string[] } {
   if (texts.length === 0) return { texts: [], notes: [] };
   const canonical = texts[0]!;
   const notes: string[] = [];
   const nextTexts = texts.map((text, index) => {
     if (index === 0) return text;
+    if (restateEveryTurns !== undefined && index % restateEveryTurns === 0) return text;
     const raw = commonPrefixLength(canonical, text);
     if (raw === 0) return text;
     const fullContainment = raw === canonical.length || raw === text.length;

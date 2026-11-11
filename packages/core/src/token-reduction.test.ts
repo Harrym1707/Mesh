@@ -209,6 +209,29 @@ describe("dedupeRepeatedLeadingBlock", () => {
     const twice = dedupeRepeatedLeadingBlock(once.texts, 24);
     expect(twice.texts).toEqual(once.texts);
   });
+
+  it("restateEveryTurns re-anchors the block verbatim at every Nth turn instead of only turn 0", () => {
+    const texts = Array.from({ length: 6 }, (_, turn) => `${memory}\nTurn ${turn}: handle request ${turn}.`);
+    const result = dedupeRepeatedLeadingBlock(texts, 24, undefined, 3);
+    // Turns 0 and 3 are the re-anchor points: verbatim, untouched.
+    expect(result.texts[0]).toBe(texts[0]);
+    expect(result.texts[3]).toBe(texts[3]);
+    // Turns 1, 2, 4, 5 are each within 2 turns of their nearest re-anchor: referenced.
+    for (const turn of [1, 2, 4, 5]) {
+      expect(result.texts[turn]).not.toContain("AGENT MEMORY");
+      expect(result.texts[turn]).toContain(`Turn ${turn}: handle request ${turn}.`);
+    }
+    expect(result.notes).toHaveLength(4);
+  });
+
+  it("restateEveryTurns of undefined keeps the unbounded default (only turn 0 verbatim)", () => {
+    const texts = Array.from({ length: 4 }, (_, turn) => `${memory}\nTurn ${turn}: handle request ${turn}.`);
+    const bounded = dedupeRepeatedLeadingBlock(texts, 24, undefined, 4);
+    const unbounded = dedupeRepeatedLeadingBlock(texts, 24);
+    // With restateEveryTurns equal to the text count, no re-anchor beyond index 0 is
+    // reached, so the two should agree.
+    expect(bounded.texts).toEqual(unbounded.texts);
+  });
 });
 
 describe("collapseWhitespace", () => {

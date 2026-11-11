@@ -65,8 +65,13 @@ import { reduceRequest, type MeshTokenReductionConfig } from "../packages/sdk-js
 type AnyObject = Record<string, unknown>;
 
 const AT = "2026-10-19";
-const price = lookupPrice(publishedModelPrices, { provider: "anthropic", model: "Sonnet 5.5", at: AT });
-if (price.status !== "priced") throw new Error("price lookup failed for Sonnet 5.5");
+const priceLookup = lookupPrice(publishedModelPrices, { provider: "anthropic", model: "Sonnet 5.5", at: AT });
+if (priceLookup.status !== "priced") throw new Error("price lookup failed for Sonnet 5.5");
+// Captured as its own const so a nested function closure (measureArm, below) keeps the
+// narrowed "priced" type - a bare module-scope narrowing of `priceLookup` itself does not
+// survive into a function body under --strict (TS2339), only caught once this file was
+// added to the typecheck:evals script tonight.
+const price = priceLookup.price;
 
 const LOSSLESS: MeshTokenReductionConfig = {
   toolSchemas: true,
@@ -163,7 +168,7 @@ function measureArm(
   // run-workload-matrix.ts's breakpoint-exact pricer; this eval isolates the
   // NEW lever's token effect, which is what the cache can never reach here
   // (the shape's prefix is below the 1,024-token cacheable minimum).
-  const priced = simulateCache(simRequests, ANTHROPIC_NO_CACHE, price.price, { countTokens: approximateTokenCount });
+  const priced = simulateCache(simRequests, ANTHROPIC_NO_CACHE, price, { countTokens: approximateTokenCount });
   const leverCounts = new Map<string, number>();
   for (const note of notes) leverCounts.set(note, (leverCounts.get(note) ?? 0) + 1);
   console.log(
