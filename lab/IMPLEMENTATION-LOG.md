@@ -56,7 +56,7 @@ log it here · commit locally only when green · do not push (left for review).
 
 | Lead | Evidence | Verdict |
 |---|---|---|
-| Cadence-aware cache TTL | 27.0% at 8-minute turn gaps vs −12.3% for a 5m stamp; lossless | **PROMOTED** |
+| Cadence-aware cache TTL | 22.2% at 8-minute turn gaps in the pipeline's 4-task evidence run (27.0% in the 10-task sweep), where a 5m stamp loses money; lossless | **PROMOTED** |
 | Fresh tool-result cap | +9.9 pt on the paying shape, 40/40 simulated | **NEEDS GATE** |
 | Block-array prefix repair | 74.8% of one captured volatile session; quality unmeasured | **NEEDS GATE** |
 | Output-token cap | +5.9 pt but −5.0 pp quality | FAILED (quality) |
@@ -68,7 +68,25 @@ log it here · commit locally only when green · do not push (left for review).
 of the rung below it on the repo agent fixture; it is not a fleet number. The
 cadence figure rests on a synthetic gap. `needs_gate` items need a real replay
 gate on real traffic — that needs a provider key and Harry's go-ahead, so it
-was not attempted.
+was not attempted. (Correction: commit `aeaf811`'s message quotes 27.0% for the
+promoted TTL lever; the pipeline's own evidence run reads 22.2%.)
+
+**Verification:** 574 tests green (6 new), `typecheck:lab` clean (run under
+`caffeinate`, wall-clock timeouts raised).
+
+### Close of the 24-hour run — 21:30 GMT, 2026-11-11
+
+Five iterations landed in the 24 hours; the host slept for roughly half of it.
+Final `pnpm lab:status` on a fresh ledger (28 leads, 240-event audit trail intact):
+
+- **LIVE 18.2%** (docs/NUMBERS.md) — unchanged; the lab ran no live traffic.
+- **Floor 0.1%** on real wire captures with lossless levers (SIMULATOR).
+- **Paying shape 39.6% lossless / 51.4% inside the 2% ceiling** (SIMULATOR).
+- **Modelled mix 38.2%** (constructed fixtures × ESTIMATE weights) — known to
+  be miscalibrated against LIVE (RAG 54.8% modelled vs 22.0% LIVE).
+- 15 promoted (all lossless), 2 awaiting a real gate, 5 failed/rejected, 6 inconclusive.
+
+Nothing was pushed, `docs/NUMBERS.md` was not edited, and no paid API call was made.
 
 ### Iteration 4 — 03:02 → 13:00 · session-length and cadence × TTL sweeps
 
