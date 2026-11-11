@@ -62,14 +62,29 @@ export function maintainerRun(ledger: LabLedger, record: OptimisationRecord): Op
   const allPass = checks.every((c) => c.passed);
 
   // Resolve the terminal status from the evaluation verdict + the gates.
-  let status: "promoted" | "failed" | "inconclusive";
+  let status: "promoted" | "needs_gate" | "failed" | "inconclusive";
   let decision: PromotionDecision["decision"];
   let reason: string;
+
+  // A lossy lever that passed on harness evidence has only been judged by a
+  // simulated grader (or not judged at all). Its saving is real enough to
+  // pursue and NOT proven enough to ship: it rests at needs_gate.
+  const lossyOnSimulatedEvidence = Boolean(build?.harness) && evaluation.lossless === false;
 
   if (evaluation.verdict === "INCONCLUSIVE") {
     status = "inconclusive";
     decision = "REJECTED";
     reason = `Not promoted: evaluation inconclusive (${evaluation.reasons.join("; ") || "no measurable data"}).`;
+  } else if (evaluation.verdict === "PASS" && allPass && lossyOnSimulatedEvidence) {
+    status = "needs_gate";
+    decision = "NEEDS_GATE";
+    reason =
+      `Not promoted yet: saves ${evaluation.tokenReductionPercent.toFixed(1)} on harness evidence ` +
+      (evaluation.qualityUnmeasured
+        ? "with quality UNMEASURED"
+        : `with a ${(evaluation.qualityDelta * 100).toFixed(1)}% quality drop on a simulated grader`) +
+      `, but it changes what the model reads — it needs a real replay gate on real traffic first. ` +
+      `Basis: ${evaluation.basis ?? "unknown"}.`;
   } else if (evaluation.verdict === "PASS" && allPass) {
     status = "promoted";
     decision = "PROMOTED";

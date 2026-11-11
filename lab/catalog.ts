@@ -89,7 +89,9 @@ export const CATALOG: CatalogEntry[] = [
     // and no capture carries timestamps — so this should evaluate INCONCLUSIVE.
     techniqueId: "cache-ttl-policy",
     defaultParams: { shortTtlSeconds: 300, longTtlSeconds: 3600 },
-    datasetFixtureId: "rag-duplicate-passages",
+    // Measured by the cadence sweep (lab/evidence.ts), not a text fixture — and
+    // deliberately not mapped to any workload fixture in the modelled mix.
+    datasetFixtureId: "paying-shape",
   },
   {
     title: "Stale tool-result compaction (age-based masking)",
@@ -292,6 +294,42 @@ export const CATALOG: CatalogEntry[] = [
     techniqueId: "cache-prefix-read",
     defaultParams: { readMultiplier: 0.1 },
     datasetFixtureId: "chat-session",
+  },
+  {
+    title: "Fresh tool-result cap",
+    description:
+      "Agentic lever. Cap oversized tool results at injection, before first send — a fresh oversized result bills once at the full input rate and only its cached re-reads are discounted. On the paying shape it is the single largest lossy lever (about 10 points of whole-bill saving) and it subsumes history compaction. Lossy by definition: the headline, errors and paths survive, the rest collapses.",
+    category: "compaction",
+    bucket: "core",
+    techniqueKey: "fresh-tool-result-cap",
+    hypothesis:
+      "Capping oversized tool results at injection removes input tokens without changing the agent's next action.",
+    shape: "autonomous-agent",
+    controlSurface: "context-compaction",
+    featureInputs: ["structural-counts", "token-counts", "keyed-prefix-hash"],
+    changesCustomerApplication: false,
+    expectedTokenReductionPercent: 10,
+    // Measured by the paying-shape harness (lab/evidence.ts), not a text fixture.
+    techniqueId: "fresh-tool-result-cap",
+    defaultParams: { maximumTokens: 600 },
+    datasetFixtureId: "paying-shape",
+  },
+  {
+    title: "Output-token cap (truncation)",
+    description:
+      "Cap output at a fixed token budget. Recorded so it is not re-investigated blind: its only saving mechanism is truncating long answers, which the paying-shape gate measures as failed tasks.",
+    category: "output-caps",
+    bucket: "adjacent",
+    techniqueKey: "output-token-cap",
+    hypothesis: "A 2,000-token output cap cuts output spend without losing task completion.",
+    shape: "autonomous-agent",
+    controlSurface: "output-caps",
+    featureInputs: ["structural-counts", "token-counts", "route-id"],
+    changesCustomerApplication: false,
+    expectedTokenReductionPercent: 6,
+    techniqueId: "output-token-cap",
+    defaultParams: { maxOutputTokens: 2000 },
+    datasetFixtureId: "paying-shape",
   },
   {
     title: "Block-array system prefix repair (volatile-line relocation)",

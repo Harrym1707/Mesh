@@ -7,6 +7,7 @@ import { readFileSync } from "node:fs";
 import { checkContentBlind } from "../constraints.js";
 import type { LabLedger } from "../ledger.js";
 import { getTechnique } from "../registry.js";
+import { harnessEvidence } from "../evidence.js";
 import type { OptimisationRecord, RedTeamFinding, RedTeamReport } from "../types.js";
 
 // Inputs that are already clean (no duplicate blocks, no redundant whitespace):
@@ -57,8 +58,43 @@ export function redTeamRun(ledger: LabLedger, record: OptimisationRecord): Optim
 
   const technique = getTechnique(record.build?.techniqueId);
 
-  // 2. Token-increase edge cases + lossless round-trip on clean inputs.
-  if (record.build?.runnable && technique) {
+  const evidence = record.build?.harness ? harnessEvidence(record.techniqueKey) : undefined;
+
+  // 2a. Harness-measured levers: attack the EVIDENCE rather than a text transform.
+  if (evidence) {
+    if (!evidence.lossless) {
+      findings.push({
+        severity: "major",
+        category: "hidden-quality",
+        description:
+          evidence.qualityDrop === null
+            ? "Lossy lever with NO quality measurement — only its cost effect is known."
+            : "Lossy lever judged only by a simulated grader, which cannot see every way a real model degrades.",
+        evidence: `grader: ${evidence.grader}; basis: ${evidence.basis}`,
+        resolved: false,
+      });
+    }
+    if (evidence.savingPercent < 0) {
+      findings.push({
+        severity: "critical",
+        category: "token-increase",
+        description: "The lever RAISES the bill on its own measurement shape.",
+        evidence: `${evidence.savingPercent.toFixed(1)} (${evidence.scope})`,
+        resolved: false,
+      });
+    }
+    if (/ESTIMATE|synthetic|one session/i.test(`${evidence.basis} ${evidence.note}`)) {
+      findings.push({
+        severity: "minor",
+        category: "invalid-assumption",
+        description: "The measurement rests on a synthetic or single-sample input, not on representative traffic.",
+        evidence: evidence.basis,
+        resolved: false,
+      });
+    }
+  }
+  // 2b. Token-increase edge cases + lossless round-trip on clean inputs.
+  else if (record.build?.runnable && technique) {
     for (const input of CLEAN_INPUTS) {
       try {
         const applied = technique.apply(input, record.build.params);

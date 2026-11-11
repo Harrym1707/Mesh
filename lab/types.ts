@@ -86,9 +86,14 @@ export type ForbiddenInput =
  *   building    -> Builder   -> red_team
  *   red_team    -> RedTeam   -> evaluating | failed
  *   evaluating  -> Evaluation-> maintaining
- *   maintaining -> Maintainer-> promoted | failed | inconclusive
+ *   maintaining -> Maintainer-> promoted | needs_gate | failed | inconclusive
  *
- * Terminal: rejected, promoted, failed, inconclusive.
+ * Terminal: rejected, promoted, needs_gate, failed, inconclusive.
+ *
+ * `needs_gate` is the honest resting place for a LOSSY lever whose saving is
+ * measured but whose quality has only been judged by a simulated grader (or not
+ * at all). It is worth pursuing, and it must not be promoted until a real
+ * replay gate has run on real traffic.
  */
 export type LeadStatus =
   | "discovered"
@@ -100,12 +105,14 @@ export type LeadStatus =
   | "evaluating"
   | "maintaining"
   | "promoted"
+  | "needs_gate"
   | "failed"
   | "inconclusive";
 
 export const TERMINAL_STATUSES: readonly LeadStatus[] = [
   "rejected",
   "promoted",
+  "needs_gate",
   "failed",
   "inconclusive",
 ];
@@ -203,6 +210,11 @@ export type BuildArtifact = {
   implementationNotes: string[];
   /** Path to the replay dataset the builder produced (if runnable). */
   datasetPath?: string;
+  /**
+   * Set when the lever is measured by one of the lab's harnesses (paying shape,
+   * cadence sweep, wire captures) rather than by a text technique on a fixture.
+   */
+  harness?: string;
   decisionsLog: string[];
 };
 
@@ -246,11 +258,19 @@ export type EvaluationResult = {
   reliability: { candidateErrorRate: number };
   gates: { name: string; passed: boolean; observed: number | null; required: number }[];
   reasons: string[];
+  /** Where the numbers came from, e.g. "SIMULATOR — repo agent fixture". */
+  basis?: string;
+  /** What judged quality: "simulated model", "none", … */
+  grader?: string;
+  /** False when the lever changes what the model reads or emits. */
+  lossless?: boolean;
+  /** True when quality was not measured at all (cost effect only). */
+  qualityUnmeasured?: boolean;
 };
 
 /** Maintainer agent output — the final promotion decision. */
 export type PromotionDecision = {
-  decision: "PROMOTED" | "REJECTED";
+  decision: "PROMOTED" | "NEEDS_GATE" | "REJECTED";
   checkedGates: { name: string; passed: boolean; detail: string }[];
   reason: string;
   reversible: boolean;

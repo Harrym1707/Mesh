@@ -10,6 +10,7 @@ import { join } from "node:path";
 import type { LabLedger } from "../ledger.js";
 import { getFixture } from "../fixtures.js";
 import { getTechnique, isRunnable } from "../registry.js";
+import { harnessEvidence } from "../evidence.js";
 import type { BuildArtifact, OptimisationRecord } from "../types.js";
 
 export function builderRun(ledger: LabLedger, record: OptimisationRecord): OptimisationRecord {
@@ -21,7 +22,11 @@ export function builderRun(ledger: LabLedger, record: OptimisationRecord): Optim
 
   const techniqueId = spec.implementation.techniqueId;
   const fixture = getFixture(spec.datasetFixtureId);
-  const runnable = isRunnable(techniqueId) && Boolean(fixture);
+  // Some levers are measured by a lab harness (paying shape, cadence sweep,
+  // wire captures) rather than by a text technique on a fixture.
+  const evidence = harnessEvidence(record.techniqueKey);
+  const textRunnable = isRunnable(techniqueId) && Boolean(fixture);
+  const runnable = textRunnable || evidence !== undefined;
   const decisionsLog: string[] = [];
   const implementationNotes: string[] = [];
 
@@ -30,7 +35,12 @@ export function builderRun(ledger: LabLedger, record: OptimisationRecord): Optim
 
   let datasetPath: string | undefined;
 
-  if (runnable && fixture) {
+  if (evidence) {
+    implementationNotes.push(
+      `Measured by the ${evidence.harness} harness: ${evidence.savingPercent.toFixed(1)} (${evidence.scope}). ${evidence.note}`,
+    );
+    decisionsLog.push(`Bound to harness "${evidence.harness}" — basis: ${evidence.basis}; grader: ${evidence.grader}.`);
+  } else if (textRunnable && fixture) {
     const technique = getTechnique(techniqueId)!;
     // The Builder produces the IMPLEMENTATION ARTIFACT: the transformed inputs
     // and their token measurements. It does NOT decide pass/fail — that is the
@@ -87,6 +97,7 @@ export function builderRun(ledger: LabLedger, record: OptimisationRecord): Optim
     params: spec.implementation.params,
     implementationNotes,
     datasetPath,
+    harness: evidence?.harness,
     decisionsLog,
   };
   writeFileSync(join(workspaceDir, "build.json"), `${JSON.stringify(build, null, 2)}\n`);

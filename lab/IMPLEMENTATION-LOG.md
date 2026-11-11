@@ -16,12 +16,16 @@ log it here · commit locally only when green · do not push (left for review).
    volatile session, SIMULATOR, gate-required).
 2. ~~Simulated task-completion grader~~ and 3. ~~Paying-shape tier~~ —
    **Done together — iteration 3** (`lab/paying-shape.ts`).
-3a. **Wire the tiers into the pipeline.** Let the Evaluation agent judge lossy
-   leads with the paying-shape harness (simulated grader, 2% ceiling) instead of
-   leaving them INCONCLUSIVE; record basis + grader on every verdict.
-3b. **Long-session variant.** History compaction added 0 on the 5-turn fixture.
-   Run 12+ turn sessions (the fixture's builders accept any turn) to see where
-   compaction and the fresh-result cap actually pay, under the same gate.
+3a. ~~Wire the tiers into the pipeline~~ — **Done — iteration 5.**
+3b. ~~Long-session variant~~ and 5. ~~Cache-TTL sensitivity~~ — **Done — iteration 4.**
+
+**Open after the 24-hour run (in priority order):**
+- **Real replay gate for the `needs_gate` levers** (fresh tool-result cap,
+  block-array prefix repair). Needs real traffic or a provider key — Harry's call.
+- **Cadence-aware TTL selection in the proxy.** The lab shows the mechanism
+  (5m stamp loses 12.3% at slow cadence; 1h saves 27.0%); the product still
+  takes the TTL as a caller flag.
+- **Block-array prefix repair into the product**, off by default behind the gate.
 3c. **Calibrate the modelled mix against LIVE.** Use the LIVE per-agent figures
    from `docs/NUMBERS.md` where they exist (coding 38.1%, RAG 22.0%); the RAG
    fixture overstates real traffic 2.5× and should be rebuilt or down-weighted.
@@ -32,6 +36,39 @@ log it here · commit locally only when green · do not push (left for review).
 6. **Red-team hardening.** Property tests for every reducer: never increases
    tokens, idempotent, preserves fenced code, byte-identical on clean input.
 7. README + floorplan refresh; final report at 24h.
+
+### Iteration 5 — 14:36 → 21:00 · harness evidence in the pipeline; `needs_gate`
+
+**Built**
+- `lab/evidence.ts`: the one place a lead's techniqueKey maps to the harness
+  measurement behind it (paying-shape rung, cadence sweep, wire capture), each
+  with its basis and grader.
+- New terminal status **`needs_gate`**: a LOSSY lever whose saving is measured
+  but whose quality was judged only by a simulated grader (or not at all). It is
+  worth pursuing and is never promoted from this harness.
+- Builder binds a lead to its harness; Red Team attacks the evidence (simulated
+  grader, synthetic inputs, a bill that goes up); Evaluation applies the same
+  gates (≥3 saving, ≤2% quality drop); Maintainer promotes only lossless levers.
+- Two new leads so the ledger remembers them: fresh tool-result cap, and the
+  output-token cap (recorded as a failure so it is not re-investigated blind).
+
+**Pipeline verdicts on harness evidence (SIMULATOR)**
+
+| Lead | Evidence | Verdict |
+|---|---|---|
+| Cadence-aware cache TTL | 27.0% at 8-minute turn gaps vs −12.3% for a 5m stamp; lossless | **PROMOTED** |
+| Fresh tool-result cap | +9.9 pt on the paying shape, 40/40 simulated | **NEEDS GATE** |
+| Block-array prefix repair | 74.8% of one captured volatile session; quality unmeasured | **NEEDS GATE** |
+| Output-token cap | +5.9 pt but −5.0 pp quality | FAILED (quality) |
+| Tool-description truncation | +0.4 pt | FAILED (not meaningful) |
+| Stale tool-result (history) compaction | +0.0 pt on top of the fresh cap | FAILED (subsumed) |
+| Reasoning-effort / output-conciseness governors | no harness, needs a real model | INCONCLUSIVE |
+
+**Qualification.** "+N pt" is points of whole-bill saving a lever adds on top
+of the rung below it on the repo agent fixture; it is not a fleet number. The
+cadence figure rests on a synthetic gap. `needs_gate` items need a real replay
+gate on real traffic — that needs a provider key and Harry's go-ahead, so it
+was not attempted.
 
 ### Iteration 4 — 03:02 → 13:00 · session-length and cadence × TTL sweeps
 

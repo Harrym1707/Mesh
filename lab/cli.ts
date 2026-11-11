@@ -111,7 +111,18 @@ function printStatus(ledger: LabLedger): void {
   console.log(`\nCoverage by workload vertical (agentic first):`);
   for (const shape of ["always-on-agent", "autonomous-agent", "one-shot"] as const) {
     const c = coverage[shape];
-    console.log(`  ${shape.padEnd(17)} ${c.total} lead(s) — ${c.promoted} promoted, ${c.inconclusive} inconclusive, ${c.rejected + c.failed} rejected/failed`);
+    console.log(`  ${shape.padEnd(17)} ${c.total} lead(s) — ${c.promoted} promoted, ${c.needsGate} need a gate, ${c.inconclusive} inconclusive, ${c.rejected + c.failed} rejected/failed`);
+  }
+
+  const awaitingGate = ledger.listRecords({ status: "needs_gate" });
+  if (awaitingGate.length > 0) {
+    console.log(`\nMeasured but NOT promoted — lossy, awaiting a real replay gate (SIMULATOR evidence):`);
+    for (const r of awaitingGate) {
+      const quality = r.evaluation?.qualityUnmeasured
+        ? "quality unmeasured"
+        : `quality drop ${((r.evaluation?.qualityDelta ?? 0) * 100).toFixed(1)}% on a simulated grader`;
+      console.log(`  ${r.id}  ${r.title} — ${(r.actualSavingPercent ?? 0).toFixed(1)} (${quality})`);
+    }
   }
 
   const integrity = ledger.verifyIntegrity();

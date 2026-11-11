@@ -18,6 +18,8 @@ import { GATE_REQUIRED_ARMS, qualifyOnCaptures } from "./captures.js";
 import { repairBlockArraySystem } from "./experiments/block-array-repair.js";
 import { qualifyPayingShape } from "./paying-shape.js";
 import { cadenceSweep, sessionLengthSweep } from "./sweeps.js";
+import { harnessEvidence } from "./evidence.js";
+import { isTerminal } from "./types.js";
 import { readLiveNumbers } from "./numbers.js";
 import type { OptimisationLead } from "./types.js";
 
@@ -200,7 +202,7 @@ describe("end-to-end pipeline", () => {
 
     // No record is left mid-pipeline.
     const records = ledger.listRecords();
-    expect(records.every((r) => ["promoted", "rejected", "failed", "inconclusive"].includes(r.status))).toBe(true);
+    expect(records.every((r) => isTerminal(r.status))).toBe(true);
   });
 
   it("measures a real token reduction with zero quality drop for lossless dedup", () => {
@@ -382,6 +384,72 @@ describe("paying-shape tier (repo agent fixture, simulated grader)", () => {
     const loose = qualifyPayingShape({ maxQualityDegradation: 0.05 });
     expect(loose.bestWithinCeiling!.id).toBe("outputCap");
     expect(loose.ceilingBreaker).toBeUndefined();
+  });
+});
+
+describe("harness evidence in the pipeline", () => {
+  const byKey = (ledger: LabLedger, key: string) => ledger.listRecords().find((r) => r.techniqueKey === key)!;
+
+  it("rests a lossy lever with a measured saving at needs_gate — never promoted on a simulated grader", () => {
+    const ledger = new LabLedger(root, { now });
+    runToQuiescence(ledger, { now });
+    const cap = byKey(ledger, "fresh-tool-result-cap");
+    expect(cap.status).toBe("needs_gate");
+    expect(cap.evaluation!.verdict).toBe("PASS");
+    expect(cap.evaluation!.lossless).toBe(false);
+    expect(cap.evaluation!.basis).toContain("SIMULATOR");
+    expect(cap.actualSavingPercent).toBeGreaterThan(5);
+    expect(cap.promotion!.decision).toBe("NEEDS_GATE");
+    // Nothing lossy reaches the portfolio.
+    expect(ledger.readPortfolio().levers.some((lever) => lever.id === cap.id)).toBe(false);
+    // The Red Team flagged the simulated grader.
+    expect(cap.redTeam!.findings.some((f) => f.category === "hidden-quality")).toBe(true);
+  });
+
+  it("fails the output cap on quality and records why, so it is not re-investigated blind", () => {
+    const ledger = new LabLedger(root, { now });
+    runToQuiescence(ledger, { now });
+    const outputCap = byKey(ledger, "output-token-cap");
+    expect(outputCap.status).toBe("failed");
+    expect(outputCap.evaluation!.qualityDelta).toBeGreaterThan(DEFAULT_MAX_QUALITY_DEGRADATION);
+    expect(outputCap.decisionReason).toContain("maximum_quality_drop");
+    // A second scouting pass does not re-open it.
+    expect(() => ledger.createLead("scout", { ...outputCap.lead! })).toThrow(DuplicateLeadError);
+  });
+
+  it("fails levers that add nothing on the paying shape", () => {
+    const ledger = new LabLedger(root, { now });
+    runToQuiescence(ledger, { now });
+    for (const key of ["stale-tool-result-compaction", "tool-schema-description-prune"]) {
+      const record = byKey(ledger, key);
+      expect(record.status).toBe("failed");
+      expect(record.decisionReason).toContain("minimum_saving");
+    }
+  });
+
+  it("promotes the cadence-aware TTL choice — lossless, so no gate is needed", () => {
+    const ledger = new LabLedger(root, { now });
+    runToQuiescence(ledger, { now });
+    const ttl = byKey(ledger, "cache-ttl-policy");
+    expect(ttl.status).toBe("promoted");
+    expect(ttl.evaluation!.lossless).toBe(true);
+    expect(ttl.evaluation!.qualityDelta).toBe(0);
+  });
+
+  it("keeps the block-array repair at needs_gate with quality marked unmeasured", () => {
+    const ledger = new LabLedger(root, { now });
+    runToQuiescence(ledger, { now });
+    const repair = byKey(ledger, "block-array-prefix-repair");
+    expect(repair.status).toBe("needs_gate");
+    expect(repair.evaluation!.qualityUnmeasured).toBe(true);
+    expect(repair.actualSavingPercent).toBeGreaterThan(60);
+  });
+
+  it("leaves levers with no harness and no implementation INCONCLUSIVE", () => {
+    const ledger = new LabLedger(root, { now });
+    runToQuiescence(ledger, { now });
+    expect(harnessEvidence("reasoning-effort-governor")).toBeUndefined();
+    expect(byKey(ledger, "reasoning-effort-governor").status).toBe("inconclusive");
   });
 });
 
