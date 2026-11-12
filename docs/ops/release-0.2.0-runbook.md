@@ -67,11 +67,15 @@ against a real provider.
       `docs/site/privacy.md`). They are a first draft written without a lawyer.
       Three things in them are decisions, not wording:
       1. The Terms grant anyone who accepts them the right to run Mesh in
-         production for their own use. The `LICENSE` names Harry Manley
-         personally as licensor, so that grant needs his authority, or the
-         licence re-issued in the company's name.
+         production for their own use.
       2. Liability is capped at the greater of fees paid in 12 months and £100.
       3. No fee is due unless billing was agreed in writing.
+- [ ] **The IP assignment is signed.** `LICENSE` now names Flux AI Technologies
+      Limited as licensor and copyright holder (the founder's decision on
+      2026-11-12). That is true only once the founder has signed the deed
+      assigning the work to the company. A draft is in the founder's private
+      project folder, not in this repository. Do not merge before it is
+      signed.
 - [ ] **Add the registered office address and a contact email to both pages.**
       A UK company's website must show its registered name, number, place of
       registration and registered office address. The first three are on the

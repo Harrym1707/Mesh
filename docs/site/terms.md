@@ -17,7 +17,7 @@ Mesh is a trading name of **Flux AI Technologies Limited**, a company registered
 
 The Mesh software is licensed under the Business Source License 1.1. The `LICENSE` file in the [source repository](https://github.com/Harrym1707/Mesh/blob/main/LICENSE) is the licence; these terms do not replace it.
 
-That licence allows evaluation, development, testing and personal non-commercial use. Production or commercial use needs an agreement with the licensor. **These terms are that agreement for one case:** if you accept them, you may run Mesh in production to reduce the cost of your own or your organisation's AI usage, for as long as you keep to these terms. You may not offer Mesh, or a product built from it, to others as a product or service. Anything else needs a separate written agreement.
+That licence allows evaluation, development, testing and personal non-commercial use. Production or commercial use needs an agreement with the licensor, which is us: Flux AI Technologies Limited owns the software and is the licensor named in that file. **These terms are that agreement for one case:** if you accept them, you may run Mesh in production to reduce the cost of your own or your organisation's AI usage, for as long as you keep to these terms. You may not offer Mesh, or a product built from it, to others as a product or service. Anything else needs a separate written agreement.
 
 ## What the software does
 
@@ -43,7 +43,7 @@ Do not use Mesh or this website to break the law, to interfere with someone else
 
 ## Ownership and feedback
 
-The software, the website and the Mesh name and marks belong to us or our licensor. Nothing here transfers ownership. If you send us suggestions, we may use them without owing you anything.
+The software, the website and the Mesh name and marks belong to us. Nothing here transfers ownership. If you send us suggestions, we may use them without owing you anything.
 
 ## Ending
 

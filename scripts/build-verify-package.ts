@@ -130,7 +130,7 @@ console.log("If MESH quoted you a different number from this same file, MESH is 
 
 writeFileSync(path.join(outDir, "LICENSE"), `MIT License
 
-Copyright (c) 2026 Harry Manley
+Copyright (c) 2026 Flux AI Technologies Limited
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
