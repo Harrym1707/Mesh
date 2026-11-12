@@ -64,6 +64,9 @@ against a real provider.
       Technologies Limited · company no. 17543982". This release does not
       change it, but confirm it is the registered name before drawing testers
       to the site.
+- [ ] **You accept going public without Terms of Service or a DPA.** Opt-in
+      capture writes prompt content to the user's own disk. A controlled pilot
+      could cover that by agreement; a public installer cannot.
 - [ ] **No commits since staging that change product code.** If there are, redo
       "Rebuild the site" below before merging.
 
@@ -113,6 +116,13 @@ npm view @harrym1707/mesh version && npm view @harrym1707/sdk version
 Both should print `0.2.0`. The npm runtime is rebuilt at the tag, so
 `npx @harrym1707/mesh version` reports the tag's commit as its build, not
 `9a71697`. That difference between the two channels is expected.
+
+If trusted publishing is not set up and you would rather not set it up now,
+the packages can be published by hand from a checkout of the tag, as 0.1.x
+were: build as in "Rebuild the site" plus
+`node --import tsx scripts/build-sdk-package.ts`, then `npm publish --access
+public` in `packages/sdk-js/pkg` and in `packages/cli/pkg`. That gives up the
+provenance attestation `SECURITY.md` promises from this release onward.
 
 The workflow publishes the SDK first, then the CLI. If the SDK publishes and
 the CLI step then fails, do not re-push the tag: 0.2.0 of the SDK is now taken.
