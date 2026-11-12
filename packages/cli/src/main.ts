@@ -415,6 +415,7 @@ Usage: mesh <command> [options]
   verify     Re-prove MESH's claims on this machine: the build's provenance,
              your ledger's hash-chain, and a deterministic invoice recompute.
   doctor     Diagnose this machine (Node, proxy, Claude Code, service, ledger).
+  restore    Put Claude Code's settings back after a killed MESH session.
   version    Print the installed version and build.
   analyse    Measure a traffic log and report what a reduction is worth.
   compaction Estimate, per task in your ledger, what context compaction would
@@ -442,6 +443,8 @@ async function main(): Promise<void> {
     await (await import("./verify.js")).runVerify(process.argv.slice(3));
   } else if (sub === "doctor") {
     await (await import("./diag.js")).runDoctor(process.argv.slice(3));
+  } else if (sub === "restore") {
+    await (await import("./diag.js")).runRestore(process.argv.slice(3));
   } else if (sub === "dashboard") {
     await (await import("./dashboard.js")).runDashboard(process.argv.slice(3));
   } else if (sub === "theo") {

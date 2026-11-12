@@ -28,6 +28,8 @@ Usage: mesh <command> [options]
              your ledger's hash-chain, and a deterministic invoice recompute.
   doctor     Diagnose this machine: Node, the proxy, Claude Code wiring, the
              service, and the ledger — each with a one-line fix.
+  restore    Put Claude Code's settings back if a MESH session was killed and
+             left it pointed at a proxy that is no longer running.
   version    Print the installed version and build.
   compaction Estimate, per task in your ledger, what context compaction would
              save — and where it would cost more than it saves (advisory).
@@ -54,6 +56,8 @@ async function main(): Promise<void> {
     await (await import("./verify.js")).runVerify(process.argv.slice(3));
   } else if (sub === "doctor") {
     await (await import("./diag.js")).runDoctor(process.argv.slice(3));
+  } else if (sub === "restore") {
+    await (await import("./diag.js")).runRestore(process.argv.slice(3));
   } else if (sub === "dashboard") {
     await (await import("./dashboard.js")).runDashboard(process.argv.slice(3));
   } else if (sub === "theo") {
