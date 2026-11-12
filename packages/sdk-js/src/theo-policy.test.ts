@@ -7,8 +7,19 @@ import {
   policyCoverage,
   knownLeverIds,
   ENFORCEABLE_LEVERS,
+  routeMatches,
+  isPolicyBundle,
+  asBundle,
+  policyForRoute,
+  bundleToReductionConfig,
+  upsertRoutePolicy,
+  mergePolicyIntoBundle,
+  policyGateVerdicts,
+  bundleGateVerdicts,
   type TheoPolicy,
+  type TheoPolicyBundle,
   type TheoLever,
+  type TheoGateProof,
 } from "./theo-policy.js";
 
 const AT = "2026-10-29T00:00:00.000Z";
@@ -28,6 +39,16 @@ describe("Theo policy", () => {
   it("applies lossless levers unconditionally", () => {
     const p: TheoPolicy = { ...defaultPolicy("u", AT), levers: [{ lever: "cache-prefix-repair", class: "lossless" }] };
     expect(policyToReductionConfig(p).repairCachePrefix).toBe(true);
+  });
+
+  it("hard-caps the quality ceiling: a lever past the max is withheld even if the policy ceiling is higher", () => {
+    const over: TheoLever = { lever: "output-effort-low", class: "lossy", gate: { savingPercent: 30, qualityDeltaPercent: -6, grader: "g", provenAt: AT } };
+    const p: TheoPolicy = { ...defaultPolicy("u", AT), qualityCeilingPercent: 20, levers: [over] };
+    expect(policyToReductionConfig(p).outputEffort).toBeUndefined(); // 6% drop > hard max, withheld
+    expect(withheldLevers(p)[0]?.reason).toContain("ceiling");
+    const under: TheoLever = { ...over, gate: { savingPercent: 30, qualityDeltaPercent: -4, grader: "g", provenAt: AT } };
+    const p2: TheoPolicy = { ...p, levers: [under] };
+    expect(policyToReductionConfig(p2).outputEffort).toBe("low"); // 4% ≤ hard max, enforced
   });
 
   it("WITHHOLDS a lossy lever that carries no gate proof", () => {
@@ -54,6 +75,24 @@ describe("Theo policy", () => {
     const p: TheoPolicy = { ...defaultPolicy("u", AT), qualityCeilingPercent: 2, levers: [lever] };
     expect(policyToReductionConfig(p).outputEffort).toBe("low");
     expect(withheldLevers(p)).toHaveLength(0);
+  });
+
+  it("unused-tool-removal: maps the tool names to dropTools, but only with a gate proof within the ceiling", () => {
+    const names = ["delete_record", "send_email"];
+    // No proof → withheld (lossy), dropTools never set.
+    const noProof: TheoPolicy = { ...defaultPolicy("u", AT),
+      levers: [{ lever: "unused-tool-removal", class: "lossy", params: { tools: names } }] };
+    expect(policyToReductionConfig(noProof).dropTools).toBeUndefined();
+    expect(withheldLevers(noProof)[0]?.reason).toContain("no gate proof");
+    // Proof within the ceiling → dropTools carries the operator's names.
+    const proven: TheoPolicy = { ...defaultPolicy("u", AT), qualityCeilingPercent: 2,
+      levers: [{ lever: "unused-tool-removal", class: "lossy", params: { tools: names },
+        gate: { savingPercent: 40, qualityDeltaPercent: -0.2, grader: "task-completion", provenAt: AT } }] };
+    expect(policyToReductionConfig(proven).dropTools).toEqual(names);
+    // An empty name list maps to nothing even with a proof (no tools to drop).
+    const emptyNames: TheoPolicy = { ...proven,
+      levers: [{ ...proven.levers[0]!, params: { tools: [] } }] };
+    expect(policyToReductionConfig(emptyNames).dropTools).toBeUndefined();
   });
 
   it("maps params for parameterised levers", () => {
@@ -126,5 +165,150 @@ describe("policyCoverage", () => {
     const ttl = coverage.stands.find((s) => s.lever === "cache-ttl")!;
     expect(ttl.state).toBe("active");
     expect(coverage.activeCount).toBe(1); // not two, despite two TTL ids existing
+  });
+});
+
+describe("per-route policy bundles", () => {
+  const proven = (y: number): TheoGateProof => ({ savingPercent: 20, qualityDeltaPercent: y, grader: "tests", provenAt: AT });
+
+  it("routeMatches: exact, trailing-* prefix, and catch-all", () => {
+    expect(routeMatches("claude-sonnet-5-5", "claude-sonnet-5-5")).toBe(true);
+    expect(routeMatches("claude-sonnet-5-5", "claude-haiku-5-5")).toBe(false);
+    expect(routeMatches("claude-*", "claude-haiku-5-5")).toBe(true);
+    expect(routeMatches("claude-*", "gpt-4o")).toBe(false);
+    expect(routeMatches("*", "anything")).toBe(true);
+    expect(routeMatches("", "anything")).toBe(true);
+  });
+
+  it("asBundle wraps a single policy; isPolicyBundle discriminates the two", () => {
+    const single = defaultPolicy("u", AT);
+    expect(isPolicyBundle(single)).toBe(false);
+    const bundle = asBundle(single);
+    expect(isPolicyBundle(bundle)).toBe(true);
+    expect(bundle.default).toBe(single);
+    expect(bundle.routes).toBeUndefined();
+    expect(asBundle(bundle)).toBe(bundle); // a bundle passes straight through
+  });
+
+  it("policyForRoute returns the FIRST matching route, else the default", () => {
+    const def = defaultPolicy("u", AT);
+    const cheap: TheoPolicy = { ...def, route: "claude-haiku-5-5", qualityCeilingPercent: 5 };
+    const anyClaude: TheoPolicy = { ...def, route: "claude-*", qualityCeilingPercent: 3 };
+    const bundle: TheoPolicyBundle = { schemaVersion: 1, user: "u", default: def, routes: [cheap, anyClaude], updatedAt: AT };
+    expect(policyForRoute(bundle, "claude-haiku-5-5")).toBe(cheap);   // specific wins (listed first)
+    expect(policyForRoute(bundle, "claude-sonnet-5-5")).toBe(anyClaude); // falls to the prefix route
+    expect(policyForRoute(bundle, "gpt-4o")).toBe(def);               // no route → default
+  });
+
+  it("enforces the SELECTED route's levers — a lever proven for one route does not leak to another", () => {
+    const def = defaultPolicy("u", AT); // lossless-only
+    const loose: TheoPolicy = {
+      ...def, route: "claude-haiku-5-5", qualityCeilingPercent: 4,
+      levers: [...def.levers, { lever: "output-effort-low", class: "lossy", gate: proven(-1) }],
+    };
+    const bundle: TheoPolicyBundle = { schemaVersion: 1, user: "u", default: def, routes: [loose], updatedAt: AT };
+    // The route that proved the lossy lever gets it...
+    expect(bundleToReductionConfig(bundle, "claude-haiku-5-5").outputEffort).toBe("low");
+    // ...a different model falls to the default policy and does NOT.
+    expect(bundleToReductionConfig(bundle, "claude-sonnet-5-5").outputEffort).toBeUndefined();
+  });
+
+  it("each route carries its OWN ceiling, and the hard cap still binds every route", () => {
+    const def = defaultPolicy("u", AT);
+    // ceiling 2 withholds a 3% drop; same lever clears on a route whose ceiling is 4
+    const strict: TheoPolicy = { ...def, route: "gpt-4o", qualityCeilingPercent: 2,
+      levers: [{ lever: "output-effort-low", class: "lossy", gate: proven(-3) }] };
+    const loose: TheoPolicy = { ...strict, route: "claude-*", qualityCeilingPercent: 4 };
+    // and the hard cap (5%) overrides a route that sets an absurd ceiling
+    const reckless: TheoPolicy = { ...strict, route: "claude-opus-5-5", qualityCeilingPercent: 50,
+      levers: [{ lever: "output-effort-low", class: "lossy", gate: proven(-6) }] };
+    // specific routes before the catch-all prefix (first match wins)
+    const bundle: TheoPolicyBundle = { schemaVersion: 1, user: "u", default: def, routes: [strict, reckless, loose], updatedAt: AT };
+    expect(bundleToReductionConfig(bundle, "gpt-4o").outputEffort).toBeUndefined(); // 3% > 2% route ceiling
+    expect(bundleToReductionConfig(bundle, "claude-sonnet-5-5").outputEffort).toBe("low"); // 3% ≤ 4%
+    expect(bundleToReductionConfig(bundle, "claude-opus-5-5").outputEffort).toBeUndefined(); // 6% > hard cap 5%
+  });
+
+  it("mergePolicyIntoBundle (no route) replaces the default and PRESERVES existing routes", () => {
+    const def = defaultPolicy("u", AT);
+    const routePolicy: TheoPolicy = { ...def, route: "gpt-4o", qualityCeilingPercent: 4 };
+    const existing: TheoPolicyBundle = { schemaVersion: 1, user: "u", default: def, routes: [routePolicy], updatedAt: AT };
+    const newDefault: TheoPolicy = { ...def, version: 9, route: "should-be-dropped" };
+    const merged = mergePolicyIntoBundle(existing, newDefault, undefined, "2026-10-30T00:00:00.000Z");
+    expect(merged.default.version).toBe(9);
+    expect(merged.default.route).toBeUndefined(); // the default carries no matcher
+    expect(merged.routes).toHaveLength(1); // the gpt-4o route survived
+    expect(merged.routes![0]).toBe(routePolicy);
+  });
+
+  it("mergePolicyIntoBundle (with route) upserts the route and PRESERVES the default + other routes", () => {
+    const def = defaultPolicy("u", AT);
+    const existing: TheoPolicyBundle = { schemaVersion: 1, user: "u", default: def,
+      routes: [{ ...def, route: "gpt-4o" }], updatedAt: AT };
+    const provenPolicy: TheoPolicy = { ...def, qualityCeilingPercent: 5,
+      levers: [{ lever: "output-effort-low", class: "lossy", gate: proven(-1) }] };
+    const merged = mergePolicyIntoBundle(existing, provenPolicy, "claude-haiku-5-5", "2026-10-30T00:00:00.000Z");
+    expect(merged.default).toBe(def); // default untouched
+    expect(merged.routes).toHaveLength(2); // gpt-4o kept + haiku added
+    expect(policyForRoute(merged, "claude-haiku-5-5").route).toBe("claude-haiku-5-5");
+    expect(bundleToReductionConfig(merged, "claude-haiku-5-5").outputEffort).toBe("low");
+    expect(bundleToReductionConfig(merged, "gpt-4o").outputEffort).toBeUndefined();
+  });
+
+  it("mergePolicyIntoBundle with no existing bundle: default-write wraps; route-write seeds a strict default", () => {
+    const policy: TheoPolicy = { ...defaultPolicy("u", AT), qualityCeilingPercent: 4 };
+    const asDefault = mergePolicyIntoBundle(undefined, policy, undefined, AT);
+    expect(asDefault.default.qualityCeilingPercent).toBe(4);
+    expect(asDefault.routes).toBeUndefined();
+    const asRoute = mergePolicyIntoBundle(undefined, policy, "claude-*", AT);
+    expect(asRoute.default.qualityCeilingPercent).toBe(2); // a fresh STRICT default guards other models
+    expect(asRoute.routes).toHaveLength(1);
+    expect(asRoute.routes![0]?.route).toBe("claude-*");
+  });
+
+  it("upsertRoutePolicy adds then replaces a route, never mutating the input, and refuses a routeless policy", () => {
+    const bundle = asBundle(defaultPolicy("u", AT));
+    const r1: TheoPolicy = { ...bundle.default, route: "gpt-4o", qualityCeilingPercent: 3 };
+    const added = upsertRoutePolicy(bundle, r1, "2026-10-29T02:00:00.000Z");
+    expect(added.routes).toHaveLength(1);
+    expect(bundle.routes).toBeUndefined(); // input untouched
+    const r2: TheoPolicy = { ...r1, qualityCeilingPercent: 1 };
+    const replaced = upsertRoutePolicy(added, r2, "2026-10-29T03:00:00.000Z");
+    expect(replaced.routes).toHaveLength(1); // replaced, not appended
+    expect(replaced.routes![0]?.qualityCeilingPercent).toBe(1);
+    expect(() => upsertRoutePolicy(bundle, bundle.default, AT)).toThrow(/route/);
+  });
+});
+
+describe("Theo policy — gate verdicts for the ledger", () => {
+  const gate = (qualityDeltaPercent: number): TheoGateProof =>
+    ({ savingPercent: 12, qualityDeltaPercent, grader: "agent", provenAt: "2026-11-10T09:00:00.000Z" });
+
+  it("an enforced lossy lever gets an approved verdict that names its proof", () => {
+    const p = publishLever(defaultPolicy("u1", AT), { lever: "stale-history-compaction", class: "lossy", gate: gate(-0.4) }, AT);
+    expect(policyGateVerdicts(p)).toEqual({
+      "stale-history-compaction": {
+        ref: "theo-gate:stale-history-compaction:agent@2026-11-10T09:00:00.000Z",
+        verdict: "approved",
+      },
+    });
+  });
+
+  it("a withheld lever gets no verdict, so its savings can never bill", () => {
+    // Proof exists but its 3% drop is over the 2% ceiling: not enforced, not billable.
+    const over = publishLever(defaultPolicy("u1", AT), { lever: "stale-history-compaction", class: "lossy", gate: gate(-3) }, AT);
+    expect(policyGateVerdicts(over)).toEqual({});
+    // A lossy lever written into the file with no proof at all.
+    const unproven: TheoPolicy = { ...defaultPolicy("u1", AT), levers: [{ lever: "output-effort-low", class: "lossy" }] };
+    expect(policyGateVerdicts(unproven)).toEqual({});
+    // Lossless levers need no verdict.
+    expect(policyGateVerdicts(defaultPolicy("u1", AT))).toEqual({});
+  });
+
+  it("verdicts follow the route that governs the model", () => {
+    const cheap = publishLever({ ...defaultPolicy("u1", AT), route: "claude-haiku*" }, { lever: "output-effort-low", class: "lossy", gate: gate(-1) }, AT);
+    const bundle: TheoPolicyBundle = { schemaVersion: 1, user: "u1", default: defaultPolicy("u1", AT), routes: [cheap], updatedAt: AT };
+    expect(Object.keys(bundleGateVerdicts(bundle, "claude-haiku-5-5"))).toEqual(["output-effort-low"]);
+    expect(bundleGateVerdicts(bundle, "claude-sonnet-5-5")).toEqual({});
   });
 });

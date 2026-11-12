@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Privacy policy</title>
+<meta name="description" content="Mesh is built so that your prompts, completions and API keys stay on your machine and never reach us. This page says what does and does not leave it. Last updated 12 November 2026.">
+<link rel="canonical" href="https://www.mesh-technology.com/privacy.html">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="mesh">
+<meta property="og:title" content="Privacy policy">
+<meta property="og:description" content="Mesh is built so that your prompts, completions and API keys stay on your machine and never reach us. This page says what does and does not leave it. Last updated 12 November 2026.">
+<meta property="og:url" content="https://www.mesh-technology.com/privacy.html">
+<meta property="og:image" content="https://www.mesh-technology.com/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://www.mesh-technology.com/og.png">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>:root{
+  /* MESH brand: Off White ground, Deep Graphite ink, Mesh Blue accent, Frost tone-step */
+  --bg:#FAFAF9;
+  --surface:#ffffff;
+  --fg:#0B0F14;
+  --muted:#5B6472;
+  --line:#E5E7EB;
+  --brand:#2563EB;
+  --signal:#2563EB;
+  --signal-soft:#EEF2FE;
+  --code:#F1F3F5;
+}
+@media (prefers-color-scheme: dark){:root{
+  --bg:#0B0F14;
+  --surface:#14181F;
+  --fg:#FAFAF9;
+  --muted:#9AA3B2;
+  --line:#262B33;
+  --brand:#6B93FF;
+  --signal:#6B93FF;
+  --signal-soft:#17202E;
+  --code:#161B22;
+}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.7 Manrope,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+main{max-width:46rem;margin:0 auto;padding:1.5rem 1.25rem 4rem}
+nav{background:var(--surface);border-bottom:1px solid var(--line);padding:.8rem 1.25rem;display:flex;flex-wrap:wrap;gap:1rem;align-items:baseline;font-size:.92rem}
+nav a{color:var(--muted);text-decoration:none;font-weight:600}
+nav a.active,nav a:hover{color:var(--brand)}
+nav .brand{font-weight:800;font-size:1.25rem;color:var(--brand);letter-spacing:-.02em}
+nav .tagline{color:var(--muted);font-weight:400;margin-right:.5rem}
+h1{font-size:1.8rem;line-height:1.2;margin:1.4rem 0 .6rem;font-weight:800;letter-spacing:-.02em}
+h2{font-size:1.25rem;margin:2.2rem 0 .5rem;font-weight:800;letter-spacing:-.01em}
+h3{font-size:1.05rem;font-weight:700}
+a{color:var(--brand)}
+strong{color:var(--fg)}
+code{background:var(--code);padding:.1em .35em;border-radius:5px;font-size:.88em}
+pre.block{background:#E7E5E4;color:#0B0F14;border-radius:10px;padding:1rem 1.1rem;overflow-x:auto;font-size:.85rem;line-height:1.6}
+pre.block code{background:none;padding:0;font-size:inherit;color:inherit}
+@media (prefers-color-scheme: dark){pre.block{background:#14181F;color:#FAFAF9;border:1px solid var(--line)}}
+.table-wrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px;margin:1rem 0}
+table{border-collapse:collapse;width:100%;font-size:.95rem}
+th,td{border-bottom:1px solid var(--line);padding:.6rem .75rem;text-align:left;vertical-align:top}
+tr:last-child td{border-bottom:none}
+th{background:var(--signal-soft);font-weight:700}
+ul{padding-left:1.2rem}
+li{margin:.3rem 0}
+footer{border-top:2px solid var(--signal);margin-top:3rem;padding-top:1rem;font-size:.85rem;color:var(--muted)}</style>
+</head>
+<body>
+<nav><a class="brand" href="index.html">mesh</a><span class="tagline">Less in. More out.</span><a href="index.html">Home</a><a href="start.html">Get started</a><a href="overview.html">Overview</a><a href="segments.html">Savings by segment</a><a href="methodology.html">Methodology</a><a href="evidence.html">Evidence</a><a href="comparison.html">Honest comparison</a><a href="faq.html">FAQ</a></nav>
+<main>
+<h1>Privacy policy</h1>
+<p>Mesh is built so that your prompts, completions and API keys stay on your machine and never reach us. This page says what does and does not leave it. Last updated 12 November 2026.</p>
+<h2>Who is responsible</h2>
+<p>Mesh is a trading name of <strong>Flux AI Technologies Limited</strong>, a company registered in England and Wales with company number 17543982. For the personal data described below, that company is the controller.</p>
+<h2>What stays on your machine</h2>
+<p>The Mesh software runs locally. None of the following is sent to us:</p>
+<ul>
+<li>Your API keys. They pass straight through to your AI provider and are not stored, logged or written to the ledger.</li>
+<li>Your prompts and completions.</li>
+<li>The ledger under <code>~/.mesh/ledger/</code>: usage numbers, model names, timestamps, saving figures and hashes for each request.</li>
+<li>The feature records Mesh uses to tune itself: counts and keyed hashes, not content.</li>
+<li>Request capture, if you turn it on. It is off by default. When on, it writes copies of your own requests, including prompt content, to a file you name on your own disk, limited in size, so that proposed changes can be tested. Delete the file to remove them.</li>
+</ul>
+<p>When Mesh tests a proposed change it replays your captured requests to <strong>your</strong> AI provider using <strong>your</strong> key. We are not in that path.</p>
+<h2>What reaches us or others</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>When</th><th>What</th><th>Who receives it</th></tr></thead>
+<tbody>
+<tr><td>You visit this website</td><td>Your IP address and browser details, as with any web request</td><td>GitHub, which hosts the site. Pages also load a font from Google Fonts and, on the home page, images from Lorem Picsum, so those services receive the same</td></tr>
+<tr><td>You install or update Mesh</td><td>A download request for the installer, the runtime and its version file</td><td>GitHub (website) or npm</td></tr>
+<tr><td>You configure a metering endpoint</td><td>Usage records for each request, without prompt text, sent to the address you set. Off unless you set it</td><td>Whoever runs the endpoint you configured</td></tr>
+<tr><td>You email us or agree a pilot or paid plan</td><td>Your name, work contact details, organisation, and the messages you send</td><td>Us</td></tr>
+<tr><td>We bill you</td><td>The ledger files you send us for the invoice (usage numbers and hashes, no prompts), and invoice records</td><td>Us, and our accountants where needed</td></tr>
+</tbody></table></div>
+<p>This website sets no cookies and runs no analytics or advertising scripts. We do see aggregate download and repository-visit counts published by GitHub and npm; they do not identify you.</p>
+<p>We do not take card payments at present. If that changes, the payment provider will be named here first.</p>
+<h2>Why we use it, and for how long</h2>
+<ul>
+<li><strong>Contact and pilot details</strong>: to answer you and to perform our agreement with you (contract; our legitimate interest in running the business). Kept while we are in contact and for up to two years afterwards.</li>
+<li><strong>Billing records and the ledger files behind an invoice</strong>: to invoice you and to keep the accounts the law requires (contract; legal obligation). Kept for six years after the end of the financial year they relate to.</li>
+</ul>
+<p>We do not sell personal data and do not use it for advertising.</p>
+<h2>Where it goes</h2>
+<p>GitHub, npm and Google are based in the United States and process the request data described above under their own privacy terms. We do not send them anything else about you.</p>
+<h2>Your rights</h2>
+<p>Under UK data protection law you can ask us for a copy of your personal data, ask us to correct or delete it, ask us to restrict or stop using it, and ask for it in a portable form. You can also complain to the Information Commissioner's Office at ico.org.uk.</p>
+<h2>Children</h2>
+<p>Mesh is a developer tool and is not directed at children.</p>
+<h2>Changes</h2>
+<p>The date at the top shows the latest version. Earlier versions remain in the public history of the source repository.</p>
+<h2>Contact</h2>
+<p>Write to Flux AI Technologies Limited at its registered office, shown on the Companies House register under company number 17543982.</p>
+<footer><strong>mesh</strong> — spend tokens where they matter. Every number on this site traces to a
+command and a commit — <a href="evidence.html">evidence</a>. Savings are measured per completed task;
+estimates are always labelled. <a href="https://github.com/Harrym1707/Mesh">Source</a> · <a href="llms.txt">llms.txt</a> ·
+<a href="terms.html">Terms</a> · <a href="privacy.html">Privacy</a></footer>
+</main>
+</body>
+</html>

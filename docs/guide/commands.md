@@ -87,6 +87,14 @@ wiring, the background service, and the ledger — each marked ✓ / ⚠ / ✗ w
 one-line fix. Pass `--json` for machine-readable output. Exits non-zero on a hard
 failure. See [Troubleshooting](troubleshooting.md).
 
+## `mesh restore`
+
+Put Claude Code's settings back if a `mesh start` session was killed and left
+Claude Code pointed at a proxy that is no longer running. `mesh start` restores
+them by itself on Ctrl+C, on a closed terminal and on a crash; this is for a
+hard kill or a machine that went down. It restores the value that was there
+before MESH, and does nothing when the configuration is working.
+
 ## `mesh version`
 
 Print the installed version, build commit, Node version, and platform. Pass

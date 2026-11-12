@@ -201,7 +201,7 @@ independently, without MESH and without accepting any terms:
 recomputation disagrees with this statement, yours wins. Negative levers are
 shown negative and reduce the bill; savings you already had are itemised above
 and never billed. Methodology: https://www.mesh-technology.com/methodology.html<br>
-MESH is a product of Mesh AI Technologies Limited, registered in England and Wales, company no. 17543982.
+MESH is a trading name of Flux AI Technologies Limited, registered in England and Wales, company no. 17543982.
 </footer>
 </main>
 </body>

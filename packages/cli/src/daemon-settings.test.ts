@@ -96,6 +96,69 @@ describe("mesh start — ~/.claude/settings.json merge + revert", () => {
     expect(reverted.theme).toBe("dark");
   });
 
+  it("a user with no settings file is left with none after Ctrl+C", { timeout: 30_000 }, async () => {
+    child = spawn(process.execPath, ["--import", "tsx", MAIN, "start", "--port", "0", "--no-theo"], {
+      env: { ...process.env, HOME: home },
+      stdio: "ignore",
+    });
+    expect(await waitFor(() => Boolean(readSettings(home).env?.ANTHROPIC_BASE_URL))).toBe(true);
+    const exited = new Promise<void>((resolve) => child!.once("exit", () => resolve()));
+    child.kill("SIGINT");
+    await exited;
+    // Before the fix the file stayed behind, still pointing Claude Code at the dead proxy.
+    expect(existsSync(settingsPath(home))).toBe(false);
+  });
+
+  it("closing the terminal (SIGHUP) puts Claude Code back", { timeout: 30_000 }, async () => {
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    writeFileSync(settingsPath(home), `${JSON.stringify({ theme: "dark" }, null, 2)}\n`);
+    child = spawn(process.execPath, ["--import", "tsx", MAIN, "start", "--port", "0", "--no-theo"], {
+      env: { ...process.env, HOME: home },
+      stdio: "ignore",
+    });
+    expect(await waitFor(() => Boolean(readSettings(home).env?.ANTHROPIC_BASE_URL))).toBe(true);
+    const exited = new Promise<void>((resolve) => child!.once("exit", () => resolve()));
+    child.kill("SIGHUP");
+    await exited;
+    expect(readSettings(home)).toEqual({ theme: "dark" });
+    expect(existsSync(join(home, ".mesh", "claude-wiring.json"))).toBe(false);
+  });
+
+  it("after a hard kill, `mesh doctor` fails with the fix and `mesh restore` repairs it", { timeout: 60_000 }, async () => {
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    writeFileSync(settingsPath(home), `${JSON.stringify({ theme: "dark" }, null, 2)}\n`);
+    child = spawn(process.execPath, ["--import", "tsx", MAIN, "start", "--port", "0", "--no-theo"], {
+      env: { ...process.env, HOME: home },
+      stdio: "ignore",
+    });
+    expect(await waitFor(() => Boolean(readSettings(home).env?.ANTHROPIC_BASE_URL))).toBe(true);
+    const exited = new Promise<void>((resolve) => child!.once("exit", () => resolve()));
+    child.kill("SIGKILL"); // nothing can run: Claude Code is left pointed at a dead port
+    await exited;
+    expect(readSettings(home).env?.ANTHROPIC_BASE_URL).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+
+    const run = (args: string[]): Promise<{ code: number | null; out: string }> => new Promise((resolve) => {
+      let out = "";
+      const proc = spawn(process.execPath, ["--import", "tsx", MAIN, ...args], { env: { ...process.env, HOME: home } });
+      proc.stdout.on("data", (chunk: Buffer) => { out += chunk.toString("utf8"); });
+      proc.stderr.on("data", (chunk: Buffer) => { out += chunk.toString("utf8"); });
+      proc.once("exit", (code) => resolve({ code, out }));
+    });
+
+    const doctor = await run(["doctor"]);
+    expect(doctor.code).toBe(1);
+    expect(doctor.out).toContain("no longer running");
+    expect(doctor.out).toContain("mesh restore");
+
+    const restore = await run(["restore"]);
+    expect(restore.code).toBe(0);
+    expect(restore.out).toContain("Claude Code restored");
+    expect(readSettings(home)).toEqual({ theme: "dark" });
+
+    const again = await run(["restore"]);
+    expect(again.out).toContain("Nothing to repair");
+  });
+
   it("with --no-install it does not touch ~/.claude/settings.json at all", { timeout: 30_000 }, async () => {
     child = spawn(process.execPath, ["--import", "tsx", MAIN, "start", "--port", "0", "--no-install"], {
       env: { ...process.env, HOME: home },

@@ -1,4 +1,4 @@
-# Compliance calendar — Mesh AI Technologies Limited
+# Compliance calendar — Flux AI Technologies Limited (trading as Mesh)
 
 Company number **17543982**, incorporated **2026-10-26**, registered in England
 and Wales. Status: Active. SIC 62012 (business and domestic software

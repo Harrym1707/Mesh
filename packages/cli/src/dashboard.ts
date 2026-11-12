@@ -16,10 +16,12 @@ import { createServer } from "node:http";
 import { connect } from "node:net";
 import { platform } from "node:os";
 import { join } from "node:path";
-import { recomputeInvoice } from "../../core/src/savings-ledger.js";
+import { recomputeInvoice, type BillableEvent } from "../../core/src/savings-ledger.js";
 import { groupWorkflowSessions } from "../../core/src/workflow-sessions.js";
-import { policyCoverage, withheldLevers } from "../../sdk-js/src/theo-policy.js";
-import { BUILD_COMMIT, DEFAULT_PORT, MESH_HOME, readLedger, readPolicy } from "./start.js";
+import { policyCoverage, withheldLevers, type TheoPolicy } from "../../sdk-js/src/theo-policy.js";
+import { defaultTheoMemoryPath, loadTheoMemory } from "../../sdk-js/src/theo-agent-store.js";
+import { DRIFT_RISE_THRESHOLD, recentDriftRates } from "../../sdk-js/src/theo-agent.js";
+import { BUILD_COMMIT, DEFAULT_PORT, MESH_HOME, readLedger, readPolicy, readPolicyBundle } from "./start.js";
 
 type DashArgs = { port: number; proxyPort: number; ledgerDir: string; open: boolean };
 
@@ -58,11 +60,110 @@ function proxyUp(port: number): Promise<boolean> {
   });
 }
 
+/** One active lever's quality story: the gate-proven quality delta + grader that
+ *  justified it (lossless → none needed), and whether live drift is now rising. */
+export type LeverHealth = {
+  lever: string;
+  class: "lossless" | "lossy";
+  /** What graded it in the gate; null for a lossless lever (no quality to measure). */
+  grader: string | null;
+  /** Measured quality delta Y (<= 0). 0 for lossless — nothing to drop. */
+  qualityDeltaPercent: number;
+  /** Measured saving at proof time; null for lossless (saving is in the ledger). */
+  savingPercent: number | null;
+  provenAt: string | null;
+  /** Live-drift verdict vs this lever's proof-time baseline: "watch" once the retry
+   *  or failure rate has risen past the rollback line; null when there is no baseline
+   *  to compare against yet (no lossy lever applied / no traffic). */
+  drift: "ok" | "watch" | null;
+};
+
+/** The quality/health view: the two live behavioural-drift signals recomputed from
+ *  the SAME ledger as the savings, the "never degrade past" ceiling, and the proven
+ *  quality of each active change. Direct grading of OUTPUT happens in the gate by
+ *  replaying captured traffic; on live traffic these retry/failure signals are the
+ *  only quality read, which is exactly what Theo auto-rolls-back on. Pure + exported
+ *  so it is unit-tested without standing the server up. */
+export type Health = {
+  sampleSize: number;
+  retryRatePercent: number;
+  failureRatePercent: number;
+  ceilingPercent: number;
+  /** The measured quality drop closest to the ceiling across active lossy levers (0 if none). */
+  worstQualityDeltaPercent: number;
+  activeLossyCount: number;
+  levers: LeverHealth[];
+  rolledBack: string[];
+  status: "protected" | "watch" | "none";
+};
+
+export function computeHealth(
+  events: readonly BillableEvent[],
+  policy: TheoPolicy,
+  memory: { driftBaselines?: Record<string, { retryRate: number; failureRate?: number }>; rolledBack?: string[] } | null,
+): Health {
+  // The same recent-window rates Theo rolls back on, so the panel and the
+  // rollback check can never disagree.
+  const { sampleSize: n, retryRate, failureRate } = recentDriftRates(events);
+  const baselines = memory?.driftBaselines ?? {};
+  const rolledBack = memory?.rolledBack ?? [];
+
+  const levers: LeverHealth[] = (policy.levers ?? []).map((l) => {
+    const base = baselines[l.lever];
+    let drift: "ok" | "watch" | null = null;
+    if (base) {
+      const rose =
+        retryRate > base.retryRate + DRIFT_RISE_THRESHOLD ||
+        failureRate > (base.failureRate ?? 0) + DRIFT_RISE_THRESHOLD;
+      drift = rose ? "watch" : "ok";
+    }
+    return {
+      lever: l.lever,
+      class: l.class,
+      grader: l.gate?.grader ?? null,
+      qualityDeltaPercent: l.gate?.qualityDeltaPercent ?? 0,
+      savingPercent: l.gate?.savingPercent ?? null,
+      provenAt: l.gate?.provenAt ?? null,
+      drift,
+    };
+  });
+
+  const lossy = levers.filter((l) => l.class === "lossy");
+  const worstQualityDeltaPercent = lossy.length ? Math.min(0, ...lossy.map((l) => l.qualityDeltaPercent)) : 0;
+  const anyDrift = levers.some((l) => l.drift === "watch") || rolledBack.length > 0;
+  const status: Health["status"] = n === 0 ? "none" : anyDrift ? "watch" : "protected";
+
+  return {
+    sampleSize: n,
+    retryRatePercent: retryRate * 100,
+    failureRatePercent: failureRate * 100,
+    ceilingPercent: policy.qualityCeilingPercent,
+    worstQualityDeltaPercent,
+    activeLossyCount: lossy.length,
+    levers,
+    rolledBack,
+    status,
+  };
+}
+
 async function buildData(args: DashArgs): Promise<unknown> {
   const { records, chainOk, brokenAt } = readLedger(args.ledgerDir);
   const invoice = records.length ? recomputeInvoice(records.map((r) => r.event)) : null;
-  const policy = readPolicy();
+  const bundle = readPolicyBundle();
+  const policy = bundle.default;
   const active = (policy.levers ?? []).map((l) => ({ lever: l.lever, class: l.class }));
+  // Per-route overrides (empty for a single-policy user): each route's matcher,
+  // its own ceiling, and how many levers it has live vs held.
+  const routes = (bundle.routes ?? []).map((r) => {
+    const cov = policyCoverage(r);
+    return { route: r.route ?? "*", qualityCeilingPercent: r.qualityCeilingPercent, activeCount: cov.activeCount, heldCount: cov.heldCount };
+  });
+  // Theo's memory (proposals awaiting approval, levers auto-rolled-back on drift)
+  // lives beside the ledger; absent until Theo has run at least once.
+  const memory = loadTheoMemory(defaultTheoMemoryPath(args.ledgerDir, "local"));
+  // Quality & health: the two live drift signals + per-lever proven quality,
+  // recomputed from the same ledger so it can never disagree with the savings.
+  const health = computeHealth(records.map((r) => r.event), policy, memory);
   return {
     build: BUILD_COMMIT,
     updatedAt: new Date().toISOString(),
@@ -80,6 +181,7 @@ async function buildData(args: DashArgs): Promise<unknown> {
       : { netUsd: 0, verdict: "do_not_charge", eventsConsidered: 0, eventsBilled: 0, unpricedEvents: 0 },
     lineItems: invoice?.lineItems ?? [],
     recordedUnbilled: invoice?.recordedUnbilled ?? [],
+    health,
     // Theo's activity broken out per working session (grouped by app + activity
     // gaps; see groupWorkflowSessions). Capped so the page stays light.
     workflows: records.length ? groupWorkflowSessions(records.map((r) => r.event), { limit: 12 }) : [],
@@ -88,6 +190,9 @@ async function buildData(args: DashArgs): Promise<unknown> {
       active,
       withheld: withheldLevers(policy),
       coverage: policyCoverage(policy),
+      routes,
+      proposals: memory?.proposals ?? [],
+      rolledBack: memory?.rolledBack ?? [],
     },
   };
 }
@@ -141,7 +246,7 @@ const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <style>
   :root{color-scheme:light;
     --bg:#FAFAF9;--ink:#0B0F14;--muted:#5B6472;--line:#E5E7EB;--accent:#2563EB;--ocean:#1D4ED8;
-    --paper:#ffffff;--stone:#E7E5E4;--stone-line:#CFCAC3;--stone-muted:#57534E;--bad:#DC2626}
+    --paper:#ffffff;--stone:#E7E5E4;--stone-line:#CFCAC3;--stone-muted:#57534E;--bad:#DC2626;--warn:#D97706}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 Manrope,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:40px 24px}
   .dotpaper{position:fixed;inset:0;z-index:0;pointer-events:none}
@@ -183,6 +288,22 @@ const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8">
   .meter{margin-top:9px;height:8px;border-radius:999px;background:var(--stone);overflow:hidden}
   .meter .fill{height:100%;width:0;background:var(--accent);border-radius:999px;transition:width .5s ease}
   .ceiling{font-size:13px;color:var(--muted);margin-top:14px;line-height:1.5}
+  .health{margin-bottom:16px}
+  .health-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:4px}
+  .hstatus{display:inline-block;font-size:13px;font-weight:700;padding:5px 13px;border-radius:999px}
+  .hstatus.protected{background:rgba(37,99,235,.12);color:var(--accent)}
+  .hstatus.watch{background:rgba(217,119,6,.14);color:var(--warn)}
+  .hstatus.none{background:var(--stone);color:var(--stone-muted)}
+  .hceiling{font-size:13px;color:var(--muted);line-height:1.45}
+  .signals{display:grid;grid-template-columns:1fr;gap:12px;margin-top:16px}@media(min-width:620px){.signals{grid-template-columns:repeat(3,1fr)}}
+  .sig{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+  .sig-n{font-size:26px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums;color:var(--ink)}
+  .sig-n.warn{color:var(--warn)}
+  .sig-k{font-size:12.5px;color:var(--muted);margin-top:2px}
+  .dflag{font-size:11px;font-weight:700;padding:1px 7px;border-radius:999px;margin-left:6px}
+  .dflag.ok{background:rgba(37,99,235,.1);color:var(--accent)}
+  .dflag.watch{background:rgba(217,119,6,.16);color:var(--warn)}
+  .hnote{font-size:12.5px;color:var(--muted);margin-top:14px;line-height:1.55}
   table{width:100%;border-collapse:collapse;font-size:14px}
   th,td{text-align:left;padding:8px 8px;border-bottom:1px solid var(--line)}
   th{color:var(--muted);font-weight:600;font-size:13px}
@@ -215,6 +336,21 @@ const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8">
     <span class="verdict do_not_charge" id="verdict">—</span>
     <span class="events" id="events"></span>
   </div>
+  <div class="panel health">
+    <h2>Quality &amp; health — is your output safe</h2>
+    <div class="health-head">
+      <span class="hstatus none" id="hstatus">—</span>
+      <span class="hceiling" id="hceiling"></span>
+    </div>
+    <div class="signals">
+      <div class="sig"><div class="sig-n" id="sig-retry">—</div><div class="sig-k">retry rate · drift signal</div></div>
+      <div class="sig"><div class="sig-n" id="sig-fail">—</div><div class="sig-k">failure rate · drift signal</div></div>
+      <div class="sig"><div class="sig-n" id="sig-drop">—</div><div class="sig-k">measured quality drop</div></div>
+    </div>
+    <p class="sub" style="margin-top:16px">Proven quality per active change</p>
+    <div id="hlevers"><span class="empty">—</span></div>
+    <p class="hnote" id="hnote"></p>
+  </div>
   <div class="grid">
     <div class="panel theo">
       <h2><span class="hex">⬢ Theo</span> — what he's doing</h2>
@@ -226,6 +362,12 @@ const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8">
       <div id="withheld"><span class="empty">nothing held</span></div>
       <p class="sub" style="margin-top:14px">Not yet adopted</p>
       <div id="available"><span class="empty">—</span></div>
+      <p class="sub" style="margin-top:14px">Awaiting your approval</p>
+      <div id="proposals"><span class="empty">none</span></div>
+      <p class="sub" style="margin-top:14px">Auto-rolled-back after drift</p>
+      <div id="rolledback"><span class="empty">none</span></div>
+      <p class="sub" style="margin-top:14px">Per-route policies</p>
+      <div id="routes"><span class="empty">one policy for all routes</span></div>
       <div class="ceiling" id="ceiling"></div>
     </div>
     <div class="panel">
@@ -267,6 +409,20 @@ async function tick(){
     $('saved').innerHTML='<span class="cur">$</span>'+usd(d.savings.netUsd);
     const v=$('verdict'); v.textContent=d.savings.verdict==='charge'?'billing':'do not charge'; v.className='verdict '+d.savings.verdict;
     $('events').textContent=d.savings.eventsConsidered+' requests'+(d.savings.unpricedEvents?(' · '+d.savings.unpricedEvents+' unpriced (recorded, not billed)'):'');
+    const h=d.health;
+    const hlabel=h.status==='protected'?'Quality protected':h.status==='watch'?'Watching drift':'No traffic yet';
+    const hs=$('hstatus'); hs.textContent=hlabel; hs.className='hstatus '+h.status;
+    $('hceiling').textContent='Quality ceiling ≤ '+h.ceilingPercent+'% — no lossy change applies until a replay of your own traffic measures its quality drop within this.';
+    const warnR=h.sampleSize>0&&h.retryRatePercent>=5, warnF=h.sampleSize>0&&h.failureRatePercent>=5;
+    const sr=$('sig-retry'); sr.textContent=h.sampleSize?h.retryRatePercent.toFixed(1)+'%':'—'; sr.className='sig-n'+(warnR?' warn':'');
+    const sf=$('sig-fail'); sf.textContent=h.sampleSize?h.failureRatePercent.toFixed(1)+'%':'—'; sf.className='sig-n'+(warnF?' warn':'');
+    $('sig-drop').textContent=h.activeLossyCount?h.worstQualityDeltaPercent.toFixed(2)+'%':'0% · lossless only';
+    $('hlevers').innerHTML=h.levers.length?h.levers.map(l=>{
+      const q=l.class==='lossless'?'lossless · no quality change':(l.grader?('−'+Math.abs(l.qualityDeltaPercent).toFixed(2)+'% · '+l.grader):'proof pending');
+      const dr=l.drift==='watch'?'<span class="dflag watch">drift ↑</span>':l.drift==='ok'?'<span class="dflag ok">stable</span>':'';
+      return '<span class="chip '+(l.drift==='watch'?'held':'on')+'" title="'+q+'">'+l.lever+'<span class="k"> · '+q+'</span></span>'+dr;
+    }).join(' '):'<span class="empty">no changes applied yet — nothing can affect your quality</span>';
+    $('hnote').textContent=(h.rolledBack.length?('Auto-rolled-back after drift: '+h.rolledBack.join(', ')+'. '):'')+'Retry and failure rates are read live from your '+(h.sampleSize?h.sampleSize+' most recent requests':'own traffic')+' — the only quality read without capture, and the exact signals Theo rolls back on. Turn on capture (opt-in) to grade output directly in the gate.';
     const cov=d.theo.coverage;
     $('coverage').innerHTML='Theo is live on <span class="n">'+cov.activeCount+'</span> of <span class="n">'+cov.enforceableCount+'</span> levers he can enforce <span class="pct">('+cov.activeCoveragePercent.toFixed(0)+'%)</span> · '+cov.heldCount+' held · '+cov.availableCount+' not yet adopted';
     $('coverfill').style.width=cov.activeCoveragePercent.toFixed(1)+'%';
@@ -274,6 +430,9 @@ async function tick(){
     $('available').innerHTML=avail.length?avail.map(s=>'<span class="chip avail" title="Theo can enforce this; he has not adopted it for you yet.">'+s.label+'</span>').join(''):'<span class="empty">none — Theo has adopted every lever he can</span>';
     $('active').innerHTML=d.theo.active.length?d.theo.active.map(l=>'<span class="chip on">'+l.lever+'<span class="k"> · '+l.class+'</span></span>').join(''):'<span class="empty">none</span>';
     $('withheld').innerHTML=d.theo.withheld.length?d.theo.withheld.map(w=>'<span class="chip held" title="'+(w.reason||'')+'">'+w.lever+'</span>').join(''):'<span class="empty">nothing held</span>';
+    $('proposals').innerHTML=(d.theo.proposals&&d.theo.proposals.length)?d.theo.proposals.map(p=>'<span class="chip held" title="'+(p.message||'')+'">'+p.lever+' · ~'+p.savingPercent.toFixed(1)+'%</span>').join('')+'<div class="hnote">To answer one, run <code>mesh theo --accept &lt;lever&gt;</code> or <code>mesh theo --reject &lt;lever&gt;</code> in a terminal.</div>':'<span class="empty">none</span>';
+    $('rolledback').innerHTML=(d.theo.rolledBack&&d.theo.rolledBack.length)?d.theo.rolledBack.map(l=>'<span class="chip held">'+l+'</span>').join(''):'<span class="empty">none</span>';
+    $('routes').innerHTML=(d.theo.routes&&d.theo.routes.length)?d.theo.routes.map(r=>'<span class="chip on" title="'+r.activeCount+' live · '+r.heldCount+' held">'+r.route+'<span class="k"> · ≤'+r.qualityCeilingPercent+'%</span></span>').join(''):'<span class="empty">one policy for all routes</span>';
     $('ceiling').textContent='Quality ceiling: '+d.theo.qualityCeilingPercent+'% — anything that could cost more than this stays off until a replay of your traffic proves it safe.';
     const rows=d.lineItems;
     $('levers').innerHTML=rows.length?rows.map(li=>'<tr><td>'+li.leverId+'</td><td class="k">'+li.kind+(li.basis?' · '+li.basis:'')+'</td><td class="num">'+li.events+'</td><td class="num">$'+usd(li.savedUsd)+'</td></tr>').join(''):'<tr><td colspan="4" class="empty">No billable savings yet — run Claude Code through MESH and this fills in.</td></tr>';

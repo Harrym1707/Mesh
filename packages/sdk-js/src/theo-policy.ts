@@ -55,15 +55,29 @@ export type TheoPolicy = {
 /** Why a lever in the policy is NOT currently enforced — for Theo's transparency to the user. */
 export type WithheldLever = { lever: string; reason: string };
 
+/**
+ * Hard upper bound on any route's quality ceiling. Enforcement clamps to this, so
+ * however loose a policy's `qualityCeilingPercent` is set (by config, a tier dial,
+ * or a tampered file), a lossy lever whose measured quality drop exceeds this is
+ * never enforced. A floor under "never degrade" that no misconfiguration crosses.
+ */
+export const MAX_QUALITY_CEILING_PERCENT = 5;
+
 function num(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
-/** Whether a lossy lever's proof clears the route's quality ceiling. */
+/** The effective ceiling: the route's, clamped to the hard maximum (and ≥ 0). */
+export function effectiveQualityCeiling(ceilingPercent: number): number {
+  const c = Number.isFinite(ceilingPercent) ? ceilingPercent : 0;
+  return Math.max(0, Math.min(c, MAX_QUALITY_CEILING_PERCENT));
+}
+
+/** Whether a lossy lever's proof clears the route's quality ceiling (hard-capped). */
 function proofClearsCeiling(lever: TheoLever, ceilingPercent: number): boolean {
   if (lever.gate === undefined) return false;
   const y = lever.gate.qualityDeltaPercent;
-  return Number.isFinite(y) && Math.abs(y) <= ceilingPercent;
+  return Number.isFinite(y) && Math.abs(y) <= effectiveQualityCeiling(ceilingPercent);
 }
 
 /** Map one lever id (+ params) onto the reducer config. Unknown ids are ignored. */
@@ -80,6 +94,13 @@ function applyLever(config: MeshTokenReductionConfig, lever: TheoLever): void {
         ...(typeof p.maximumDescriptionTokens === "number" ? { maximumDescriptionTokens: p.maximumDescriptionTokens } : {}),
       };
       return;
+    case "unused-tool-removal": {
+      // Operator-named tools the workload never calls. Lossy: enforced only with
+      // a gate proof (handled by policyToReductionConfig), never guessed.
+      const names = Array.isArray(p.tools) ? p.tools.filter((name): name is string => typeof name === "string") : [];
+      if (names.length > 0) config.dropTools = names;
+      return;
+    }
     case "duplicate-context-removal":
       config.duplicateContext = true;
       return;
@@ -136,6 +157,163 @@ export function policyToReductionConfig(policy: TheoPolicy): MeshTokenReductionC
   return config;
 }
 
+/** A ledger gate verdict, structurally the ledger's `LedgerGateVerdict` (kept
+ * local so this module stays dependency-free). */
+export type PolicyGateVerdict = { ref: string; verdict: "approved" };
+
+/**
+ * The replay-gate verdicts behind the lossy levers this policy ENFORCES, keyed by
+ * lever id, for the savings ledger. Exactly the levers `policyToReductionConfig`
+ * applies: a lossy lever with a proof inside the (hard-capped) ceiling. A lever
+ * that is withheld gets no verdict, so its savings can never bill. The ref names
+ * the proof — grader and the time it was measured — so an invoice line can be
+ * traced back to the gate run that justified it.
+ */
+export function policyGateVerdicts(policy: TheoPolicy): Record<string, PolicyGateVerdict> {
+  const verdicts: Record<string, PolicyGateVerdict> = {};
+  for (const lever of policy.levers) {
+    if (lever.class !== "lossy" || lever.gate === undefined) continue;
+    if (!proofClearsCeiling(lever, policy.qualityCeilingPercent)) continue;
+    verdicts[lever.lever] = {
+      ref: `theo-gate:${lever.lever}:${lever.gate.grader}@${lever.gate.provenAt}`,
+      verdict: "approved",
+    };
+  }
+  return verdicts;
+}
+
+/**
+ * Build the reducer config for a SINGLE lever, bypassing the policy's proof gate.
+ *
+ * This exists to CONSTRUCT a candidate for the replay gate to measure — it is not
+ * an enforcement path. Production enforcement still goes only through
+ * `policyToReductionConfig`, which withholds any lossy lever that lacks a passing
+ * proof within the route's ceiling. Reuses `applyLever` so the gate measures the
+ * exact transform the proxy would later enforce.
+ */
+export function leverToReductionConfig(lever: TheoLever): MeshTokenReductionConfig {
+  const config: MeshTokenReductionConfig = {};
+  applyLever(config, lever);
+  return config;
+}
+
+/**
+ * A bundle of policies for one user: a DEFAULT policy plus zero or more
+ * route-specific overrides. A "route" is matched against the request's model id,
+ * so a user can run a strict ceiling on their agent's planning model and a looser
+ * one on a cheap summariser — each route carries its OWN ceiling, levers and
+ * proofs, and the hard cap (`MAX_QUALITY_CEILING_PERCENT`) still binds every one.
+ *
+ * Back-compatible: a stored single `TheoPolicy` is read as a bundle whose default
+ * is that policy and whose route list is empty (`asBundle`), so existing policy
+ * files and the single-policy enforcement path keep working unchanged.
+ */
+export type TheoPolicyBundle = {
+  schemaVersion: 1;
+  user: string;
+  /** Applied to any request whose model id matches no route. */
+  default: TheoPolicy;
+  /** Route-specific policies; each MUST carry a `route` matcher. First match wins. */
+  routes?: TheoPolicy[];
+  updatedAt: string;
+};
+
+/**
+ * Whether a route matcher applies to a model id. Three forms, deliberately small:
+ * - `"*"` or `""` — matches every model (a catch-all route).
+ * - a trailing `*` — prefix match (`"claude-*"` matches `"claude-sonnet-5-5"`).
+ * - anything else — an exact model-id match.
+ * No regex: a policy file is config a user hand-edits, so matching stays obvious.
+ */
+export function routeMatches(pattern: string, modelId: string): boolean {
+  if (pattern === "*" || pattern === "") return true;
+  if (pattern.endsWith("*")) return modelId.startsWith(pattern.slice(0, -1));
+  return pattern === modelId;
+}
+
+/** Is this stored value a bundle (has a `default` policy) rather than a single policy? */
+export function isPolicyBundle(value: unknown): value is TheoPolicyBundle {
+  return typeof value === "object" && value !== null && "default" in value &&
+    typeof (value as { default?: unknown }).default === "object";
+}
+
+/**
+ * Normalise a stored document to a bundle. A single `TheoPolicy` becomes a bundle
+ * with that policy as its default and no routes; a bundle passes through. One read
+ * path for both the legacy single-policy file and the new per-route bundle.
+ */
+export function asBundle(stored: TheoPolicy | TheoPolicyBundle): TheoPolicyBundle {
+  if (isPolicyBundle(stored)) return stored;
+  const policy = stored as TheoPolicy;
+  return { schemaVersion: 1, user: policy.user, default: policy, updatedAt: policy.updatedAt };
+}
+
+/**
+ * The policy governing a given model id: the FIRST route whose matcher applies,
+ * else the bundle's default. Order in `routes` is the precedence, so put specific
+ * matchers before catch-alls.
+ */
+export function policyForRoute(bundle: TheoPolicyBundle, modelId: string): TheoPolicy {
+  for (const route of bundle.routes ?? []) {
+    if (route.route !== undefined && routeMatches(route.route, modelId)) return route;
+  }
+  return bundle.default;
+}
+
+/**
+ * The reduction config the proxy enforces for a given model id under a bundle.
+ * Routes through `policyForRoute` then the single-policy enforcement gate, so the
+ * per-route ceiling and every safety guarantee (proof required, hard cap) apply to
+ * the SELECTED route exactly as they do to a single policy.
+ */
+export function bundleToReductionConfig(bundle: TheoPolicyBundle, modelId: string): MeshTokenReductionConfig {
+  return policyToReductionConfig(policyForRoute(bundle, modelId));
+}
+
+/** The gate verdicts for the route governing a model id (see `policyGateVerdicts`). */
+export function bundleGateVerdicts(bundle: TheoPolicyBundle, modelId: string): Record<string, PolicyGateVerdict> {
+  return policyGateVerdicts(policyForRoute(bundle, modelId));
+}
+
+/**
+ * Insert or replace a route policy in a bundle, returning a NEW bundle (never
+ * mutating the input). The policy must carry a `route`; a policy for an existing
+ * route replaces it, matched by the exact matcher string.
+ */
+export function upsertRoutePolicy(bundle: TheoPolicyBundle, policy: TheoPolicy, at: string): TheoPolicyBundle {
+  if (policy.route === undefined || policy.route === "") {
+    throw new Error("Refusing to add a route policy without a `route` matcher.");
+  }
+  const routes = (bundle.routes ?? []).filter((existing) => existing.route !== policy.route);
+  routes.push(policy);
+  return { ...bundle, routes, updatedAt: at };
+}
+
+/**
+ * Land a policy Theo has evolved into a bundle WITHOUT clobbering the rest of it,
+ * returning a NEW bundle. With a `route`, the policy becomes that route's override
+ * (every other route and the default preserved); without one, it replaces the
+ * bundle's default (every route preserved). This is what `mesh theo --apply`
+ * writes: Theo optimises one model at a time, so he can publish to that model's
+ * route and leave the others exactly as they were.
+ */
+export function mergePolicyIntoBundle(
+  existing: TheoPolicyBundle | undefined,
+  policy: TheoPolicy,
+  route: string | undefined,
+  at: string,
+): TheoPolicyBundle {
+  if (route !== undefined && route !== "") {
+    const base = existing ?? asBundle(defaultPolicy(policy.user, at));
+    return upsertRoutePolicy(base, { ...policy, route }, at);
+  }
+  const base = existing ?? asBundle(policy);
+  // The default policy carries no route matcher of its own.
+  const def = { ...policy };
+  delete def.route;
+  return { ...base, default: def, updatedAt: at };
+}
+
 /** The lossy levers present in the policy but NOT enforced, with the reason — for Theo's UX. */
 export function withheldLevers(policy: TheoPolicy): WithheldLever[] {
   const out: WithheldLever[] = [];
@@ -187,7 +365,7 @@ export function defaultPolicy(user: string, at: string): TheoPolicy {
 /** The reducer-lever ids Theo can enforce. */
 export function knownLeverIds(): string[] {
   return [
-    "tool-schema-compaction", "tool-schema-description-trim", "duplicate-context-removal",
+    "tool-schema-compaction", "tool-schema-description-trim", "unused-tool-removal", "duplicate-context-removal",
     "cache-prefix-repair", "stale-history-compaction", "cross-turn-memory-dedup",
     "fresh-tool-result-cap", "output-cap", "execution-tier-flex",
     "cache-ttl-5m", "cache-ttl-1h",
@@ -207,6 +385,7 @@ export type EnforceableLever = { id: string; label: string; members: readonly st
 export const ENFORCEABLE_LEVERS: readonly EnforceableLever[] = [
   { id: "tool-schema-compaction", label: "Tool-schema compaction", members: ["tool-schema-compaction"] },
   { id: "tool-schema-description-trim", label: "Tool-schema description trim", members: ["tool-schema-description-trim"] },
+  { id: "unused-tool-removal", label: "Unused-tool removal", members: ["unused-tool-removal"] },
   { id: "duplicate-context-removal", label: "Duplicate-context removal", members: ["duplicate-context-removal"] },
   { id: "cache-prefix-repair", label: "Cache-prefix repair", members: ["cache-prefix-repair"] },
   { id: "stale-history-compaction", label: "Stale-history compaction", members: ["stale-history-compaction"] },

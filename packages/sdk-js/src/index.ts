@@ -53,16 +53,60 @@ export {
 export { extractBlindFeatures, type BlindFeatures } from "./blind-features.js";
 export {
   policyToReductionConfig,
+  leverToReductionConfig,
   withheldLevers,
   publishLever,
   defaultPolicy,
   knownLeverIds,
+  routeMatches,
+  isPolicyBundle,
+  asBundle,
+  policyForRoute,
+  bundleToReductionConfig,
+  upsertRoutePolicy,
+  mergePolicyIntoBundle,
   type TheoPolicy,
+  type TheoPolicyBundle,
   type TheoLever,
   type TheoGateProof,
   type TheoLeverClass,
   type WithheldLever,
 } from "./theo-policy.js";
+export {
+  createTheoMemory,
+  observeWorkload,
+  renderTheoReport,
+  runTheoCycle,
+  acceptProposal,
+  rejectProposal,
+  reconsiderLever,
+  recentDriftRates,
+  DRIFT_RISE_THRESHOLD,
+  DRIFT_WINDOW_EVENTS,
+  type DriftRates,
+  type TheoProposalDecision,
+  type TheoAutonomyLevel,
+  type TheoMemory,
+  type TheoHypothesis,
+  type TheoFrontierOpportunity,
+  type TheoExperiment,
+  type TheoProposal,
+  type TheoObservation,
+  type TheoProof,
+  type TheoAction,
+  type TheoCycleResult,
+} from "./theo-agent.js";
+export {
+  defaultTheoMemoryPath,
+  loadTheoMemory,
+  saveTheoMemory,
+  realisedFromSpoolDir,
+} from "./theo-agent-store.js";
+export {
+  proveCandidates,
+  type ProveCandidatesOptions,
+  type ProveCandidatesResult,
+} from "./theo-gate.js";
 export { compactStaleContext, reduceRequestAsync } from "./semantic-compaction.js";
 export type {
   SemanticCompactionConfig,

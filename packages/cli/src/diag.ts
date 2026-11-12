@@ -13,7 +13,10 @@ import { connect } from "node:net";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
 
-import { BUILD_COMMIT, CLAUDE_SETTINGS, DEFAULT_PORT, MESH_HOME, summariseLedger } from "./start.js";
+import { BUILD_COMMIT, CLAUDE_SETTINGS, DEFAULT_PORT, MESH_HOME, WIRING_STATE, summariseLedger } from "./start.js";
+import { checkWiring, repairWiring } from "./claude-wiring.js";
+
+const WIRING_PATHS = { settingsPath: CLAUDE_SETTINGS, statePath: WIRING_STATE };
 
 declare const __MESH_VERSION__: string | undefined;
 const VERSION = typeof __MESH_VERSION__ !== "undefined" ? __MESH_VERSION__ : (process.env.MESH_VERSION ?? "0.0.0");
@@ -69,17 +72,20 @@ export async function runDoctor(argv: string[]): Promise<void> {
   const up = await portUp(port);
   checks.push({ ok: true, warn: !up, name: "proxy", detail: up ? `up on 127.0.0.1:${port}` : `not running on :${port}`, fix: up ? undefined : "Start it with: mesh start" });
 
-  // 4. Claude Code wiring
-  let settingsDetail = "no ~/.claude/settings.json (Claude Code not configured for MESH)";
-  let settingsOk = true;
-  if (existsSync(CLAUDE_SETTINGS)) {
-    try {
-      const s = JSON.parse(readFileSync(CLAUDE_SETTINGS, "utf8")) as { env?: Record<string, string> };
-      const base = s.env?.ANTHROPIC_BASE_URL;
-      settingsDetail = base ? `ANTHROPIC_BASE_URL → ${base}` : "valid, but ANTHROPIC_BASE_URL not set";
-    } catch { settingsOk = false; settingsDetail = "~/.claude/settings.json is not valid JSON"; }
-  }
-  checks.push({ ok: settingsOk, name: "claude", detail: settingsDetail, fix: settingsOk ? undefined : "Fix or remove ~/.claude/settings.json; MESH won't overwrite invalid JSON." });
+  // 4. Claude Code wiring. A base URL that points at a proxy which is no longer
+  // running breaks Claude Code outright, so that is a hard failure with a fix.
+  const wiring = await checkWiring(WIRING_PATHS, { portUp });
+  const wiringBroken = wiring.status === "stranded" || wiring.status === "dead-local";
+  checks.push({
+    ok: wiring.status === "ok",
+    name: "claude",
+    detail: wiring.detail,
+    fix: wiring.status === "ok"
+      ? undefined
+      : wiringBroken
+        ? "Claude Code cannot reach its API like this. Put it back with: mesh restore   (or bring the proxy up: mesh start)"
+        : "Fix or remove ~/.claude/settings.json; MESH won't overwrite invalid JSON.",
+  });
 
   // 5. Background service (macOS)
   if (platform() === "darwin") {
@@ -109,4 +115,35 @@ export async function runDoctor(argv: string[]): Promise<void> {
   console.log("");
   console.log(hardFail ? "  Some checks failed — see above." : "  Looks healthy.");
   if (hardFail) process.exitCode = 1;
+}
+
+/**
+ * `mesh restore` — put Claude Code back the way it was before MESH pointed it at
+ * a proxy that is no longer running. For the cases no shutdown handler can
+ * cover: a hard kill, a crash of the machine, a session from an older build.
+ * Changes nothing when Claude Code's configuration is working.
+ */
+export async function runRestore(argv: string[]): Promise<void> {
+  if (argv.includes("--help") || argv.includes("-h")) {
+    console.log(
+      "Usage: mesh restore\n\n" +
+      "  If Claude Code is still pointed at a MESH proxy that is no longer running\n" +
+      "  (the session was killed, or the machine went down), put its settings back\n" +
+      "  to what they were before. Does nothing if the configuration is working.",
+    );
+    return;
+  }
+  const health = await checkWiring(WIRING_PATHS, { portUp });
+  if (health.status === "dead-local" && platform() === "darwin" && serviceLoaded()) {
+    // The always-on service owns this address and launchd restarts it; removing
+    // the address would silently turn MESH off.
+    console.log(
+      "The background service is installed but not answering right now. " +
+      "Restart it with: mesh install   (or remove it: mesh uninstall)",
+    );
+    return;
+  }
+  const result = await repairWiring(WIRING_PATHS, { portUp });
+  console.log(result.message);
+  if (result.changed) console.log("Open a new Claude Code session for it to take effect.");
 }

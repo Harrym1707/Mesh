@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { createHash, randomUUID } from "node:crypto";
-import { appendFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { appendFileSync, existsSync, mkdirSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
 // Import the specific core modules, not the package barrel: the barrel
 // re-exports the whole library (router, triage, observability adapters,
 // billing), which would all bundle into anything that depends on the proxy.
@@ -44,8 +44,24 @@ export type MeshProxyOptions = {
   port?: number;
   /** Directory for the hash-chained ledger spools (one per app + provider). */
   ledgerDirectory: string;
-  /** Reduction config applied to every proxied request. Lossless-only default. */
-  tokenReduction?: MeshTokenReductionConfig;
+  /**
+   * Reduction config applied to every proxied request. Pass a getter instead of
+   * a fixed config to have it re-read per request, so a policy Theo publishes
+   * takes effect without restarting the proxy (hot-reload). Lossless-only default.
+   *
+   * The getter receives the request's model id, so a route-aware policy bundle can
+   * return a different config per route (per-route ceilings and levers). A getter
+   * that ignores the argument keeps the single-policy behaviour.
+   */
+  tokenReduction?: MeshTokenReductionConfig | ((modelId?: string) => MeshTokenReductionConfig);
+  /**
+   * The replay-gate verdicts behind the lossy levers the current policy enforces
+   * for this model id (see `bundleGateVerdicts`). Written onto each ledger event,
+   * so a lossy saving that was proven by the gate is billable and one that was
+   * not stays record-only. Called right after `tokenReduction` for the same
+   * request. Omit it and lossy savings are recorded but never billed.
+   */
+  gateVerdicts?: (modelId?: string) => Record<string, { ref: string; verdict: "approved" | "rejected" }>;
   /** Override upstreams, e.g. a mock in tests or an OpenAI-compatible host. */
   anthropicUpstream?: string;
   openaiUpstream?: string;
@@ -65,6 +81,16 @@ export type MeshProxyOptions = {
    */
   meshApiUrl?: string;
   meshAccountKey?: string;
+  /**
+   * Opt-in local request capture for Theo's replay gate. When set, each proxied
+   * request's ORIGINAL body (prompt content included) is appended as JSONL to
+   * `path`, owner-only, up to `limit` requests (default 50) AND `maxBytes` on
+   * disk (default 5 MiB, enforced against the file's actual size so it holds
+   * across restarts). This is the one place the proxy writes prompt content; it
+   * is OFF unless explicitly enabled, the file never leaves the machine, and
+   * `mesh theo --gate <path>` reads it.
+   */
+  requestCapture?: { path: string; limit?: number; maxBytes?: number };
 };
 
 export type MeshProxy = {
@@ -236,13 +262,30 @@ export function outputTextFromSse(provider: "anthropic" | "openai", sseText: str
 
 /** Start the MESH proxy. Resolves once the server is listening. */
 export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
-  const baseReduction = options.tokenReduction ?? LOSSLESS_DEFAULT;
-  // The proxy is long-lived, so it can watch conversations across requests:
-  // with the cache stamp enabled, a volatility guard suppresses stamping of
-  // prefixes that churn between turns (a measured live loss otherwise).
-  const reduction = (baseReduction.cacheTtl !== undefined && baseReduction.cacheVolatilityGuard === undefined)
-    ? { ...baseReduction, cacheVolatilityGuard: new CachePrefixVolatilityGuard() }
-    : baseReduction;
+  // Reduction may be a getter, resolved per request, so a policy Theo publishes
+  // takes effect without restarting the proxy. The volatility guard is stateful
+  // across requests (it suppresses cache stamping of prefixes that churn between
+  // turns, a measured live loss otherwise), so keep ONE instance and merge it
+  // into whatever policy is current.
+  const reductionOption = options.tokenReduction;
+  const resolveBaseReduction: (modelId?: string) => MeshTokenReductionConfig =
+    typeof reductionOption === "function"
+      ? reductionOption
+      : () => reductionOption ?? LOSSLESS_DEFAULT;
+  let volatilityGuard: CachePrefixVolatilityGuard | undefined;
+  const currentReduction = (modelId?: string): MeshTokenReductionConfig => {
+    let base: MeshTokenReductionConfig;
+    try {
+      base = resolveBaseReduction(modelId) ?? LOSSLESS_DEFAULT;
+    } catch {
+      base = LOSSLESS_DEFAULT; // a bad policy file must never break the request path
+    }
+    if (base.cacheTtl !== undefined && base.cacheVolatilityGuard === undefined) {
+      volatilityGuard ??= new CachePrefixVolatilityGuard();
+      return { ...base, cacheVolatilityGuard: volatilityGuard };
+    }
+    return base;
+  };
   const upstreams = {
     anthropic: (options.anthropicUpstream ?? "https://api.anthropic.com").replace(/\/$/, ""),
     openai: (options.openaiUpstream ?? "https://api.openai.com").replace(/\/$/, ""),
@@ -296,6 +339,33 @@ export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
     // Private to the user: metadata + keyed hashes only, but not world-readable.
     mkdirSync(options.ledgerDirectory, { recursive: true, mode: 0o700 });
     appendFileSync(join(options.ledgerDirectory, `${safeApp}-${provider}.features.jsonl`), `${JSON.stringify(record)}\n`, { mode: 0o600 });
+  };
+
+  // Opt-in request capture for Theo's gate — OFF unless requestCapture is set.
+  // This is the only path that writes prompt content, bounded and owner-only.
+  const requestCapture = options.requestCapture;
+  const captureLimit = requestCapture?.limit ?? 50;
+  const captureMaxBytes = requestCapture?.maxBytes ?? 5 * 1024 * 1024;
+  let capturedRequests = 0;
+  // Seed from the file's current size so the byte cap bounds prompt content on
+  // disk across restarts, not just within one process.
+  let capturedBytes = ((): number => {
+    if (requestCapture === undefined) return 0;
+    try { return existsSync(requestCapture.path) ? statSync(requestCapture.path).size : 0; } catch { return 0; }
+  })();
+  const writeCapturedRequest = (body: unknown): void => {
+    if (requestCapture === undefined || body === undefined || capturedRequests >= captureLimit) return;
+    try {
+      const line = `${JSON.stringify({ request: body })}\n`;
+      const lineBytes = Buffer.byteLength(line);
+      if (capturedBytes + lineBytes > captureMaxBytes) return; // keep prompt content on disk bounded
+      mkdirSync(dirname(requestCapture.path), { recursive: true, mode: 0o700 });
+      appendFileSync(requestCapture.path, line, { mode: 0o600 });
+      capturedRequests += 1;
+      capturedBytes += lineBytes;
+    } catch {
+      // Capture is best-effort and must never affect the request path.
+    }
   };
 
   const handle = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
@@ -383,7 +453,18 @@ export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
     }
 
     // Reduce. reduceRequest never throws; a failure returns the original.
-    const { request: reducedRequest, summary } = reduceRequest(body, reduction);
+    // currentReduction() resolves the latest policy (hot-reload) per request,
+    // selecting the route by the request's model id for per-route policies.
+    const requestModelId = typeof body.model === "string" ? body.model : undefined;
+    const { request: reducedRequest, summary } = reduceRequest(body, currentReduction(requestModelId));
+    // The proofs behind the lossy levers just applied, for the ledger. A failing
+    // getter costs the billing of those levers, never the request.
+    let requestGateVerdicts: Record<string, { ref: string; verdict: "approved" | "rejected" }> | undefined;
+    try {
+      requestGateVerdicts = options.gateVerdicts?.(requestModelId);
+    } catch {
+      requestGateVerdicts = undefined;
+    }
     const sendBody = JSON.stringify(reducedRequest);
     const applicationIdHeader = req.headers["x-mesh-application"];
     const applicationId = ((Array.isArray(applicationIdHeader) ? applicationIdHeader[0] : applicationIdHeader) ?? "proxy").slice(0, 128);
@@ -562,7 +643,10 @@ export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
         ...(outputDiagnostics === undefined ? {} : { outputDiagnostics }),
         ...(duplicateOfRequestId === undefined ? {} : { duplicateOfRequestId }),
       };
-      ledgerFor(applicationId, surface.provider).emit(event);
+      ledgerFor(applicationId, surface.provider).emit(
+        event,
+        requestGateVerdicts === undefined ? undefined : { gateVerdicts: requestGateVerdicts },
+      );
 
       // Blind learning stream: features of the ORIGINAL request (what the
       // customer actually sent), reduced to irreversible keyed hashes + counts.
@@ -577,6 +661,7 @@ export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
           features,
         });
       }
+      writeCapturedRequest(body);
     } catch {
       // The meter must never affect the request path.
     }
