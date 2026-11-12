@@ -20,7 +20,7 @@ import { recomputeInvoice, type BillableEvent } from "../../core/src/savings-led
 import { groupWorkflowSessions } from "../../core/src/workflow-sessions.js";
 import { policyCoverage, withheldLevers, type TheoPolicy } from "../../sdk-js/src/theo-policy.js";
 import { defaultTheoMemoryPath, loadTheoMemory } from "../../sdk-js/src/theo-agent-store.js";
-import { DRIFT_RISE_THRESHOLD } from "../../sdk-js/src/theo-agent.js";
+import { DRIFT_RISE_THRESHOLD, recentDriftRates } from "../../sdk-js/src/theo-agent.js";
 import { BUILD_COMMIT, DEFAULT_PORT, MESH_HOME, readLedger, readPolicy, readPolicyBundle } from "./start.js";
 
 type DashArgs = { port: number; proxyPort: number; ledgerDir: string; open: boolean };
@@ -102,9 +102,9 @@ export function computeHealth(
   policy: TheoPolicy,
   memory: { driftBaselines?: Record<string, { retryRate: number; failureRate?: number }>; rolledBack?: string[] } | null,
 ): Health {
-  const n = events.length;
-  const retryRate = n ? events.filter((e) => e.duplicateOfRequestId !== undefined).length / n : 0;
-  const failureRate = n ? events.filter((e) => e.status === "failed").length / n : 0;
+  // The same recent-window rates Theo rolls back on, so the panel and the
+  // rollback check can never disagree.
+  const { sampleSize: n, retryRate, failureRate } = recentDriftRates(events);
   const baselines = memory?.driftBaselines ?? {};
   const rolledBack = memory?.rolledBack ?? [];
 
@@ -422,7 +422,7 @@ async function tick(){
       const dr=l.drift==='watch'?'<span class="dflag watch">drift ↑</span>':l.drift==='ok'?'<span class="dflag ok">stable</span>':'';
       return '<span class="chip '+(l.drift==='watch'?'held':'on')+'" title="'+q+'">'+l.lever+'<span class="k"> · '+q+'</span></span>'+dr;
     }).join(' '):'<span class="empty">no changes applied yet — nothing can affect your quality</span>';
-    $('hnote').textContent=(h.rolledBack.length?('Auto-rolled-back after drift: '+h.rolledBack.join(', ')+'. '):'')+'Retry and failure rates are read live from your own traffic — the only quality read without capture, and the exact signals Theo rolls back on. Turn on capture (opt-in) to grade output directly in the gate.';
+    $('hnote').textContent=(h.rolledBack.length?('Auto-rolled-back after drift: '+h.rolledBack.join(', ')+'. '):'')+'Retry and failure rates are read live from your '+(h.sampleSize?h.sampleSize+' most recent requests':'own traffic')+' — the only quality read without capture, and the exact signals Theo rolls back on. Turn on capture (opt-in) to grade output directly in the gate.';
     const cov=d.theo.coverage;
     $('coverage').innerHTML='Theo is live on <span class="n">'+cov.activeCount+'</span> of <span class="n">'+cov.enforceableCount+'</span> levers he can enforce <span class="pct">('+cov.activeCoveragePercent.toFixed(0)+'%)</span> · '+cov.heldCount+' held · '+cov.availableCount+' not yet adopted';
     $('coverfill').style.width=cov.activeCoveragePercent.toFixed(1)+'%';
@@ -430,7 +430,7 @@ async function tick(){
     $('available').innerHTML=avail.length?avail.map(s=>'<span class="chip avail" title="Theo can enforce this; he has not adopted it for you yet.">'+s.label+'</span>').join(''):'<span class="empty">none — Theo has adopted every lever he can</span>';
     $('active').innerHTML=d.theo.active.length?d.theo.active.map(l=>'<span class="chip on">'+l.lever+'<span class="k"> · '+l.class+'</span></span>').join(''):'<span class="empty">none</span>';
     $('withheld').innerHTML=d.theo.withheld.length?d.theo.withheld.map(w=>'<span class="chip held" title="'+(w.reason||'')+'">'+w.lever+'</span>').join(''):'<span class="empty">nothing held</span>';
-    $('proposals').innerHTML=(d.theo.proposals&&d.theo.proposals.length)?d.theo.proposals.map(p=>'<span class="chip held" title="'+(p.message||'')+'">'+p.lever+' · ~'+p.savingPercent.toFixed(1)+'%</span>').join(''):'<span class="empty">none</span>';
+    $('proposals').innerHTML=(d.theo.proposals&&d.theo.proposals.length)?d.theo.proposals.map(p=>'<span class="chip held" title="'+(p.message||'')+'">'+p.lever+' · ~'+p.savingPercent.toFixed(1)+'%</span>').join('')+'<div class="hnote">To answer one, run <code>mesh theo --accept &lt;lever&gt;</code> or <code>mesh theo --reject &lt;lever&gt;</code> in a terminal.</div>':'<span class="empty">none</span>';
     $('rolledback').innerHTML=(d.theo.rolledBack&&d.theo.rolledBack.length)?d.theo.rolledBack.map(l=>'<span class="chip held">'+l+'</span>').join(''):'<span class="empty">none</span>';
     $('routes').innerHTML=(d.theo.routes&&d.theo.routes.length)?d.theo.routes.map(r=>'<span class="chip on" title="'+r.activeCount+' live · '+r.heldCount+' held">'+r.route+'<span class="k"> · ≤'+r.qualityCeilingPercent+'%</span></span>').join(''):'<span class="empty">one policy for all routes</span>';
     $('ceiling').textContent='Quality ceiling: '+d.theo.qualityCeilingPercent+'% — anything that could cost more than this stays off until a replay of your traffic proves it safe.';

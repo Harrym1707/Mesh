@@ -14,6 +14,8 @@ import {
   bundleToReductionConfig,
   upsertRoutePolicy,
   mergePolicyIntoBundle,
+  policyGateVerdicts,
+  bundleGateVerdicts,
   type TheoPolicy,
   type TheoPolicyBundle,
   type TheoLever,
@@ -275,5 +277,38 @@ describe("per-route policy bundles", () => {
     expect(replaced.routes).toHaveLength(1); // replaced, not appended
     expect(replaced.routes![0]?.qualityCeilingPercent).toBe(1);
     expect(() => upsertRoutePolicy(bundle, bundle.default, AT)).toThrow(/route/);
+  });
+});
+
+describe("Theo policy — gate verdicts for the ledger", () => {
+  const gate = (qualityDeltaPercent: number): TheoGateProof =>
+    ({ savingPercent: 12, qualityDeltaPercent, grader: "agent", provenAt: "2026-11-10T09:00:00.000Z" });
+
+  it("an enforced lossy lever gets an approved verdict that names its proof", () => {
+    const p = publishLever(defaultPolicy("u1", AT), { lever: "stale-history-compaction", class: "lossy", gate: gate(-0.4) }, AT);
+    expect(policyGateVerdicts(p)).toEqual({
+      "stale-history-compaction": {
+        ref: "theo-gate:stale-history-compaction:agent@2026-11-10T09:00:00.000Z",
+        verdict: "approved",
+      },
+    });
+  });
+
+  it("a withheld lever gets no verdict, so its savings can never bill", () => {
+    // Proof exists but its 3% drop is over the 2% ceiling: not enforced, not billable.
+    const over = publishLever(defaultPolicy("u1", AT), { lever: "stale-history-compaction", class: "lossy", gate: gate(-3) }, AT);
+    expect(policyGateVerdicts(over)).toEqual({});
+    // A lossy lever written into the file with no proof at all.
+    const unproven: TheoPolicy = { ...defaultPolicy("u1", AT), levers: [{ lever: "output-effort-low", class: "lossy" }] };
+    expect(policyGateVerdicts(unproven)).toEqual({});
+    // Lossless levers need no verdict.
+    expect(policyGateVerdicts(defaultPolicy("u1", AT))).toEqual({});
+  });
+
+  it("verdicts follow the route that governs the model", () => {
+    const cheap = publishLever({ ...defaultPolicy("u1", AT), route: "claude-haiku*" }, { lever: "output-effort-low", class: "lossy", gate: gate(-1) }, AT);
+    const bundle: TheoPolicyBundle = { schemaVersion: 1, user: "u1", default: defaultPolicy("u1", AT), routes: [cheap], updatedAt: AT };
+    expect(Object.keys(bundleGateVerdicts(bundle, "claude-haiku-5-5"))).toEqual(["output-effort-low"]);
+    expect(bundleGateVerdicts(bundle, "claude-sonnet-5-5")).toEqual({});
   });
 });

@@ -157,6 +157,31 @@ export function policyToReductionConfig(policy: TheoPolicy): MeshTokenReductionC
   return config;
 }
 
+/** A ledger gate verdict, structurally the ledger's `LedgerGateVerdict` (kept
+ * local so this module stays dependency-free). */
+export type PolicyGateVerdict = { ref: string; verdict: "approved" };
+
+/**
+ * The replay-gate verdicts behind the lossy levers this policy ENFORCES, keyed by
+ * lever id, for the savings ledger. Exactly the levers `policyToReductionConfig`
+ * applies: a lossy lever with a proof inside the (hard-capped) ceiling. A lever
+ * that is withheld gets no verdict, so its savings can never bill. The ref names
+ * the proof — grader and the time it was measured — so an invoice line can be
+ * traced back to the gate run that justified it.
+ */
+export function policyGateVerdicts(policy: TheoPolicy): Record<string, PolicyGateVerdict> {
+  const verdicts: Record<string, PolicyGateVerdict> = {};
+  for (const lever of policy.levers) {
+    if (lever.class !== "lossy" || lever.gate === undefined) continue;
+    if (!proofClearsCeiling(lever, policy.qualityCeilingPercent)) continue;
+    verdicts[lever.lever] = {
+      ref: `theo-gate:${lever.lever}:${lever.gate.grader}@${lever.gate.provenAt}`,
+      verdict: "approved",
+    };
+  }
+  return verdicts;
+}
+
 /**
  * Build the reducer config for a SINGLE lever, bypassing the policy's proof gate.
  *
@@ -243,6 +268,11 @@ export function policyForRoute(bundle: TheoPolicyBundle, modelId: string): TheoP
  */
 export function bundleToReductionConfig(bundle: TheoPolicyBundle, modelId: string): MeshTokenReductionConfig {
   return policyToReductionConfig(policyForRoute(bundle, modelId));
+}
+
+/** The gate verdicts for the route governing a model id (see `policyGateVerdicts`). */
+export function bundleGateVerdicts(bundle: TheoPolicyBundle, modelId: string): Record<string, PolicyGateVerdict> {
+  return policyGateVerdicts(policyForRoute(bundle, modelId));
 }
 
 /**

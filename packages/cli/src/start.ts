@@ -33,7 +33,7 @@ import { join } from "node:path";
 // client surface: proxy + reducer + ledger + Theo policy.
 import { recomputeInvoice, verifyLedgerChain, type LedgerRecord } from "../../core/src/savings-ledger.js";
 import { startMeshProxy } from "../../sdk-js/src/proxy.js";
-import { asBundle, bundleToReductionConfig, defaultPolicy, policyToReductionConfig, withheldLevers, type TheoPolicy, type TheoPolicyBundle } from "../../sdk-js/src/theo-policy.js";
+import { asBundle, bundleGateVerdicts, bundleToReductionConfig, defaultPolicy, policyToReductionConfig, withheldLevers, type TheoPolicy, type TheoPolicyBundle } from "../../sdk-js/src/theo-policy.js";
 import type { TheoAutonomyLevel } from "../../sdk-js/src/theo-agent.js";
 import { parseDuration, startBackgroundTheo } from "./theo.js";
 // Pure formatter module (no core imports) — reused so the signup URL and the
@@ -260,6 +260,13 @@ export function snapshotLedger(ledgerDir: string): SavingsSnapshot {
 
 const T = "⬢ theo"; // the hex mark, Theo's sign-off
 
+/** "15m", "90s", "2h" — a Theo interval as a person would say it. */
+function formatInterval(ms: number): string {
+  if (ms % 3_600_000 === 0) return `${ms / 3_600_000}h`;
+  if (ms % 60_000 === 0) return `${ms / 60_000}m`;
+  return `${Math.round(ms / 1000)}s`;
+}
+
 /** Start the proxy with Theo's current policy + blind stream. Shared by start/serve. */
 export async function startProxyWithPolicy(
   port: number,
@@ -294,10 +301,16 @@ export async function startProxyWithPolicy(
     }
     return bundleToReductionConfig(cached.bundle, modelId ?? "");
   };
+  // The proofs behind the lossy levers that same bundle enforces, for the ledger.
+  // Reads the bundle `liveReduction` just cached for this request, so the verdict
+  // on an event always matches the policy that reduced it.
+  const liveVerdicts = (modelId?: string): ReturnType<typeof bundleGateVerdicts> =>
+    bundleGateVerdicts(cached.bundle, modelId ?? "");
   const proxy = await startMeshProxy({
     port,
     ledgerDirectory: ledgerDir,
     tokenReduction: liveReduction,
+    gateVerdicts: liveVerdicts,
     blindFeaturesKey: blindKey(),
     ...(capture ? { requestCapture: capture } : {}),
     ...(upstreams.anthropicUpstream ? { anthropicUpstream: upstreams.anthropicUpstream } : {}),
@@ -410,6 +423,14 @@ export async function runStart(argv: string[]): Promise<void> {
     console.log(`  ${T}   Holding ${withheld.length} lossy lever${withheld.length === 1 ? "" : "s"} back until a replay`);
     console.log(`  ${T}   proves ${withheld.length === 1 ? "it is" : "they are"} safe on your own traffic.`);
   }
+  const theoIntervalMs = args.theoIntervalMs ?? 15 * 60_000;
+  const theoAutonomy = args.autonomy ?? "recommend";
+  if (args.noTheo) {
+    console.log(`  ${T}   Not optimising this session (--no-theo): the current policy stays as it is.`);
+  } else {
+    console.log(`  ${T}   I re-check every ${formatInterval(theoIntervalMs)} (autonomy: ${theoAutonomy}). Anything I prove but`);
+    console.log(`  ${T}   may not apply myself, I'll put to you here.`);
+  }
   console.log("");
   console.log(`  Just use Claude Code as normal. Press Ctrl+C to stop (Claude Code reverts cleanly).`);
   console.log("");
@@ -431,12 +452,47 @@ export async function runStart(argv: string[]): Promise<void> {
   };
   const monitor = setInterval(tick, 6000);
 
+  // ---- Theo alongside: the same cycle the always-on service runs ----
+  // Quiet: the full report belongs to `mesh theo`; here only what changed or
+  // needs an answer is printed, once.
+  const announced = new Set<string>();
+  const stopTheo = args.noTheo ? undefined : startBackgroundTheo(
+    {
+      ledgerDir: args.ledgerDir,
+      customer: "local",
+      autonomy: theoAutonomy,
+      maxSamples: 20,
+      apply: true,
+      quiet: true,
+      ...(args.capturePath ? { gate: args.capturePath } : {}),
+      ...(args.theoProviderUrl ? { providerUrl: args.theoProviderUrl } : {}),
+      ...(args.gateKeyFile ? { gateKeyFile: args.gateKeyFile } : {}),
+    },
+    theoIntervalMs,
+    (result) => {
+      for (const action of result.actions) {
+        if (action.kind === "rolled-back") {
+          console.log(`  ${T} — rolled back ${action.lever}: ${action.reason}.`);
+        } else if (action.kind === "policy-published") {
+          console.log(`  ${T} — applied ${action.lever} (proven on your traffic; policy v${action.version}).`);
+        }
+      }
+      for (const proposal of result.memory.proposals) {
+        if (announced.has(proposal.lever)) continue;
+        announced.add(proposal.lever);
+        console.log(`  ${T} — proposal: ${proposal.message}`);
+        console.log(`  ${T}   yes: mesh theo --accept ${proposal.lever}   ·   no: mesh theo --reject ${proposal.lever}`);
+      }
+    },
+  );
+
   // ---- clean shutdown ----
   let closing = false;
   const shutdown = async (): Promise<void> => {
     if (closing) return;
     closing = true;
     clearInterval(monitor);
+    stopTheo?.();
     const snap = snapshotLedger(args.ledgerDir);
     restore();
     await proxy.close();

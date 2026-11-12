@@ -20,7 +20,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import {
   lookupPrice,
@@ -34,10 +34,17 @@ import {
 } from "../../core/src/index.js";
 import type { BlindFeatures } from "../../sdk-js/src/blind-features.js";
 import {
+  acceptProposal,
   createTheoMemory,
   observeWorkload,
+  recentDriftRates,
+  reconsiderLever,
+  rejectProposal,
   runTheoCycle,
   type TheoAutonomyLevel,
+  type TheoCycleResult,
+  type TheoMemory,
+  type TheoProposalDecision,
 } from "../../sdk-js/src/theo-agent.js";
 import {
   defaultTheoMemoryPath,
@@ -75,14 +82,23 @@ const USAGE = `Usage: mesh theo [options]
   --max-samples <n>   Cap how many captured requests to replay. Default 20.
   --max-gate-calls <n> Exploration budget: the most paid provider calls one gate
                         run may make (default 200). The sample is trimmed to fit.
-  --quality-ceiling <p> Tighten the route's quality ceiling to p% (default 2).
-                        Lower = more cautious; a hard max caps it regardless.
+  --quality-ceiling <p> Tighten the quality ceiling to p% (default 2). Lower =
+                        more cautious. A value above the current ceiling is
+                        ignored unless you also pass --allow-looser-ceiling.
+  --allow-looser-ceiling  Let --quality-ceiling RAISE the ceiling. Never above
+                        the hard maximum of 5%, whatever you pass.
   --watch <interval>  Keep running: re-run the cycle every interval (e.g. 15m,
                         30s, 1h) until you stop it with Ctrl-C — Theo never stops.
   --max-ticks <n>     In --watch mode, stop after n cycles (default: unlimited).
   --apply             Write Theo's decided policy to ~/.mesh/theo-policy.json,
-                        the proxy's control file, so the proxy enforces it on the
-                        next \`mesh start\` (the running proxy does not hot-reload).
+                        the proxy's control file. A running proxy picks it up on
+                        its next request; no restart needed.
+  --proposals         List the proven levers waiting for your answer, and stop.
+  --accept <lever>    Say yes to a proposal: the lever goes live in the policy
+                        (with --route, on that route only) and Theo watches it
+                        for drift. Refused if its proof no longer fits the ceiling.
+  --reject <lever>    Say no to a proposal. Theo stops proving and proposing it.
+  --reconsider <lever> Undo a --reject, so Theo may prove and propose it again.
   --help              Show this message.
 
 Theo never enables a saving he has not proven on your own traffic within your
@@ -107,8 +123,20 @@ export type TheoRunOptions = {
   apply: boolean;
   /** Exploration budget: max paid provider calls per gate run. Default 200. */
   maxGateCalls?: number;
-  /** Override the route's quality ceiling (percent); clamped to the hard max. */
+  /** Requested quality ceiling (percent). Lowers the current one; raising needs
+   * `allowLooserCeiling`. Clamped to the hard max either way. */
   qualityCeilingPercent?: number;
+  /** Explicit opt-in for `qualityCeilingPercent` to raise the ceiling. */
+  allowLooserCeiling?: boolean;
+  /** Print only what needs attention (used when Theo runs beside `mesh start`). */
+  quiet?: boolean;
+  /** The customer's answer to a proposal, or a request to list them. */
+  accept?: string;
+  reject?: string;
+  reconsider?: string;
+  listProposals?: boolean;
+  /** Where the proxy's policy file lives. Default ~/.mesh/theo-policy.json. */
+  policyPath?: string;
   /** Set only by the `--watch` CLI path; the daemon drives its own interval. */
   watchMs?: number;
   maxTicks?: number;
@@ -129,6 +157,8 @@ function parse(argv: string[]): TheoRunOptions {
       process.exit(0);
     }
     if (key === "--apply") { args.apply = true; continue; }
+    if (key === "--proposals") { args.listProposals = true; continue; }
+    if (key === "--allow-looser-ceiling") { args.allowLooserCeiling = true; continue; }
     const value = argv[index + 1];
     if (value === undefined || value.startsWith("--")) throw new Error(`${key} needs a value.`);
     index += 1;
@@ -142,6 +172,9 @@ function parse(argv: string[]): TheoRunOptions {
       }
       case "--customer": args.customer = value; break;
       case "--route": args.route = value; break;
+      case "--accept": args.accept = value; break;
+      case "--reject": args.reject = value; break;
+      case "--reconsider": args.reconsider = value; break;
       case "--ledger": args.ledgerDir = resolve(value); break;
       case "--gate": args.gate = resolve(value); break;
       case "--provider-url": args.providerUrl = value; break;
@@ -174,7 +207,42 @@ function parse(argv: string[]): TheoRunOptions {
       default: throw new Error(`Unknown option: ${key}. See --help.`);
     }
   }
+  const decisions = [args.accept, args.reject, args.reconsider].filter((value) => value !== undefined).length +
+    (args.listProposals ? 1 : 0);
+  if (decisions > 1) throw new Error("Use one of --proposals, --accept, --reject, --reconsider at a time.");
+  if (args.allowLooserCeiling && args.qualityCeilingPercent === undefined) {
+    throw new Error("--allow-looser-ceiling needs --quality-ceiling <p>.");
+  }
   return args;
+}
+
+/**
+ * Decide the ceiling a `--quality-ceiling` request leads to. Lowering always
+ * takes effect. Raising is ignored unless explicitly allowed, and is clamped to
+ * the hard maximum regardless — so the flag alone can only make Theo more
+ * cautious. Pure.
+ */
+export function resolveQualityCeiling(
+  currentPercent: number,
+  requestedPercent: number,
+  allowLooser: boolean,
+): { ceilingPercent: number; note?: string } {
+  const current = effectiveQualityCeiling(currentPercent);
+  const requested = effectiveQualityCeiling(requestedPercent);
+  const clamped = requested !== requestedPercent
+    ? ` (${requestedPercent}% is outside the allowed range; using ${requested}%)`
+    : "";
+  if (requested <= current) {
+    return { ceilingPercent: requested, ...(clamped ? { note: `Quality ceiling set to ${requested}%${clamped}.` } : {}) };
+  }
+  if (!allowLooser) {
+    return {
+      ceilingPercent: current,
+      note: `--quality-ceiling ${requestedPercent} is looser than the current ${current}% and was ignored. ` +
+        "Add --allow-looser-ceiling to raise it (never above 5%).",
+    };
+  }
+  return { ceilingPercent: requested, note: `Quality ceiling RAISED from ${current}% to ${requested}%${clamped}.` };
 }
 
 /** Read the blind-feature spools into the features Theo observes. */
@@ -325,20 +393,21 @@ function makeProviderCall(provider: string, providerUrl: string | undefined, key
   };
 }
 
-export async function runTheoOnce(args: TheoRunOptions): Promise<void> {
+export async function runTheoOnce(args: TheoRunOptions): Promise<TheoCycleResult | undefined> {
   const now = new Date().toISOString();
   const at = now.slice(0, 10);
+  const say = (line: string): void => { if (!args.quiet) console.log(line); };
 
   if (!existsSync(args.ledgerDir)) {
-    console.log(`No ledger at ${args.ledgerDir} yet — run \`mesh start\` and use Claude Code, then run \`mesh theo\` again.`);
-    return;
+    say(`No ledger at ${args.ledgerDir} yet — run \`mesh start\` and use Claude Code, then run \`mesh theo\` again.`);
+    return undefined;
   }
 
   const features = readFeatures(args.ledgerDir);
   if (features.length === 0) {
-    console.log(`No traffic observed yet in ${args.ledgerDir} — Theo needs some requests to learn from.`);
-    console.log("Run `mesh start`, use Claude Code for a bit, then run `mesh theo` again.");
-    return;
+    say(`No traffic observed yet in ${args.ledgerDir} — Theo needs some requests to learn from.`);
+    say("Run `mesh start`, use Claude Code for a bit, then run `mesh theo` again.");
+    return undefined;
   }
 
   const events = readLedgerEvents(args.ledgerDir);
@@ -349,17 +418,12 @@ export async function runTheoOnce(args: TheoRunOptions): Promise<void> {
     outputTokensMean: meanOutputTokens(events),
   });
 
-  // The behavioural-drift signal: the share of recent requests that were retries
-  // (the proxy flags byte-identical repeats). A rise after a lever is applied is
-  // how Theo detects a quality regression and rolls the lever back.
-  const retryRate = events.length > 0
-    ? events.filter((event) => event.duplicateOfRequestId !== undefined).length / events.length
-    : 0;
-  // The second drift signal: the share of recent requests that failed at the
-  // provider. A rise after a lever is applied also triggers a rollback.
-  const failureRate = events.length > 0
-    ? events.filter((event) => event.status === "failed").length / events.length
-    : 0;
+  // The behavioural-drift signals, over the most recent window of requests (not
+  // the whole history, which would dilute a fresh regression): the share that
+  // were retries (the proxy flags byte-identical repeats) and the share that
+  // failed at the provider. A rise in either after a lever is applied is how
+  // Theo detects a quality regression and rolls the lever back.
+  const { retryRate, failureRate } = recentDriftRates(events);
   const invoice = events.length > 0 ? recomputeInvoice(events, { feePercent: 1 }) : undefined;
   const memoryPath = defaultTheoMemoryPath(args.ledgerDir, args.customer);
   const existing = loadTheoMemory(memoryPath);
@@ -372,14 +436,23 @@ export async function runTheoOnce(args: TheoRunOptions): Promise<void> {
       "quality graders are validated on it.",
     );
   }
-  const baseMemory = existing
-    ? { ...existing, autonomy }
-    : createTheoMemory(args.customer, autonomy, now);
-  // A per-environment ceiling override (tighten for critical routes); the hard
-  // cap still applies at enforcement, so this can only make Theo more cautious.
-  const memory = args.qualityCeilingPercent !== undefined
-    ? { ...baseMemory, policy: { ...baseMemory.policy, qualityCeilingPercent: effectiveQualityCeiling(args.qualityCeilingPercent) } }
-    : baseMemory;
+  // Build this cycle's working memory from what is on disk. A requested ceiling
+  // lowers the stored one; raising it needs the explicit --allow-looser-ceiling,
+  // and the hard cap binds either way (see resolveQualityCeiling).
+  let ceilingNote: string | undefined;
+  const prepare = (stored: TheoMemory | null): TheoMemory => {
+    const base = stored ? { ...stored, autonomy } : createTheoMemory(args.customer, autonomy, now);
+    if (args.qualityCeilingPercent === undefined) return base;
+    const resolved = resolveQualityCeiling(
+      base.policy.qualityCeilingPercent,
+      args.qualityCeilingPercent,
+      args.allowLooserCeiling === true,
+    );
+    ceilingNote = resolved.note;
+    if (resolved.ceilingPercent === base.policy.qualityCeilingPercent) return base;
+    return { ...base, policy: { ...base.policy, qualityCeilingPercent: resolved.ceilingPercent } };
+  };
+  let memory = prepare(existing);
 
   const observation = {
     profile,
@@ -440,28 +513,88 @@ export async function runTheoOnce(args: TheoRunOptions): Promise<void> {
     }
   }
 
+  // The gate can take minutes of provider calls. Re-read memory now so an answer
+  // the customer gave meanwhile (`mesh theo --accept/--reject`) is built on, not
+  // overwritten. Nothing awaits between this read and the save below.
+  if (args.gate) memory = prepare(loadTheoMemory(memoryPath));
+
   const result = runTheoCycle(memory, { observation, proofs }, now);
 
   saveTheoMemory(memoryPath, result.memory);
 
-  console.log(result.report);
-  if (note) console.log(`\nNote: ${note}`);
-  if (gateSummary) console.log(`\nGate:\n  ${gateSummary}`);
+  say(result.report);
+  if (note) say(`\nNote: ${note}`);
+  if (ceilingNote) say(`\nCeiling: ${ceilingNote}`);
+  if (gateSummary) say(`\nGate:\n  ${gateSummary}`);
 
   const gate = result.actions.find((action) => action.kind === "gate-requested");
   if (!args.gate && gate && gate.kind === "gate-requested") {
-    console.log(`\nQueued to prove (re-run with --gate <capture> to prove them): ${gate.levers.join(", ")}.`);
+    say(`\nQueued to prove (re-run with --gate <capture> to prove them): ${gate.levers.join(", ")}.`);
   }
-  if (result.memory.proposals.length > 0) {
-    console.log("\nProposals awaiting your approval:");
-    for (const proposal of result.memory.proposals) console.log(`  - ${proposal.message}`);
-  }
-  console.log(`\nMemory saved to ${memoryPath}`);
+  if (result.memory.proposals.length > 0) say(`\n${renderProposals(result.memory)}`);
+  say(`\nMemory saved to ${memoryPath}`);
 
   if (args.apply) {
-    const policyPath = applyPolicyToProxy(result.memory.policy, args.route);
+    const policyPath = applyPolicyToProxy(result.memory.policy, args.route, args.policyPath);
     const where = args.route ? `route '${args.route}'` : "the default route";
-    console.log(`Applied policy to ${where} in ${policyPath} — the proxy enforces it on the next \`mesh start\`.`);
+    say(`Applied policy to ${where} in ${policyPath} — a running proxy picks it up on its next request.`);
+  }
+  return result;
+}
+
+/** The open proposals, each with the exact command that answers it. */
+function renderProposals(memory: TheoMemory): string {
+  const lines: string[] = [];
+  if (memory.proposals.length === 0) {
+    lines.push("No proposals are waiting for an answer.");
+  } else {
+    lines.push("Proposals awaiting your answer:");
+    for (const proposal of memory.proposals) {
+      lines.push(`  - ${proposal.message}`);
+      lines.push(`      yes: mesh theo --accept ${proposal.lever}    no: mesh theo --reject ${proposal.lever}`);
+    }
+  }
+  const declined = memory.declined ?? [];
+  if (declined.length > 0) {
+    lines.push(`Declined earlier: ${declined.join(", ")} (undo with: mesh theo --reconsider <lever>).`);
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Carry out the customer's answer to a proposal (`--accept`, `--reject`,
+ * `--reconsider`) or list what is open (`--proposals`). No cycle runs and no
+ * provider is called. Accepting writes the policy file, so a running proxy
+ * enforces the lever from its next request. Throws with the reason when the
+ * answer cannot be carried out.
+ */
+export function runTheoDecision(args: TheoRunOptions): void {
+  const memoryPath = defaultTheoMemoryPath(args.ledgerDir, args.customer);
+  const memory = loadTheoMemory(memoryPath);
+  if (memory === null) {
+    throw new Error(`Theo has not run for '${args.customer}' yet, so there is nothing to decide. Run \`mesh theo\` first.`);
+  }
+  if (args.listProposals) {
+    console.log(renderProposals(memory));
+    return;
+  }
+  const now = new Date().toISOString();
+  let decision: TheoProposalDecision;
+  if (args.accept !== undefined) {
+    // The baseline a later rise is judged against: today's recent rates.
+    decision = acceptProposal(memory, args.accept, recentDriftRates(readLedgerEvents(args.ledgerDir)), now);
+  } else if (args.reject !== undefined) {
+    decision = rejectProposal(memory, args.reject, now);
+  } else {
+    decision = reconsiderLever(memory, args.reconsider ?? "", now);
+  }
+  if (!decision.ok) throw new Error(decision.reason);
+  saveTheoMemory(memoryPath, decision.memory);
+  console.log(decision.message);
+  if (args.accept !== undefined) {
+    const policyPath = applyPolicyToProxy(decision.memory.policy, args.route, args.policyPath);
+    const where = args.route ? `route '${args.route}'` : "the default route";
+    console.log(`Live on ${where} via ${policyPath} — a running proxy picks it up on its next request.`);
   }
 }
 
@@ -510,10 +643,9 @@ export async function theoWatch(options: {
  * Either way every OTHER route is preserved, so optimising one model never wipes
  * another model's proven policy.
  */
-function applyPolicyToProxy(policy: TheoPolicy, route: string | undefined): string {
-  const dir = join(homedir(), ".mesh");
-  mkdirSync(dir, { recursive: true });
-  const policyPath = join(dir, "theo-policy.json");
+function applyPolicyToProxy(policy: TheoPolicy, route: string | undefined, path?: string): string {
+  const policyPath = path ?? join(homedir(), ".mesh", "theo-policy.json");
+  mkdirSync(dirname(policyPath), { recursive: true });
   let existing: TheoPolicyBundle | undefined;
   if (existsSync(policyPath)) {
     try {
@@ -534,12 +666,17 @@ function applyPolicyToProxy(policy: TheoPolicy, route: string | undefined): stri
  * stop function. The always-on daemon uses this so `mesh install` optimises with
  * nothing to run by hand.
  */
-export function startBackgroundTheo(opts: TheoRunOptions, intervalMs: number): () => void {
+export function startBackgroundTheo(
+  opts: TheoRunOptions,
+  intervalMs: number,
+  onCycle?: (result: TheoCycleResult) => void,
+): () => void {
   let running = false;
   const run = (): void => {
     if (running) return;
     running = true;
     void runTheoOnce(opts)
+      .then((result) => { if (result !== undefined) onCycle?.(result); })
       .catch((error: unknown) => console.error(`theo cycle failed: ${error instanceof Error ? error.message : String(error)}`))
       .finally(() => { running = false; });
   };
@@ -551,6 +688,10 @@ export function startBackgroundTheo(opts: TheoRunOptions, intervalMs: number): (
 
 export async function runTheo(argv: string[]): Promise<void> {
   const args = parse(argv);
+  if (args.listProposals || args.accept !== undefined || args.reject !== undefined || args.reconsider !== undefined) {
+    runTheoDecision(args);
+    return;
+  }
   if (args.watchMs === undefined) {
     await runTheoOnce(args);
     return;

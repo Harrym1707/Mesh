@@ -54,6 +54,14 @@ export type MeshProxyOptions = {
    * that ignores the argument keeps the single-policy behaviour.
    */
   tokenReduction?: MeshTokenReductionConfig | ((modelId?: string) => MeshTokenReductionConfig);
+  /**
+   * The replay-gate verdicts behind the lossy levers the current policy enforces
+   * for this model id (see `bundleGateVerdicts`). Written onto each ledger event,
+   * so a lossy saving that was proven by the gate is billable and one that was
+   * not stays record-only. Called right after `tokenReduction` for the same
+   * request. Omit it and lossy savings are recorded but never billed.
+   */
+  gateVerdicts?: (modelId?: string) => Record<string, { ref: string; verdict: "approved" | "rejected" }>;
   /** Override upstreams, e.g. a mock in tests or an OpenAI-compatible host. */
   anthropicUpstream?: string;
   openaiUpstream?: string;
@@ -449,6 +457,14 @@ export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
     // selecting the route by the request's model id for per-route policies.
     const requestModelId = typeof body.model === "string" ? body.model : undefined;
     const { request: reducedRequest, summary } = reduceRequest(body, currentReduction(requestModelId));
+    // The proofs behind the lossy levers just applied, for the ledger. A failing
+    // getter costs the billing of those levers, never the request.
+    let requestGateVerdicts: Record<string, { ref: string; verdict: "approved" | "rejected" }> | undefined;
+    try {
+      requestGateVerdicts = options.gateVerdicts?.(requestModelId);
+    } catch {
+      requestGateVerdicts = undefined;
+    }
     const sendBody = JSON.stringify(reducedRequest);
     const applicationIdHeader = req.headers["x-mesh-application"];
     const applicationId = ((Array.isArray(applicationIdHeader) ? applicationIdHeader[0] : applicationIdHeader) ?? "proxy").slice(0, 128);
@@ -627,7 +643,10 @@ export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
         ...(outputDiagnostics === undefined ? {} : { outputDiagnostics }),
         ...(duplicateOfRequestId === undefined ? {} : { duplicateOfRequestId }),
       };
-      ledgerFor(applicationId, surface.provider).emit(event);
+      ledgerFor(applicationId, surface.provider).emit(
+        event,
+        requestGateVerdicts === undefined ? undefined : { gateVerdicts: requestGateVerdicts },
+      );
 
       // Blind learning stream: features of the ORIGINAL request (what the
       // customer actually sent), reduced to irreversible keyed hashes + counts.

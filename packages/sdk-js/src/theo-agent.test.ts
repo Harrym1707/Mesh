@@ -4,8 +4,13 @@ import type { TokenPrice } from "../../core/dist/src/cost.js";
 import { extractBlindFeatures } from "./blind-features.js";
 import { policyToReductionConfig } from "./theo-policy.js";
 import {
+  DRIFT_WINDOW_EVENTS,
+  acceptProposal,
   createTheoMemory,
   observeWorkload,
+  recentDriftRates,
+  reconsiderLever,
+  rejectProposal,
   runTheoCycle,
   type TheoMemory,
   type TheoObservation,
@@ -261,5 +266,125 @@ describe("Theo agent — initiating experiments", () => {
     const before = JSON.stringify(m);
     runTheoCycle(m, { observation: OBS, proofs: [proof()] }, LATER);
     expect(JSON.stringify(m)).toBe(before); // input untouched (pure)
+  });
+});
+
+describe("Theo agent — answering a proposal", () => {
+  const LEVER = "tool-schema-description-trim";
+  /** A recommend-mode agent with one open, proven proposal. */
+  function proposed(): TheoMemory {
+    const m = createTheoMemory("acme", "recommend", AT);
+    return runTheoCycle(m, { observation: OBS, proofs: [proof()] }, LATER).memory;
+  }
+
+  it("accepting publishes the lever with its proof, so the proxy enforces it", () => {
+    const before = proposed();
+    expect(before.proposals.map((p) => p.lever)).toEqual([LEVER]);
+    expect(policyToReductionConfig(before.policy).toolSchemas).toBe(true); // lossless tier only
+
+    const decision = acceptProposal(before, LEVER, { retryRate: 0.04, failureRate: 0.01 }, LATER);
+    expect(decision.ok).toBe(true);
+    if (!decision.ok) return;
+    const after = decision.memory;
+    expect(after.proposals).toEqual([]);
+    expect(after.policy.version).toBe(before.policy.version + 1);
+    const published = after.policy.levers.find((l) => l.lever === LEVER)!;
+    expect(published.class).toBe("lossy");
+    expect(published.gate).toEqual({ savingPercent: 30, qualityDeltaPercent: -0.5, grader: "tool-selection", provenAt: LATER });
+    // The enforcement point now applies the lossy trim.
+    expect(policyToReductionConfig(after.policy).toolSchemas).toMatchObject({ descriptions: "truncate" });
+    // Drift is watched from today's rates.
+    expect(after.driftBaselines[LEVER]).toEqual({ retryRate: 0.04, failureRate: 0.01, at: LATER });
+    expect(JSON.stringify(before.proposals)).toContain(LEVER); // input untouched (pure)
+  });
+
+  it("an accepted lever is rolled back by the next cycle if retries rise", () => {
+    const decision = acceptProposal(proposed(), LEVER, { retryRate: 0.02, failureRate: 0 }, LATER);
+    if (!decision.ok) throw new Error(decision.reason);
+    const { memory, actions } = runTheoCycle(
+      decision.memory,
+      { observation: { ...OBS, retryRate: 0.20, failureRate: 0 } },
+      LATER,
+    );
+    expect(actions.some((a) => a.kind === "rolled-back" && a.lever === LEVER)).toBe(true);
+    expect(memory.policy.levers.some((l) => l.lever === LEVER)).toBe(false);
+  });
+
+  it("refuses a proof that no longer fits a tightened ceiling", () => {
+    const m = proposed();
+    const tightened: TheoMemory = { ...m, policy: { ...m.policy, qualityCeilingPercent: 0.1 } };
+    const decision = acceptProposal(tightened, LEVER, {}, LATER);
+    expect(decision.ok).toBe(false);
+    if (!decision.ok) expect(decision.reason).toMatch(/above the current 0\.1% ceiling/);
+  });
+
+  it("refuses a lever with no open proposal, and one rolled back after drift", () => {
+    const m = proposed();
+    const none = acceptProposal(m, "stale-history-compaction", {}, LATER);
+    expect(none.ok).toBe(false);
+    if (!none.ok) expect(none.reason).toMatch(/No open proposal/);
+    const rolled = acceptProposal({ ...m, rolledBack: [LEVER] }, LEVER, {}, LATER);
+    expect(rolled.ok).toBe(false);
+  });
+
+  it("rejecting closes the proposal and Theo neither re-proposes nor re-queues it", () => {
+    const decision = rejectProposal(proposed(), LEVER, LATER);
+    if (!decision.ok) throw new Error(decision.reason);
+    expect(decision.memory.proposals).toEqual([]);
+    expect(decision.memory.declined).toEqual([LEVER]);
+
+    // A fresh passing proof arrives: still no proposal, and it is not queued.
+    const next = runTheoCycle(decision.memory, { observation: OBS, proofs: [proof()] }, LATER);
+    expect(next.memory.proposals).toEqual([]);
+    expect(next.memory.hypotheses.some((h) => h.lever === LEVER)).toBe(false);
+    expect(next.actions).toContainEqual({ kind: "proof-rejected", lever: LEVER, reason: "declined by the customer" });
+  });
+
+  it("a decline outranks auto-apply: optimise does not publish a declined lever", () => {
+    const decision = rejectProposal(proposed(), LEVER, LATER);
+    if (!decision.ok) throw new Error(decision.reason);
+    const optimising: TheoMemory = { ...decision.memory, autonomy: "optimise" };
+    const next = runTheoCycle(optimising, { observation: OBS, proofs: [proof()] }, LATER);
+    expect(next.memory.policy.levers.some((l) => l.lever === LEVER)).toBe(false);
+    expect(next.actions.some((a) => a.kind === "policy-published")).toBe(false);
+  });
+
+  it("reconsidering puts a declined lever back in play", () => {
+    const declined = rejectProposal(proposed(), LEVER, LATER);
+    if (!declined.ok) throw new Error(declined.reason);
+    const back = reconsiderLever(declined.memory, LEVER, LATER);
+    if (!back.ok) throw new Error(back.reason);
+    expect(back.memory.declined).toEqual([]);
+    const next = runTheoCycle(back.memory, { observation: OBS, proofs: [proof()] }, LATER);
+    expect(next.memory.proposals.map((p) => p.lever)).toEqual([LEVER]);
+    expect(reconsiderLever(back.memory, LEVER, LATER).ok).toBe(false); // nothing left to undo
+  });
+});
+
+describe("Theo agent — drift rates use a recent window", () => {
+  const at = (index: number): string => new Date(Date.UTC(2026, 10, 1) + index * 1000).toISOString();
+  const ok = (index: number) => ({ timestamp: at(index), status: "succeeded" });
+  const retry = (index: number) => ({ timestamp: at(index), status: "succeeded", duplicateOfRequestId: "x" });
+  const failed = (index: number) => ({ timestamp: at(index), status: "failed" });
+
+  it("an empty ledger gives zero rates", () => {
+    expect(recentDriftRates([])).toEqual({ sampleSize: 0, retryRate: 0, failureRate: 0 });
+  });
+
+  it("a long clean history does not dilute a fresh rise", () => {
+    // 5,000 clean requests, then 200 where one in five is a retry.
+    const history = Array.from({ length: 5000 }, (_, i) => ok(i));
+    const recent = Array.from({ length: DRIFT_WINDOW_EVENTS }, (_, i) => (i % 5 === 0 ? retry(5000 + i) : ok(5000 + i)));
+    const rates = recentDriftRates([...history, ...recent]);
+    expect(rates.sampleSize).toBe(DRIFT_WINDOW_EVENTS);
+    expect(rates.retryRate).toBeCloseTo(0.2, 5); // whole-ledger would read 0.8%, under the 5-point line
+  });
+
+  it("takes the latest events by time, whatever order the spools were read in", () => {
+    // Two spools concatenated: the older app's events come last in the array.
+    const newer = [failed(10), failed(11)];
+    const older = [ok(0), ok(1), ok(2)];
+    const rates = recentDriftRates([...newer, ...older], 2);
+    expect(rates).toEqual({ sampleSize: 2, retryRate: 0, failureRate: 1 });
   });
 });

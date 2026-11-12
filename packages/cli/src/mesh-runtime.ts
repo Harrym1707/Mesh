@@ -21,6 +21,8 @@ Usage: mesh <command> [options]
   uninstall  Stop and remove the background service; restore Claude Code.
   status     Is the service up, and what has Theo saved so far?
   dashboard  Open a live local web view of your savings and what Theo is doing.
+  theo       Run Theo once (or --watch), answer his proposals (--proposals,
+             --accept, --reject), or prove levers on your own capture (--gate).
   update     Update the runtime now (--rollback to revert to the previous one).
   verify     Re-prove MESH's claims on this machine: the build's provenance,
              your ledger's hash-chain, and a deterministic invoice recompute.
@@ -54,6 +56,8 @@ async function main(): Promise<void> {
     await (await import("./diag.js")).runDoctor(process.argv.slice(3));
   } else if (sub === "dashboard") {
     await (await import("./dashboard.js")).runDashboard(process.argv.slice(3));
+  } else if (sub === "theo") {
+    await (await import("./theo.js")).runTheo(process.argv.slice(3));
   } else if (sub === "version" || sub === "--version" || sub === "-v") {
     (await import("./diag.js")).runVersion(process.argv.slice(3));
   } else if (sub === "compaction") {

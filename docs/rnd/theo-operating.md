@@ -18,9 +18,29 @@ the operator's view of how to run him safely.
 | `test` | As recommend, and self-initiates gate experiments (queues the next levers to prove). |
 | `optimise` | **Auto-applies** a lossy lever once it has a passing proof within the ceiling. Prints a one-time caution. |
 
-Running: once (`mesh theo`), continuously (`mesh theo --watch 15m`), or always-on
-inside the daemon (`mesh serve` / `mesh install`, which runs Theo alongside the
-proxy and hot-reloads the policy he applies).
+Running: once (`mesh theo`), continuously (`mesh theo --watch 15m`), alongside a
+foreground session (`mesh start`, every 15 minutes unless `--no-theo`), or
+always-on inside the daemon (`mesh serve` / `mesh install`). In every case the
+proxy hot-reloads the policy he applies; nothing needs restarting. `mesh theo`
+is part of the installed runtime, not only the repo checkout.
+
+## Answering a proposal
+
+Under `recommend` and `test`, a lossy lever that passes the gate becomes a
+proposal. It does nothing until you answer it:
+
+| Command | Effect |
+|---|---|
+| `mesh theo --proposals` | List open proposals and anything declined earlier. Runs no cycle. |
+| `mesh theo --accept <lever>` | The lever goes live in the policy with the proof it was proposed with, and Theo records today's retry and failure rates as its drift baseline. With `--route <matcher>` it lands on that route only. |
+| `mesh theo --reject <lever>` | Closes the proposal. Theo stops proving and proposing that lever, at every autonomy level including `optimise`. |
+| `mesh theo --reconsider <lever>` | Undoes a reject. |
+
+Accepting re-checks the proof against the current ceiling and refuses a lever
+that was rolled back after drift, so it can never enable something the gate
+would not. The dashboard shows proposals but answers are given on the command
+line only: the dashboard is an unauthenticated local page and must not be able
+to switch on a lossy lever.
 
 ## The layered safety guarantees (all enforced in code)
 
@@ -29,10 +49,14 @@ proxy and hot-reloads the policy he applies).
 2. **Hard quality-ceiling cap.** Enforcement clamps any route's ceiling to a hard
    maximum (`MAX_QUALITY_CEILING_PERCENT` = 5%); a lever whose measured drop
    exceeds it is never enforced, whatever the policy says. Tighten per environment
-   with `--quality-ceiling <p>` (can only make Theo more cautious).
+   with `--quality-ceiling <p>`: on its own the flag can only lower the ceiling,
+   and a higher value is ignored with a note. Raising it takes the explicit
+   `--allow-looser-ceiling` as well, and still stops at the hard maximum.
 3. **Drift auto-rollback.** After a lever is applied, Theo watches the retry rate
-   AND the provider failure rate; a rise past the threshold rolls the lever back
-   and blocks it from being re-proposed.
+   AND the provider failure rate over the most recent 200 requests (not the
+   whole history, which would dilute a fresh regression); a rise of more than 5
+   points over the lever's baseline rolls it back and blocks it from being
+   re-proposed. Both numbers are untuned defaults.
 4. **Exploration budget.** The gate makes paid provider calls; `--max-gate-calls`
    (default 200) caps them per run so auto-proving can't run up a bill.
 5. **Capture is opt-in and bounded.** `mesh start --capture <file>` is the only
@@ -44,7 +68,16 @@ proxy and hot-reloads the policy he applies).
 
 ## Recommended posture for a first (supervised) environment
 
-- `recommend` autonomy, lossless-only auto, lossy as proposals you accept.
+- `recommend` autonomy, lossless-only auto, lossy as proposals you accept
+  (`mesh theo --accept <lever>`).
 - Capture off unless you want pre-contract proofs; if on, keep the size cap small.
 - Watch `mesh dashboard` (active / held / proposals / auto-rolled-back).
 - Turn on `optimise` only after validating the gate's graders against real output.
+
+## Billing of lossy savings
+
+A lossy lever's saving is billable only when its ledger event carries an
+approved replay-gate verdict. The proxy writes that verdict from the policy in
+force for each request: a lever that is enforced (proof inside the ceiling) is
+recorded with a reference to its proof, and a lever that is withheld gets none
+and stays record-only.

@@ -183,3 +183,58 @@ describe("proxy — opt-in request capture for the gate", () => {
     expect(existsSync(join(ledgerDir, "capture", "requests.jsonl"))).toBe(false);
   });
 });
+
+describe("proxy — a proven lossy lever carries its gate verdict into the ledger", () => {
+  let proxy: MeshProxy | undefined;
+  let upstream: { server: Server; url: string } | undefined;
+  afterEach(async () => { await proxy?.close(); upstream?.server.close(); });
+
+  const LEVER = "tool-schema-description-trim";
+  type Lever = { leverId: string; kind: string; gateVerdict?: { ref: string; verdict: string } };
+  function ledgerLevers(ledgerDir: string, app: string): Lever[] {
+    const path = join(ledgerDir, `${app}-anthropic.jsonl`);
+    const lines = readFileSync(path, "utf8").trim().split("\n");
+    return (JSON.parse(lines.at(-1)!) as { event: { levers: Lever[] } }).event.levers;
+  }
+
+  it("records the verdict the policy supplies for the request's model", async () => {
+    upstream = await stubUpstream([]);
+    const ledgerDir = mkdtempSync(join(tmpdir(), "mesh-verdict-"));
+    const asked: (string | undefined)[] = [];
+    proxy = await startMeshProxy({
+      ledgerDirectory: ledgerDir,
+      anthropicUpstream: upstream.url,
+      openaiUpstream: upstream.url,
+      tokenReduction: () => ({ toolSchemas: { descriptions: "truncate" } }),
+      gateVerdicts: (modelId) => {
+        asked.push(modelId);
+        return { [LEVER]: { ref: "theo-gate:test", verdict: "approved" } };
+      },
+    });
+    await post(proxy, "app-verdict");
+    await waitFor(() => existsSync(join(ledgerDir, "app-verdict-anthropic.jsonl")));
+
+    const lever = ledgerLevers(ledgerDir, "app-verdict").find((l) => l.leverId === LEVER);
+    expect(lever?.kind).toBe("lossy");
+    expect(lever?.gateVerdict).toEqual({ ref: "theo-gate:test", verdict: "approved" });
+    expect(asked).toEqual(["claude-sonnet-5-5-20260514"]);
+  });
+
+  it("without a verdict the lossy lever is recorded with none (so it never bills), and a throwing getter cannot break the request", async () => {
+    upstream = await stubUpstream([]);
+    const ledgerDir = mkdtempSync(join(tmpdir(), "mesh-noverdict-"));
+    proxy = await startMeshProxy({
+      ledgerDirectory: ledgerDir,
+      anthropicUpstream: upstream.url,
+      openaiUpstream: upstream.url,
+      tokenReduction: () => ({ toolSchemas: { descriptions: "truncate" } }),
+      gateVerdicts: () => { throw new Error("policy unreadable"); },
+    });
+    await post(proxy, "app-noverdict");
+    await waitFor(() => existsSync(join(ledgerDir, "app-noverdict-anthropic.jsonl")));
+
+    const lever = ledgerLevers(ledgerDir, "app-noverdict").find((l) => l.leverId === LEVER);
+    expect(lever?.kind).toBe("lossy");
+    expect(lever?.gateVerdict).toBeUndefined();
+  });
+});

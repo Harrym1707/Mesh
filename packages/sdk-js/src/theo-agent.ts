@@ -122,6 +122,10 @@ export type TheoMemory = {
   driftBaselines: Record<string, { retryRate: number; failureRate: number; at: string }>;
   /** Levers Theo auto-rolled-back after drift; not re-proposed this session. */
   rolledBack: string[];
+  /** Proposals the customer turned down. Theo neither re-proves nor re-proposes
+   * these until the customer asks him to reconsider. Optional so memory files
+   * written before this field existed still load. */
+  declined?: string[];
   log: TheoCycleLogEntry[];
   updatedAt: string;
 };
@@ -211,6 +215,48 @@ const ENFORCEABLE_LOSSY = new Set(
  * the SAME line Theo actually rolls back on — one source of truth, not a copy. */
 export const DRIFT_RISE_THRESHOLD = 0.05;
 
+/** How many of the MOST RECENT ledger events the drift signals are measured
+ * over. A whole-history rate dilutes a fresh regression until it can no longer
+ * cross the threshold; a bounded window caps that dilution, so a rise shows
+ * within this many requests however long the history is. Untuned, like the
+ * threshold above. */
+export const DRIFT_WINDOW_EVENTS = 200;
+
+export type DriftRates = {
+  /** Events the rates were measured over (at most the window). */
+  sampleSize: number;
+  retryRate: number;
+  failureRate: number;
+};
+
+/**
+ * The two behavioural-drift signals over the most recent `windowEvents` ledger
+ * events: the share that were byte-identical retries and the share that failed
+ * at the provider. Pure. The ONE definition shared by Theo's rollback check and
+ * the dashboard's health panel, so the two can never disagree.
+ */
+export function recentDriftRates(
+  events: readonly { timestamp: string; status: string; duplicateOfRequestId?: string }[],
+  windowEvents: number = DRIFT_WINDOW_EVENTS,
+): DriftRates {
+  const size = Math.max(1, Math.floor(windowEvents));
+  // Spools are per application, so order by time before taking the tail.
+  const recent = [...events]
+    .sort((a, b) => {
+      const left = a.timestamp ?? "";
+      const right = b.timestamp ?? "";
+      return left < right ? -1 : left > right ? 1 : 0;
+    })
+    .slice(-size);
+  const n = recent.length;
+  if (n === 0) return { sampleSize: 0, retryRate: 0, failureRate: 0 };
+  return {
+    sampleSize: n,
+    retryRate: recent.filter((event) => event.duplicateOfRequestId !== undefined).length / n,
+    failureRate: recent.filter((event) => event.status === "failed").length / n,
+  };
+}
+
 function zeroSegments(): Record<WorkloadSegment, number> {
   return { toolSchemas: 0, systemPrompt: 0, retrievedContext: 0, history: 0, userTurn: 0, output: 0 };
 }
@@ -277,6 +323,7 @@ function hypothesise(
   price: TokenPrice,
   activeLossy: ReadonlySet<string>,
   rolledBack: ReadonlySet<string>,
+  declined: ReadonlySet<string> = new Set(),
 ): { hypotheses: TheoHypothesis[]; frontier: TheoFrontierOpportunity[] } {
   let contributions: LeverContribution[];
   try {
@@ -304,6 +351,7 @@ function hypothesise(
     }
     if (mapped.class === "lossless") continue; // already active in the policy.
     if (rolledBack.has(mapped.lever)) continue; // auto-rolled-back after drift; don't re-propose
+    if (declined.has(mapped.lever)) continue; // the customer said no; don't pay to re-prove it
     if (activeLossy.has(mapped.lever) || seen.has(mapped.lever)) continue;
     seen.add(mapped.lever);
     hypotheses.push({
@@ -342,6 +390,7 @@ export function runTheoCycle(
   const proposals = [...memory.proposals];
   const driftBaselines = { ...(memory.driftBaselines ?? {}) };
   const rolledBack = [...(memory.rolledBack ?? [])];
+  const declined = new Set(memory.declined ?? []);
 
   // OBSERVE
   const profile = observation.profile;
@@ -382,7 +431,7 @@ export function runTheoCycle(
   const activeLossy = new Set(
     policy.levers.filter((lever) => lever.class === "lossy" && lever.gate !== undefined).map((l) => l.lever),
   );
-  const { hypotheses, frontier } = hypothesise(profile, observation.price, activeLossy, new Set(rolledBack));
+  const { hypotheses, frontier } = hypothesise(profile, observation.price, activeLossy, new Set(rolledBack), declined);
 
   // Report lossless coverage (always on; it is the day-0 default).
   const lossless = losslessLevers(policy);
@@ -396,6 +445,11 @@ export function runTheoCycle(
     }
     if (rolledBack.includes(proof.lever)) {
       actions.push({ kind: "proof-rejected", lever: proof.lever, reason: "auto-rolled-back earlier after quality drift" });
+      continue;
+    }
+    if (declined.has(proof.lever)) {
+      // Holds at every autonomy level: a customer's "no" outranks auto-apply.
+      actions.push({ kind: "proof-rejected", lever: proof.lever, reason: "declined by the customer" });
       continue;
     }
     const ceiling = effectiveQualityCeiling(policy.qualityCeilingPercent);
@@ -501,6 +555,122 @@ export function runTheoCycle(
   return { memory: nextMemory, actions, report: renderTheoReport(nextMemory, observation, actions) };
 }
 
+export type TheoProposalDecision =
+  | { ok: true; memory: TheoMemory; message: string }
+  | { ok: false; reason: string };
+
+function openProposalList(memory: TheoMemory): string {
+  return memory.proposals.length === 0
+    ? "There are no open proposals."
+    : `Open proposals: ${memory.proposals.map((proposal) => proposal.lever).join(", ")}.`;
+}
+
+/**
+ * The customer accepts an open proposal: the lever is published into the policy
+ * carrying the proof it was proposed with, and its drift baselines are recorded
+ * so a later rise rolls it back. Pure — returns a new memory.
+ *
+ * Acceptance re-checks the proof against the CURRENT ceiling (it may have been
+ * tightened since the proposal opened) and refuses a lever that was rolled back
+ * after drift, so accepting can never enable something the gate would not.
+ */
+export function acceptProposal(
+  memory: TheoMemory,
+  lever: string,
+  rates: { retryRate?: number; failureRate?: number },
+  now: string,
+): TheoProposalDecision {
+  const proposal = memory.proposals.find((candidate) => candidate.lever === lever);
+  if (proposal === undefined) {
+    return { ok: false, reason: `No open proposal for '${lever}'. ${openProposalList(memory)}` };
+  }
+  if (!ENFORCEABLE_LOSSY.has(lever)) {
+    return { ok: false, reason: `'${lever}' is not a lever Theo can enforce.` };
+  }
+  if ((memory.rolledBack ?? []).includes(lever)) {
+    return { ok: false, reason: `'${lever}' was rolled back after quality drift and cannot be re-applied.` };
+  }
+  const ceiling = effectiveQualityCeiling(memory.policy.qualityCeilingPercent);
+  const drop = Math.abs(proposal.qualityDeltaPercent);
+  if (!Number.isFinite(drop) || drop > ceiling) {
+    return {
+      ok: false,
+      reason: `'${lever}' measured a ${drop.toFixed(2)}% quality drop, above the current ${ceiling}% ceiling.`,
+    };
+  }
+  if (!(proposal.savingPercent > 0)) {
+    return { ok: false, reason: `'${lever}' has no verified saving to enable.` };
+  }
+  const policy = publishLever(
+    memory.policy,
+    {
+      lever,
+      class: "lossy",
+      gate: {
+        savingPercent: proposal.savingPercent,
+        qualityDeltaPercent: proposal.qualityDeltaPercent,
+        grader: proposal.grader,
+        provenAt: proposal.provenAt,
+      },
+    },
+    now,
+  );
+  return {
+    ok: true,
+    memory: {
+      ...memory,
+      policy,
+      proposals: memory.proposals.filter((candidate) => candidate.lever !== lever),
+      hypotheses: memory.hypotheses.filter((hypothesis) => hypothesis.lever !== lever),
+      driftBaselines: {
+        ...(memory.driftBaselines ?? {}),
+        [lever]: { retryRate: rates.retryRate ?? 0, failureRate: rates.failureRate ?? 0, at: now },
+      },
+      declined: (memory.declined ?? []).filter((other) => other !== lever),
+      updatedAt: now,
+    },
+    message: `${lever} accepted — policy version ${policy.version}. Theo rolls it back if retries or failures rise.`,
+  };
+}
+
+/**
+ * The customer turns an open proposal down: it is closed and the lever is
+ * remembered as declined, so Theo neither re-proves nor re-proposes it. Pure.
+ */
+export function rejectProposal(memory: TheoMemory, lever: string, now: string): TheoProposalDecision {
+  if (!memory.proposals.some((candidate) => candidate.lever === lever)) {
+    return { ok: false, reason: `No open proposal for '${lever}'. ${openProposalList(memory)}` };
+  }
+  const declined = memory.declined ?? [];
+  return {
+    ok: true,
+    memory: {
+      ...memory,
+      proposals: memory.proposals.filter((candidate) => candidate.lever !== lever),
+      hypotheses: memory.hypotheses.filter((hypothesis) => hypothesis.lever !== lever),
+      declined: declined.includes(lever) ? declined : [...declined, lever],
+      updatedAt: now,
+    },
+    message: `${lever} declined — Theo will not propose it again unless you ask him to reconsider.`,
+  };
+}
+
+/** Undo a decline: Theo may prove and propose the lever again. Pure. */
+export function reconsiderLever(memory: TheoMemory, lever: string, now: string): TheoProposalDecision {
+  if (!(memory.declined ?? []).includes(lever)) {
+    return { ok: false, reason: `'${lever}' is not on the declined list.` };
+  }
+  return {
+    ok: true,
+    memory: {
+      ...memory,
+      declined: (memory.declined ?? []).filter((other) => other !== lever),
+      updatedAt: now,
+    },
+    message: `${lever} is back in play — Theo will prove it again on the next gate run.`,
+  };
+}
+
 function sumSegments(profile: WorkloadProfile): number {
   return Object.values(profile.segments).reduce((sum, value) => sum + value, 0);
 }
@@ -532,7 +702,7 @@ export function renderTheoReport(
   }
   if (published > 0) lines.push(`APPLIED: ${published} proven lever(s) published to the policy this cycle.`);
   const rolledBackNow = actions.filter((a) => a.kind === "rolled-back").length;
-  if (rolledBackNow > 0) lines.push(`ROLLED BACK: ${rolledBackNow} lever(s) reverted after a retry-rate rise (quality drift).`);
+  if (rolledBackNow > 0) lines.push(`ROLLED BACK: ${rolledBackNow} lever(s) reverted after a rise in retries or failures (quality drift).`);
   if (proposed > 0) lines.push(`PROPOSED: ${proposed} proven lever(s) awaiting your approval.`);
   if (observation.realisedSavingsUsd !== undefined) {
     lines.push(`LEDGER: $${observation.realisedSavingsUsd.toFixed(2)} verified savings recorded so far.`);
