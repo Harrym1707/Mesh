@@ -32,9 +32,16 @@ proposal. It does nothing until you answer it:
 | Command | Effect |
 |---|---|
 | `mesh theo --proposals` | List open proposals and anything declined earlier. Runs no cycle. |
-| `mesh theo --accept <lever>` | The lever goes live in the policy with the proof it was proposed with, and Theo records today's retry and failure rates as its drift baseline. With `--route <matcher>` it lands on that route only. |
+| `mesh theo --accept <lever>` | The lever goes live in the policy with the proof it was proposed with, and Theo records today's retry and failure rates as its drift baseline. |
 | `mesh theo --reject <lever>` | Closes the proposal. Theo stops proving and proposing that lever, at every autonomy level including `optimise`. |
 | `mesh theo --reconsider <lever>` | Undoes a reject. |
+
+**One route only.** Theo keeps one policy per environment (`--customer`), and
+the background service writes the `local` environment to the default route on
+every cycle. To accept a lever, or raise the ceiling, for a single route, run
+that route as its own environment: `mesh theo --customer cheap --route
+"claude-haiku*" …`. A route-only accept or ceiling raise in `local` is refused,
+because it would reach every route within one interval.
 
 Accepting re-checks the proof against the current ceiling and refuses a lever
 that was rolled back after drift, so it can never enable something the gate

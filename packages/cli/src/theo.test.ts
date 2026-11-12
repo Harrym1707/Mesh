@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTheoMemory, type TheoMemory } from "../../sdk-js/src/theo-agent.js";
 import { defaultTheoMemoryPath, loadTheoMemory, saveTheoMemory } from "../../sdk-js/src/theo-agent-store.js";
 import type { TheoPolicyBundle } from "../../sdk-js/src/theo-policy.js";
-import { parseDuration, readGateKey, resolveQualityCeiling, runTheoDecision, theoWatch, type TheoRunOptions } from "./theo.js";
+import { parseDuration, readGateKey, resolveQualityCeiling, routeScopeProblem, runTheoDecision, theoWatch, type TheoRunOptions } from "./theo.js";
 
 describe("mesh theo — interval parsing", () => {
   it("parses units and a bare seconds number", () => {
@@ -167,12 +167,25 @@ describe("mesh theo — answering proposals from the command line", () => {
     expect(memoryNow().driftBaselines[LEVER]).toMatchObject({ retryRate: 0, failureRate: 0 });
   });
 
-  it("--accept with --route lands the lever on that route only", () => {
-    runTheoDecision({ ...options, accept: LEVER, route: "claude-haiku*" });
+  it("--accept with --route lands the lever on that route only, for a route with its own environment", () => {
+    saveTheoMemory(defaultTheoMemoryPath(ledgerDir, "cheap"), { ...memoryNow(), customer: "cheap" });
+    runTheoDecision({ ...options, customer: "cheap", accept: LEVER, route: "claude-haiku*" });
     const bundle = JSON.parse(readFileSync(policyPath, "utf8")) as TheoPolicyBundle;
     expect(bundle.default.levers.some((l) => l.lever === LEVER)).toBe(false);
     expect(bundle.routes?.[0]?.route).toBe("claude-haiku*");
     expect(bundle.routes?.[0]?.levers.some((l) => l.lever === LEVER)).toBe(true);
+  });
+
+  it("refuses a route-only accept in the environment the background service owns", () => {
+    // The service writes 'local' to the default route each cycle, so this would
+    // spread to every route. Nothing is changed.
+    expect(() => runTheoDecision({ ...options, accept: LEVER, route: "claude-haiku*" })).toThrow(/would spread to every route/);
+    expect(memoryNow().proposals).toHaveLength(1);
+    expect(existsSync(policyPath)).toBe(false);
+    expect(routeScopeProblem({ customer: "local", route: "x", allowLooserCeiling: true })).toMatch(/raise the ceiling/);
+    // Tightening, or anything without a route, is unaffected.
+    expect(routeScopeProblem({ customer: "local", route: "x" })).toBeUndefined();
+    expect(routeScopeProblem({ customer: "local", accept: LEVER })).toBeUndefined();
   });
 
   it("--reject closes it without touching the policy; --reconsider undoes that", () => {

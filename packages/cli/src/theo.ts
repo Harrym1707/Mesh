@@ -95,8 +95,10 @@ const USAGE = `Usage: mesh theo [options]
                         its next request; no restart needed.
   --proposals         List the proven levers waiting for your answer, and stop.
   --accept <lever>    Say yes to a proposal: the lever goes live in the policy
-                        (with --route, on that route only) and Theo watches it
-                        for drift. Refused if its proof no longer fits the ceiling.
+                        and Theo watches it for drift. Refused if its proof no
+                        longer fits the ceiling. To limit it to one route, run
+                        that route as its own environment (--customer <name>
+                        --route <matcher>).
   --reject <lever>    Say no to a proposal. Theo stops proving and proposing it.
   --reconsider <lever> Undo a --reject, so Theo may prove and propose it again.
   --help              Show this message.
@@ -213,7 +215,37 @@ function parse(argv: string[]): TheoRunOptions {
   if (args.allowLooserCeiling && args.qualityCeilingPercent === undefined) {
     throw new Error("--allow-looser-ceiling needs --quality-ceiling <p>.");
   }
+  const scope = routeScopeProblem(args);
+  if (scope !== undefined) throw new Error(scope);
   return args;
+}
+
+/** The environment the background service (`mesh start` / `mesh install`) runs. */
+const BACKGROUND_CUSTOMER = "local";
+
+/**
+ * Why a route-only loosening cannot be honoured, or undefined if it can.
+ *
+ * Theo keeps ONE policy per environment (`--customer`), and the background
+ * service writes the `local` environment's policy to the DEFAULT route on every
+ * cycle. So accepting a lossy lever, or raising the ceiling, "for one route" in
+ * `local` would reach every route within one interval. Rather than promise a
+ * scope that will not hold, refuse and say how to get it: give the route its
+ * own environment.
+ */
+export function routeScopeProblem(
+  args: Pick<TheoRunOptions, "route" | "customer" | "accept" | "allowLooserCeiling">,
+): string | undefined {
+  if (args.route === undefined || args.customer !== BACKGROUND_CUSTOMER) return undefined;
+  const what = args.accept !== undefined
+    ? "accept a lever"
+    : args.allowLooserCeiling
+      ? "raise the ceiling"
+      : undefined;
+  if (what === undefined) return undefined;
+  return `Cannot ${what} for route '${args.route}' only in the '${BACKGROUND_CUSTOMER}' environment: the background ` +
+    "service applies that environment to the default route, so the change would spread to every route. " +
+    `Give the route its own environment: add --customer <name> alongside --route ${args.route}.`;
 }
 
 /**
@@ -578,6 +610,8 @@ export function runTheoDecision(args: TheoRunOptions): void {
     console.log(renderProposals(memory));
     return;
   }
+  const scope = routeScopeProblem(args);
+  if (scope !== undefined) throw new Error(scope);
   const now = new Date().toISOString();
   let decision: TheoProposalDecision;
   if (args.accept !== undefined) {
