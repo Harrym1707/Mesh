@@ -9,7 +9,7 @@ public gets is the founder's to take.
 | Item | State |
 |---|---|
 | Version | `@harrym1707/mesh` 0.1.0 → **0.2.0**, `@harrym1707/sdk` 0.1.1 → **0.2.0** (commit `9a71697`). npm already holds 0.1.0 and 0.1.1, so neither could be published again without a bump. |
-| Website runtime | `docs/site/dist` rebuilt at `e394cca` (commit `e68e5c9`). Manifest: build `e394cca`, sha256 `8ae9de85…ebf9d3e53`. |
+| Website runtime | `docs/site/dist` rebuilt at `d92a92c` (commit `9f20381`). Manifest: build `d92a92c`, sha256 `200fbf35…18012e3c`. |
 | Website pages | Two new pages, `terms.html` and `privacy.html`. Every other page changes in its footer only: the company line is gone and links to Terms and Privacy are added. No other copy changed. |
 | Merge into `main` | Dry-run clean (`git merge-tree`) at `main` `938cfbb`, checked before the legal pages were added (they touch only site files, the statement text and one ops doc). The merged tree differs from this branch only by traffic-snapshot files, so the staged runtime is the build `main` would produce. |
 
@@ -19,18 +19,22 @@ npm `latest` is `mesh` 0.1.0 and `sdk` 0.1.1, both founder-published on
 
 ## What was checked on the staged build (2026-11-12, macOS arm64, Node 24)
 
-- `pnpm build`, `pnpm test` (866 tests, 65 files), SDK package build and its
+- `pnpm build`, `pnpm test` (866 tests, 65 files, at the first staging), SDK package build and its
   cold-install smoke test, CLI package build with both smoke tests: the same
-  steps `release.yml` runs, in the same order.
+  steps `release.yml` runs, in the same order. 881 tests at `d92a92c`.
 - `curl … | sh` from a local copy of the staged site into a clean home
-  directory, then `mesh version` (0.2.0, build `e394cca`) and `mesh verify`.
-- On the earlier staged build `9a71697` (same product code; only the company
-  name on the customer statement differs): `mesh theo --help`, the npm tarball
+  directory, then `mesh version` (0.2.0, build `d92a92c`) and `mesh verify`.
+- **Claude Code wiring**, on the installed build: a new user who closes the
+  terminal running `mesh start` is left with no settings file; after
+  `kill -9`, `mesh doctor` fails and names the fix, and `mesh restore` repairs
+  it.
+- On the first staged build `9a71697` (before the statement text and the
+  Claude Code wiring fix changed): `mesh theo --help`, the npm tarball
   through `npx`, and a full `mesh start` session against a stand-in
   provider: three requests proxied, ledger written and verified, Theo ran four
   cycles in `recommend` mode and left the lossless default policy in place.
 - **Upgrade**: installed today's live build (`c8378ea`), switched the site to
-  the staged one, `mesh update` moved to `e394cca`.
+  the staged one, `mesh update` moved to `d92a92c`.
   `mesh update --rollback` returned to `c8378ea`.
 
 Not checked: Linux and Windows (CI's `install-smoke.yml` covers them on the
@@ -52,7 +56,7 @@ against a real provider.
 
 ## Before you start
 
-- [ ] **CI is green on PR #31** at `e68e5c9` or later (`ci`, `install-smoke`).
+- [ ] **CI is green on PR #31** at `9f20381` or later (`ci`, `install-smoke`).
 - [ ] **npm trusted publishing is set up for both packages.** On npmjs.com, for
       `@harrym1707/sdk` and `@harrym1707/mesh`: Settings → Trusted Publisher →
       GitHub Actions, repository `Harrym1707/Mesh`, workflow `release.yml`.
@@ -84,7 +88,7 @@ against a real provider.
 ### 1. Merge the code
 
 Use **"Create a merge commit"** for both. Do not squash: the hosted runtime is
-stamped with commit `e394cca`, and squashing would remove that commit from
+stamped with commit `d92a92c`, and squashing would remove that commit from
 `main`'s history.
 
 1. Merge **PR #31** (`theo/autonomous-agent` → `integration/trunk`).
@@ -101,14 +105,14 @@ Wait for the "Deploy site to GitHub Pages" run to finish, then:
 curl -fsS https://www.mesh-technology.com/mesh-version.json
 ```
 
-It should show `"version": "e394cca"` and the sha256 above. Then install into a
+It should show `"version": "d92a92c"` and the sha256 above. Then install into a
 throwaway home directory and check it:
 
 ```bash
 export T=$(mktemp -d) && curl -fsSL https://www.mesh-technology.com/install.sh | HOME=$T sh && HOME=$T $T/.mesh/bin/mesh version && HOME=$T $T/.mesh/bin/mesh verify
 ```
 
-Expect `mesh 0.2.0 (build e394cca)` and "All checks passed".
+Expect `mesh 0.2.0 (build d92a92c)` and "All checks passed".
 
 ### 3. Publish to npm
 
@@ -124,7 +128,7 @@ npm view @harrym1707/mesh version && npm view @harrym1707/sdk version
 
 Both should print `0.2.0`. The npm runtime is rebuilt at the tag, so
 `npx @harrym1707/mesh version` reports the tag's commit as its build, not
-`e394cca`. That difference between the two channels is expected.
+`d92a92c`. That difference between the two channels is expected.
 
 If trusted publishing is not set up and you would rather not set it up now,
 the packages can be published by hand from a checkout of the tag, as 0.1.x
