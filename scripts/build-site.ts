@@ -15,6 +15,7 @@
  * The generator verifies its own output and exits non-zero on anything
  * malformed, so a broken page can never ship silently.
  */
+import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -331,9 +332,30 @@ writeFileSync(path.join(outDir, "llms-full.txt"),
   PAGES.map((page) => readFileSync(path.join(siteDir, page.file), "utf8")).join("\n\n---\n\n"),
   "utf8");
 const today = new Date().toISOString().slice(0, 10);
+/**
+ * The date a page's CONTENT last changed: the last commit that touched its
+ * source file, or today if that file has uncommitted edits (or git is not
+ * available). Stamping every page with the build date told crawlers the whole
+ * site changed on every build; a lastmod that cries wolf is one they learn to
+ * ignore, and re-dating unchanged pages is exactly the fake freshness answer
+ * engines discount.
+ */
+function lastChanged(sourceFile: string): string {
+  try {
+    const dirty = execFileSync("git", ["status", "--porcelain", "--", sourceFile], { cwd: root }).toString().trim();
+    if (dirty !== "") return today;
+    const date = execFileSync("git", ["log", "-1", "--format=%cs", "--", sourceFile], { cwd: root }).toString().trim();
+    return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : today;
+  } catch {
+    return today;
+  }
+}
+/** The source file behind each built page; the landing page is generated code. */
+const sourceOf = (name: string): string =>
+  name === "index.html" ? "scripts/landing-page.ts" : `docs/site/${name.replace(/\.html$/, ".md")}`;
 writeFileSync(path.join(outDir, "sitemap.xml"),
   `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
-  built.map((name) => `  <url><loc>${ORIGIN}/${name === "index.html" ? "" : name}</loc><lastmod>${today}</lastmod></url>`).join("\n") +
+  built.map((name) => `  <url><loc>${ORIGIN}/${name === "index.html" ? "" : name}</loc><lastmod>${lastChanged(sourceOf(name))}</lastmod></url>`).join("\n") +
   "\n</urlset>\n", "utf8");
 
 // --- Self-verification: a malformed page must never ship silently. ---------
