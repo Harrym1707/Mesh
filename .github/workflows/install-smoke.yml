@@ -92,7 +92,9 @@ jobs:
       - name: Pack the npm package and run it through npx
         run: |
           npm pack ./packages/cli/pkg
-          TARBALL=$(ls mesh-ai-mesh-*.tgz)
+          # npm names the tarball after the package: @harrym1707/mesh -> harrym1707-mesh-*.tgz.
+          # Glob by the actual name (not the pre-rename @mesh-ai scope), newest first.
+          TARBALL=$(ls -t harrym1707-mesh-*.tgz | head -1)
           echo "packed: $TARBALL"
           npx -y "./$TARBALL" version
           npx -y "./$TARBALL" verify
