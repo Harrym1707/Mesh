@@ -5887,6 +5887,177 @@ it, a proven lever is proposed (recommend/test) or applied (optimise).`;
   }
 });
 
+// packages/cli/src/claude-wiring.ts
+import { existsSync as existsSync4, mkdirSync as mkdirSync5, readFileSync as readFileSync4, rmSync, writeFileSync as writeFileSync3 } from "node:fs";
+import { dirname as dirname5 } from "node:path";
+function pidAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === "EPERM";
+  }
+}
+function readWiringState(statePath) {
+  try {
+    const parsed = JSON.parse(readFileSync4(statePath, "utf8"));
+    if (typeof parsed.pid !== "number" || typeof parsed.proxyUrl !== "string") return void 0;
+    return {
+      pid: parsed.pid,
+      proxyUrl: parsed.proxyUrl,
+      priorBaseUrl: typeof parsed.priorBaseUrl === "string" ? parsed.priorBaseUrl : null,
+      hadFile: parsed.hadFile === true,
+      at: typeof parsed.at === "string" ? parsed.at : ""
+    };
+  } catch {
+    return void 0;
+  }
+}
+function readSettings(settingsPath) {
+  return JSON.parse(readFileSync4(settingsPath, "utf8"));
+}
+function envOf(settings) {
+  return { ...settings.env ?? {} };
+}
+function undoWiring(settingsPath, proxyUrl, priorBaseUrl, hadFile) {
+  if (!existsSync4(settingsPath)) return false;
+  const now = readSettings(settingsPath);
+  const env = envOf(now);
+  if (env.ANTHROPIC_BASE_URL !== proxyUrl) return false;
+  if (priorBaseUrl === null) delete env.ANTHROPIC_BASE_URL;
+  else env.ANTHROPIC_BASE_URL = priorBaseUrl;
+  const next = { ...now, env };
+  if (Object.keys(env).length === 0) delete next.env;
+  if (!hadFile && Object.keys(next).length === 0) {
+    rmSync(settingsPath, { force: true });
+  } else {
+    writeFileSync3(settingsPath, `${JSON.stringify(next, null, 2)}
+`);
+  }
+  return true;
+}
+function wireClaudeCode(paths, proxyUrl, options = {}) {
+  const pid = options.pid ?? process.pid;
+  const isAlive = options.isAlive ?? pidAlive;
+  mkdirSync5(dirname5(paths.settingsPath), { recursive: true });
+  let settings = {};
+  let hadFile = false;
+  if (existsSync4(paths.settingsPath)) {
+    hadFile = true;
+    try {
+      settings = readSettings(paths.settingsPath);
+    } catch {
+      throw new Error(`~/.claude/settings.json isn't valid JSON \u2014 fix or move it, then re-run. MESH won't overwrite it.`);
+    }
+  }
+  const env = envOf(settings);
+  let priorBaseUrl = env.ANTHROPIC_BASE_URL ?? null;
+  let ownsRecord = true;
+  const earlier = readWiringState(paths.statePath);
+  if (earlier !== void 0) {
+    if (earlier.pid !== pid && isAlive(earlier.pid)) {
+      ownsRecord = false;
+    } else if (priorBaseUrl === earlier.proxyUrl) {
+      priorBaseUrl = earlier.priorBaseUrl;
+      hadFile = earlier.hadFile;
+    }
+  }
+  if (ownsRecord) {
+    const state = {
+      pid,
+      proxyUrl,
+      priorBaseUrl,
+      hadFile,
+      at: (options.now ?? (() => (/* @__PURE__ */ new Date()).toISOString()))()
+    };
+    mkdirSync5(dirname5(paths.statePath), { recursive: true });
+    writeFileSync3(paths.statePath, `${JSON.stringify(state, null, 2)}
+`, { mode: 384 });
+  }
+  env.ANTHROPIC_BASE_URL = proxyUrl;
+  writeFileSync3(paths.settingsPath, `${JSON.stringify({ ...settings, env }, null, 2)}
+`);
+  let restored = false;
+  return function restore() {
+    if (restored) return;
+    restored = true;
+    try {
+      undoWiring(paths.settingsPath, proxyUrl, priorBaseUrl, hadFile);
+    } catch {
+    }
+    if (ownsRecord) {
+      try {
+        rmSync(paths.statePath, { force: true });
+      } catch {
+      }
+    }
+  };
+}
+function loopbackPort(url) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "http:") return void 0;
+    if (!["127.0.0.1", "localhost", "[::1]"].includes(parsed.hostname)) return void 0;
+    const port = Number(parsed.port || 80);
+    return Number.isInteger(port) && port > 0 ? port : void 0;
+  } catch {
+    return void 0;
+  }
+}
+async function checkWiring(paths, probe) {
+  const isAlive = probe.isAlive ?? pidAlive;
+  if (!existsSync4(paths.settingsPath)) {
+    return { status: "ok", detail: "no ~/.claude/settings.json (Claude Code not configured for MESH)" };
+  }
+  let baseUrl;
+  try {
+    baseUrl = envOf(readSettings(paths.settingsPath)).ANTHROPIC_BASE_URL;
+  } catch {
+    return { status: "invalid", detail: "~/.claude/settings.json is not valid JSON" };
+  }
+  if (baseUrl === void 0) return { status: "ok", detail: "valid, but ANTHROPIC_BASE_URL not set" };
+  const state = readWiringState(paths.statePath);
+  if (state !== void 0 && state.proxyUrl === baseUrl && !isAlive(state.pid)) {
+    return {
+      status: "stranded",
+      state,
+      detail: `ANTHROPIC_BASE_URL \u2192 ${baseUrl}, left by a MESH session that is no longer running`
+    };
+  }
+  const port = loopbackPort(baseUrl);
+  if (port !== void 0 && !await probe.portUp(port)) {
+    return { status: "dead-local", baseUrl, detail: `ANTHROPIC_BASE_URL \u2192 ${baseUrl}, but nothing is listening there` };
+  }
+  return { status: "ok", detail: `ANTHROPIC_BASE_URL \u2192 ${baseUrl}` };
+}
+async function repairWiring(paths, probe) {
+  const health = await checkWiring(paths, probe);
+  if (health.status === "invalid") {
+    return { changed: false, message: "~/.claude/settings.json is not valid JSON. Fix or remove it; MESH won't overwrite it." };
+  }
+  if (health.status === "stranded") {
+    const { state: state2 } = health;
+    undoWiring(paths.settingsPath, state2.proxyUrl, state2.priorBaseUrl, state2.hadFile);
+    rmSync(paths.statePath, { force: true });
+    return {
+      changed: true,
+      message: state2.priorBaseUrl === null ? "Claude Code restored: removed the address of a MESH session that had ended." : `Claude Code restored: ANTHROPIC_BASE_URL is back to ${state2.priorBaseUrl}.`
+    };
+  }
+  if (health.status === "dead-local") {
+    undoWiring(paths.settingsPath, health.baseUrl, null, true);
+    return { changed: true, message: `Claude Code restored: removed ${health.baseUrl}, where nothing was listening.` };
+  }
+  const state = readWiringState(paths.statePath);
+  if (state !== void 0 && !(probe.isAlive ?? pidAlive)(state.pid)) rmSync(paths.statePath, { force: true });
+  return { changed: false, message: `Nothing to repair (${health.detail}).` };
+}
+var init_claude_wiring = __esm({
+  "packages/cli/src/claude-wiring.ts"() {
+  }
+});
+
 // packages/sdk-js/src/cta.ts
 function savingsPercent(snap) {
   const baseline = snap.spendUsd + snap.savedUsd;
@@ -5929,19 +6100,19 @@ __export(update_exports, {
   runUpdate: () => runUpdate
 });
 import { createHash as createHash7 } from "node:crypto";
-import { copyFileSync, existsSync as existsSync4, mkdirSync as mkdirSync5, readFileSync as readFileSync4, writeFileSync as writeFileSync3 } from "node:fs";
+import { copyFileSync, existsSync as existsSync5, mkdirSync as mkdirSync6, readFileSync as readFileSync5, writeFileSync as writeFileSync4 } from "node:fs";
 import { homedir as homedir2 } from "node:os";
 import { join as join4 } from "node:path";
 function read(path) {
   try {
-    return readFileSync4(path, "utf8").trim();
+    return readFileSync5(path, "utf8").trim();
   } catch {
     return null;
   }
 }
 async function pullNewerRuntime() {
-  mkdirSync5(DIR, { recursive: true });
-  const have = existsSync4(VERSION_FILE) ? read(VERSION_FILE) : null;
+  mkdirSync6(DIR, { recursive: true });
+  const have = existsSync5(VERSION_FILE) ? read(VERSION_FILE) : null;
   let manifest;
   try {
     const res = await fetch(`${BASE}/mesh-version.json`);
@@ -5960,25 +6131,25 @@ async function pullNewerRuntime() {
     return null;
   }
   if (createHash7("sha256").update(bytes).digest("hex") !== manifest.sha256) return null;
-  if (existsSync4(RUNTIME)) {
+  if (existsSync5(RUNTIME)) {
     copyFileSync(RUNTIME, BACKUP);
-    if (have !== null) writeFileSync3(BACKUP_VERSION, have);
-    if (existsSync4(SHA_FILE)) copyFileSync(SHA_FILE, BACKUP_SHA);
+    if (have !== null) writeFileSync4(BACKUP_VERSION, have);
+    if (existsSync5(SHA_FILE)) copyFileSync(SHA_FILE, BACKUP_SHA);
   }
-  writeFileSync3(RUNTIME, bytes);
-  writeFileSync3(VERSION_FILE, manifest.version);
-  writeFileSync3(SHA_FILE, manifest.sha256);
+  writeFileSync4(RUNTIME, bytes);
+  writeFileSync4(VERSION_FILE, manifest.version);
+  writeFileSync4(SHA_FILE, manifest.sha256);
   return manifest.version;
 }
 function rollback() {
-  if (!existsSync4(BACKUP)) {
+  if (!existsSync5(BACKUP)) {
     console.error("No previous runtime to roll back to.");
     process.exit(1);
   }
   copyFileSync(BACKUP, RUNTIME);
   const prev = read(BACKUP_VERSION) ?? "previous";
-  writeFileSync3(VERSION_FILE, prev);
-  if (existsSync4(BACKUP_SHA)) copyFileSync(BACKUP_SHA, SHA_FILE);
+  writeFileSync4(VERSION_FILE, prev);
+  if (existsSync5(BACKUP_SHA)) copyFileSync(BACKUP_SHA, SHA_FILE);
   console.log(`Rolled back to ${prev}.`);
 }
 async function runUpdate(argv) {
@@ -5986,8 +6157,8 @@ async function runUpdate(argv) {
     rollback();
     return;
   }
-  mkdirSync5(DIR, { recursive: true });
-  const have = existsSync4(VERSION_FILE) ? read(VERSION_FILE) : null;
+  mkdirSync6(DIR, { recursive: true });
+  const have = existsSync5(VERSION_FILE) ? read(VERSION_FILE) : null;
   let manifest;
   try {
     const res = await fetch(`${BASE}/mesh-version.json`);
@@ -6017,14 +6188,14 @@ async function runUpdate(argv) {
     console.error("The downloaded runtime failed its checksum \u2014 refusing to install it.");
     process.exit(1);
   }
-  if (existsSync4(RUNTIME)) {
+  if (existsSync5(RUNTIME)) {
     copyFileSync(RUNTIME, BACKUP);
-    if (have !== null) writeFileSync3(BACKUP_VERSION, have);
-    if (existsSync4(SHA_FILE)) copyFileSync(SHA_FILE, BACKUP_SHA);
+    if (have !== null) writeFileSync4(BACKUP_VERSION, have);
+    if (existsSync5(SHA_FILE)) copyFileSync(SHA_FILE, BACKUP_SHA);
   }
-  writeFileSync3(RUNTIME, bytes);
-  writeFileSync3(VERSION_FILE, manifest.version);
-  writeFileSync3(SHA_FILE, manifest.sha256);
+  writeFileSync4(RUNTIME, bytes);
+  writeFileSync4(VERSION_FILE, manifest.version);
+  writeFileSync4(SHA_FILE, manifest.sha256);
   console.log("done.");
   console.log(`Now on ${manifest.version}. Roll back with: mesh update --rollback`);
 }
@@ -6049,6 +6220,7 @@ __export(start_exports, {
   CLAUDE_SETTINGS: () => CLAUDE_SETTINGS,
   DEFAULT_PORT: () => DEFAULT_PORT,
   MESH_HOME: () => MESH_HOME,
+  WIRING_STATE: () => WIRING_STATE,
   readLedger: () => readLedger,
   readPolicy: () => readPolicy,
   readPolicyBundle: () => readPolicyBundle,
@@ -6060,12 +6232,12 @@ __export(start_exports, {
 });
 import { randomBytes } from "node:crypto";
 import {
-  existsSync as existsSync5,
-  mkdirSync as mkdirSync6,
-  readFileSync as readFileSync5,
+  existsSync as existsSync6,
+  mkdirSync as mkdirSync7,
+  readFileSync as readFileSync6,
   readdirSync as readdirSync2,
   statSync as statSync3,
-  writeFileSync as writeFileSync4
+  writeFileSync as writeFileSync5
 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
 import { join as join5 } from "node:path";
@@ -6075,9 +6247,9 @@ function readPolicy() {
 function readPolicyBundle() {
   const path = join5(MESH_HOME, "theo-policy.json");
   const fallback = () => asBundle(defaultPolicy("local", (/* @__PURE__ */ new Date()).toISOString()));
-  if (!existsSync5(path)) return fallback();
+  if (!existsSync6(path)) return fallback();
   try {
-    return asBundle(JSON.parse(readFileSync5(path, "utf8")));
+    return asBundle(JSON.parse(readFileSync6(path, "utf8")));
   } catch {
     return fallback();
   }
@@ -6155,52 +6327,20 @@ function parseStart(argv) {
 }
 function blindKey() {
   const path = join5(MESH_HOME, "blind.key");
-  if (existsSync5(path)) return readFileSync5(path, "utf8").trim();
+  if (existsSync6(path)) return readFileSync6(path, "utf8").trim();
   const key = randomBytes(32).toString("hex");
-  writeFileSync4(path, key, { mode: 384 });
+  writeFileSync5(path, key, { mode: 384 });
   return key;
 }
-function configureClaudeCode(baseUrl) {
-  mkdirSync6(join5(homedir3(), ".claude"), { recursive: true });
-  let settings = {};
-  let hadFile = false;
-  if (existsSync5(CLAUDE_SETTINGS)) {
-    hadFile = true;
-    try {
-      settings = JSON.parse(readFileSync5(CLAUDE_SETTINGS, "utf8"));
-    } catch {
-      throw new Error(`~/.claude/settings.json isn't valid JSON \u2014 fix or move it, then re-run. MESH won't overwrite it.`);
-    }
-  }
-  const env = { ...settings.env ?? {} };
-  const priorBaseUrl = env.ANTHROPIC_BASE_URL;
-  env.ANTHROPIC_BASE_URL = baseUrl;
-  writeFileSync4(CLAUDE_SETTINGS, `${JSON.stringify({ ...settings, env }, null, 2)}
-`);
-  return function restore() {
-    try {
-      const now = JSON.parse(readFileSync5(CLAUDE_SETTINGS, "utf8"));
-      const nowEnv = { ...now.env ?? {} };
-      if (priorBaseUrl === void 0) delete nowEnv.ANTHROPIC_BASE_URL;
-      else nowEnv.ANTHROPIC_BASE_URL = priorBaseUrl;
-      const next = { ...now, env: nowEnv };
-      if (Object.keys(nowEnv).length === 0) delete next.env;
-      if (!hadFile && Object.keys(next).length === 0) return;
-      writeFileSync4(CLAUDE_SETTINGS, `${JSON.stringify(next, null, 2)}
-`);
-    } catch {
-    }
-  };
-}
 function readLedger(ledgerDir) {
-  if (!existsSync5(ledgerDir)) return { records: [], chainOk: true };
+  if (!existsSync6(ledgerDir)) return { records: [], chainOk: true };
   const spools = readdirSync2(ledgerDir).filter((f) => f.endsWith(".jsonl") && !f.endsWith(".features.jsonl"));
   const allRecords = [];
   let chainOk = true;
   let brokenAt;
   for (const spool of spools) {
     const records = [];
-    const raw = readFileSync5(join5(ledgerDir, spool), "utf8").trim();
+    const raw = readFileSync6(join5(ledgerDir, spool), "utf8").trim();
     if (raw === "") continue;
     for (const line of raw.split(/\r?\n/)) {
       if (line.trim() === "") continue;
@@ -6252,18 +6392,18 @@ function formatInterval(ms) {
   return `${Math.round(ms / 1e3)}s`;
 }
 async function startProxyWithPolicy(port, ledgerDir, upstreams = {}, capture) {
-  mkdirSync6(MESH_HOME, { recursive: true });
-  mkdirSync6(ledgerDir, { recursive: true });
+  mkdirSync7(MESH_HOME, { recursive: true });
+  mkdirSync7(ledgerDir, { recursive: true });
   const policyPath = join5(MESH_HOME, "theo-policy.json");
-  const policy = existsSync5(policyPath) ? JSON.parse(readFileSync5(policyPath, "utf8")) : defaultPolicy("local", (/* @__PURE__ */ new Date()).toISOString());
-  if (!existsSync5(policyPath)) writeFileSync4(policyPath, `${JSON.stringify(policy, null, 2)}
+  const policy = existsSync6(policyPath) ? JSON.parse(readFileSync6(policyPath, "utf8")) : defaultPolicy("local", (/* @__PURE__ */ new Date()).toISOString());
+  if (!existsSync6(policyPath)) writeFileSync5(policyPath, `${JSON.stringify(policy, null, 2)}
 `);
   let cached = { mtimeMs: -1, bundle: asBundle(policy) };
   const liveReduction = (modelId) => {
     try {
       const mtimeMs = statSync3(policyPath).mtimeMs;
       if (mtimeMs !== cached.mtimeMs) {
-        const current = JSON.parse(readFileSync5(policyPath, "utf8"));
+        const current = JSON.parse(readFileSync6(policyPath, "utf8"));
         cached = { mtimeMs, bundle: asBundle(current) };
       }
     } catch {
@@ -6354,8 +6494,9 @@ async function runServe(argv) {
 async function runStart(argv) {
   const args = parseStart(argv);
   const { proxy, policy } = await startProxyWithPolicy(args.port, args.ledgerDir, args, args.capturePath ? { path: args.capturePath, ...args.captureMaxMb !== void 0 ? { maxBytes: Math.round(args.captureMaxMb * 1024 * 1024) } : {} } : void 0);
-  const restore = args.install ? configureClaudeCode(proxy.url) : () => {
+  const restore = args.install ? wireClaudeCode({ settingsPath: CLAUDE_SETTINGS, statePath: WIRING_STATE }, proxy.url) : () => {
   };
+  process.on("exit", restore);
   const withheld = withheldLevers(policy);
   console.log("");
   console.log(`  MESH is running  \xB7  build ${BUILD_COMMIT}`);
@@ -6431,13 +6572,18 @@ async function runStart(argv) {
     }
   );
   let closing = false;
-  const shutdown = async () => {
+  const shutdown = async (quiet = false) => {
     if (closing) return;
     closing = true;
+    restore();
     clearInterval(monitor);
     stopTheo?.();
+    if (quiet) {
+      setTimeout(() => process.exit(0), 2e3).unref();
+      await proxy.close().catch(() => void 0);
+      process.exit(0);
+    }
     const snap = snapshotLedger(args.ledgerDir);
-    restore();
     await proxy.close();
     console.log("");
     if (snap.requests > 0) {
@@ -6461,21 +6607,26 @@ async function runStart(argv) {
   process.on("SIGTERM", () => {
     void shutdown();
   });
+  process.on("SIGHUP", () => {
+    void shutdown(true);
+  });
   await new Promise(() => {
   });
 }
-var BUILD_COMMIT, MESH_HOME, CLAUDE_SETTINGS, DEFAULT_PORT, T;
+var BUILD_COMMIT, MESH_HOME, CLAUDE_SETTINGS, WIRING_STATE, DEFAULT_PORT, T;
 var init_start = __esm({
   "packages/cli/src/start.ts"() {
     init_savings_ledger();
     init_proxy();
     init_theo_policy();
     init_theo();
+    init_claude_wiring();
     init_cta();
     init_update();
-    BUILD_COMMIT = true ? "e394cca" : process.env.MESH_BUILD_COMMIT ?? "dev";
+    BUILD_COMMIT = true ? "d92a92c" : process.env.MESH_BUILD_COMMIT ?? "dev";
     MESH_HOME = join5(homedir3(), ".mesh");
     CLAUDE_SETTINGS = join5(homedir3(), ".claude", "settings.json");
+    WIRING_STATE = join5(MESH_HOME, "claude-wiring.json");
     DEFAULT_PORT = 8787;
     T = "\u2B22 theo";
   }
@@ -6491,9 +6642,9 @@ __export(daemon_exports, {
 });
 import { connect } from "node:net";
 import { execFileSync } from "node:child_process";
-import { chmodSync, copyFileSync as copyFileSync2, existsSync as existsSync6, mkdirSync as mkdirSync7, readFileSync as readFileSync6, rmSync, writeFileSync as writeFileSync5 } from "node:fs";
+import { chmodSync, copyFileSync as copyFileSync2, existsSync as existsSync7, mkdirSync as mkdirSync8, readFileSync as readFileSync7, rmSync as rmSync2, writeFileSync as writeFileSync6 } from "node:fs";
 import { homedir as homedir4, platform } from "node:os";
-import { dirname as dirname5, join as join6, resolve as resolve2 } from "node:path";
+import { dirname as dirname6, join as join6, resolve as resolve2 } from "node:path";
 function requireMac(action) {
   if (platform() !== "darwin") {
     console.error(`\`mesh ${action}\` uses macOS launchd and isn't wired for this platform yet.`);
@@ -6538,28 +6689,28 @@ function portUp(port, timeoutMs = 800) {
   });
 }
 function setClaudeBaseUrl(url) {
-  mkdirSync7(dirname5(CLAUDE_SETTINGS), { recursive: true });
+  mkdirSync8(dirname6(CLAUDE_SETTINGS), { recursive: true });
   let settings = {};
-  if (existsSync6(CLAUDE_SETTINGS)) {
+  if (existsSync7(CLAUDE_SETTINGS)) {
     try {
-      settings = JSON.parse(readFileSync6(CLAUDE_SETTINGS, "utf8"));
+      settings = JSON.parse(readFileSync7(CLAUDE_SETTINGS, "utf8"));
     } catch {
       throw new Error("~/.claude/settings.json isn't valid JSON \u2014 fix it first; MESH won't overwrite it.");
     }
   }
   const env = { ...settings.env ?? {}, ANTHROPIC_BASE_URL: url };
-  writeFileSync5(CLAUDE_SETTINGS, `${JSON.stringify({ ...settings, env }, null, 2)}
+  writeFileSync6(CLAUDE_SETTINGS, `${JSON.stringify({ ...settings, env }, null, 2)}
 `);
 }
 function clearClaudeBaseUrl() {
-  if (!existsSync6(CLAUDE_SETTINGS)) return;
+  if (!existsSync7(CLAUDE_SETTINGS)) return;
   try {
-    const settings = JSON.parse(readFileSync6(CLAUDE_SETTINGS, "utf8"));
+    const settings = JSON.parse(readFileSync7(CLAUDE_SETTINGS, "utf8"));
     const env = { ...settings.env ?? {} };
     delete env.ANTHROPIC_BASE_URL;
     const next = { ...settings, env };
     if (Object.keys(env).length === 0) delete next.env;
-    writeFileSync5(CLAUDE_SETTINGS, `${JSON.stringify(next, null, 2)}
+    writeFileSync6(CLAUDE_SETTINGS, `${JSON.stringify(next, null, 2)}
 `);
   } catch {
   }
@@ -6602,14 +6753,14 @@ ${argXml}
 </dict>
 </plist>
 `;
-  mkdirSync7(dirname5(PLIST), { recursive: true });
-  writeFileSync5(PLIST, plist);
+  mkdirSync8(dirname6(PLIST), { recursive: true });
+  writeFileSync6(PLIST, plist);
 }
 async function runInstall(argv) {
   requireMac("install");
   const port = parsePort(argv);
-  mkdirSync7(join6(MESH_HOME, "bin"), { recursive: true });
-  mkdirSync7(DEFAULT_LEDGER, { recursive: true });
+  mkdirSync8(join6(MESH_HOME, "bin"), { recursive: true });
+  mkdirSync8(DEFAULT_LEDGER, { recursive: true });
   const self = resolve2(process.env.MESH_BOOTSTRAP_PATH ?? process.argv[1] ?? "");
   if (self !== STABLE_BIN) copyFileSync2(self, STABLE_BIN);
   chmodSync(STABLE_BIN, 493);
@@ -6642,7 +6793,7 @@ async function runInstall(argv) {
 function runUninstall(_argv) {
   requireMac("uninstall");
   launchctl("unload", "-w", PLIST);
-  rmSync(PLIST, { force: true });
+  rmSync2(PLIST, { force: true });
   clearClaudeBaseUrl();
   console.log("");
   console.log(`  \u2B22 theo \u2014 always-on removed. The service is stopped and Claude Code is back to normal.`);
@@ -6713,7 +6864,7 @@ __export(verify_exports, {
   runVerify: () => runVerify
 });
 import { createHash as createHash8 } from "node:crypto";
-import { existsSync as existsSync7, readFileSync as readFileSync7, readdirSync as readdirSync3 } from "node:fs";
+import { existsSync as existsSync8, readFileSync as readFileSync8, readdirSync as readdirSync3 } from "node:fs";
 import { homedir as homedir5 } from "node:os";
 import { join as join7 } from "node:path";
 function sampleRequest() {
@@ -6738,9 +6889,9 @@ async function runVerify(_argv) {
   const checks = [];
   const runtimeDir = join7(homedir5(), ".mesh", "runtime");
   const runtimeFile = join7(runtimeDir, "mesh-runtime.mjs");
-  const recordedSha = existsSync7(join7(runtimeDir, "sha256")) ? readFileSync7(join7(runtimeDir, "sha256"), "utf8").trim() : null;
-  if (recordedSha !== null && existsSync7(runtimeFile)) {
-    const actual = createHash8("sha256").update(readFileSync7(runtimeFile)).digest("hex");
+  const recordedSha = existsSync8(join7(runtimeDir, "sha256")) ? readFileSync8(join7(runtimeDir, "sha256"), "utf8").trim() : null;
+  if (recordedSha !== null && existsSync8(runtimeFile)) {
+    const actual = createHash8("sha256").update(readFileSync8(runtimeFile)).digest("hex");
     checks.push({
       name: "provenance",
       ok: actual === recordedSha,
@@ -6756,7 +6907,7 @@ async function runVerify(_argv) {
     ok: reducerOk,
     detail: reducerOk ? `lossless: ${summary.estimatedTokensBefore} \u2192 ${summary.estimatedTokensAfter} tokens (\u2212${summary.estimatedLosslessTokensSaved}), ${summary.changes.length} lever(s)` : `reducer did not fire (${summary.skippedReason ?? "no lossless saving"})`
   });
-  if (!existsSync7(LEDGER_DIR) || readdirSync3(LEDGER_DIR).filter((f) => f.endsWith(".jsonl") && !f.endsWith(".features.jsonl")).length === 0) {
+  if (!existsSync8(LEDGER_DIR) || readdirSync3(LEDGER_DIR).filter((f) => f.endsWith(".jsonl") && !f.endsWith(".features.jsonl")).length === 0) {
     checks.push({ name: "ledger", ok: true, detail: "no ledger yet \u2014 run `mesh start` and use Claude Code, then verify again" });
     checks.push({ name: "determinism", ok: true, detail: "nothing to recompute yet" });
   } else {
@@ -6767,7 +6918,7 @@ async function runVerify(_argv) {
     let total = 0;
     for (const spool of spools) {
       const records = [];
-      for (const line of readFileSync7(join7(LEDGER_DIR, spool), "utf8").trim().split(/\r?\n/)) {
+      for (const line of readFileSync8(join7(LEDGER_DIR, spool), "utf8").trim().split(/\r?\n/)) {
         if (line.trim() === "") continue;
         try {
           records.push(JSON.parse(line));
@@ -6826,10 +6977,11 @@ var init_verify = __esm({
 var diag_exports = {};
 __export(diag_exports, {
   runDoctor: () => runDoctor,
+  runRestore: () => runRestore,
   runVersion: () => runVersion
 });
 import { execFileSync as execFileSync2 } from "node:child_process";
-import { existsSync as existsSync8, readFileSync as readFileSync8 } from "node:fs";
+import { existsSync as existsSync9, readFileSync as readFileSync9 } from "node:fs";
 import { connect as connect2 } from "node:net";
 import { platform as platform2 } from "node:os";
 import { join as join8 } from "node:path";
@@ -6873,7 +7025,7 @@ async function runDoctor(argv) {
     detail: `v${process.versions.node}${nodeOk ? "" : " (Node 22 LTS required)"}`,
     fix: nodeOk ? void 0 : "Upgrade to Node 22 LTS: https://nodejs.org"
   });
-  const runtimeVersion = existsSync8(join8(MESH_HOME, "runtime", "version")) ? readFileSync8(join8(MESH_HOME, "runtime", "version"), "utf8").trim() : null;
+  const runtimeVersion = existsSync9(join8(MESH_HOME, "runtime", "version")) ? readFileSync9(join8(MESH_HOME, "runtime", "version"), "utf8").trim() : null;
   checks.push({
     ok: true,
     name: "runtime",
@@ -6881,19 +7033,14 @@ async function runDoctor(argv) {
   });
   const up = await portUp2(port);
   checks.push({ ok: true, warn: !up, name: "proxy", detail: up ? `up on 127.0.0.1:${port}` : `not running on :${port}`, fix: up ? void 0 : "Start it with: mesh start" });
-  let settingsDetail = "no ~/.claude/settings.json (Claude Code not configured for MESH)";
-  let settingsOk = true;
-  if (existsSync8(CLAUDE_SETTINGS)) {
-    try {
-      const s2 = JSON.parse(readFileSync8(CLAUDE_SETTINGS, "utf8"));
-      const base = s2.env?.ANTHROPIC_BASE_URL;
-      settingsDetail = base ? `ANTHROPIC_BASE_URL \u2192 ${base}` : "valid, but ANTHROPIC_BASE_URL not set";
-    } catch {
-      settingsOk = false;
-      settingsDetail = "~/.claude/settings.json is not valid JSON";
-    }
-  }
-  checks.push({ ok: settingsOk, name: "claude", detail: settingsDetail, fix: settingsOk ? void 0 : "Fix or remove ~/.claude/settings.json; MESH won't overwrite invalid JSON." });
+  const wiring = await checkWiring(WIRING_PATHS, { portUp: portUp2 });
+  const wiringBroken = wiring.status === "stranded" || wiring.status === "dead-local";
+  checks.push({
+    ok: wiring.status === "ok",
+    name: "claude",
+    detail: wiring.detail,
+    fix: wiring.status === "ok" ? void 0 : wiringBroken ? "Claude Code cannot reach its API like this. Put it back with: mesh restore   (or bring the proxy up: mesh start)" : "Fix or remove ~/.claude/settings.json; MESH won't overwrite invalid JSON."
+  });
   if (platform2() === "darwin") {
     const loaded = serviceLoaded();
     checks.push({ ok: true, name: "service", detail: loaded ? "launchd service installed (always-on)" : "not installed (foreground only)" });
@@ -6923,10 +7070,30 @@ async function runDoctor(argv) {
   console.log(hardFail ? "  Some checks failed \u2014 see above." : "  Looks healthy.");
   if (hardFail) process.exitCode = 1;
 }
-var VERSION, LAUNCHD_LABEL, nodeMajor;
+async function runRestore(argv) {
+  if (argv.includes("--help") || argv.includes("-h")) {
+    console.log(
+      "Usage: mesh restore\n\n  If Claude Code is still pointed at a MESH proxy that is no longer running\n  (the session was killed, or the machine went down), put its settings back\n  to what they were before. Does nothing if the configuration is working."
+    );
+    return;
+  }
+  const health = await checkWiring(WIRING_PATHS, { portUp: portUp2 });
+  if (health.status === "dead-local" && platform2() === "darwin" && serviceLoaded()) {
+    console.log(
+      "The background service is installed but not answering right now. Restart it with: mesh install   (or remove it: mesh uninstall)"
+    );
+    return;
+  }
+  const result = await repairWiring(WIRING_PATHS, { portUp: portUp2 });
+  console.log(result.message);
+  if (result.changed) console.log("Open a new Claude Code session for it to take effect.");
+}
+var WIRING_PATHS, VERSION, LAUNCHD_LABEL, nodeMajor;
 var init_diag = __esm({
   "packages/cli/src/diag.ts"() {
     init_start();
+    init_claude_wiring();
+    WIRING_PATHS = { settingsPath: CLAUDE_SETTINGS, statePath: WIRING_STATE };
     VERSION = true ? "0.2.0" : process.env.MESH_VERSION ?? "0.0.0";
     LAUNCHD_LABEL = "dev.meshtoken.mesh";
     nodeMajor = () => Number.parseInt(process.versions.node.split(".")[0] ?? "0", 10);
@@ -7336,7 +7503,7 @@ __export(compaction_exports, {
   estimateLedger: () => estimateLedger,
   runCompaction: () => runCompaction
 });
-import { writeFileSync as writeFileSync6 } from "node:fs";
+import { writeFileSync as writeFileSync7 } from "node:fs";
 import { join as join10, resolve as resolve3 } from "node:path";
 function parse2(argv) {
   const args = {
@@ -7454,7 +7621,7 @@ async function runCompaction(argv) {
   }
   const { estimates, skipped } = estimateLedger(records.map((record) => record.event), args);
   if (args.json !== void 0) {
-    writeFileSync6(args.json, `${JSON.stringify(estimates, null, 2)}
+    writeFileSync7(args.json, `${JSON.stringify(estimates, null, 2)}
 `);
   }
   if (estimates.length === 0) {
@@ -7529,6 +7696,8 @@ Usage: mesh <command> [options]
              your ledger's hash-chain, and a deterministic invoice recompute.
   doctor     Diagnose this machine: Node, the proxy, Claude Code wiring, the
              service, and the ledger \u2014 each with a one-line fix.
+  restore    Put Claude Code's settings back if a MESH session was killed and
+             left it pointed at a proxy that is no longer running.
   version    Print the installed version and build.
   compaction Estimate, per task in your ledger, what context compaction would
              save \u2014 and where it would cost more than it saves (advisory).
@@ -7554,6 +7723,8 @@ async function main() {
     await (await Promise.resolve().then(() => (init_verify(), verify_exports))).runVerify(process.argv.slice(3));
   } else if (sub === "doctor") {
     await (await Promise.resolve().then(() => (init_diag(), diag_exports))).runDoctor(process.argv.slice(3));
+  } else if (sub === "restore") {
+    await (await Promise.resolve().then(() => (init_diag(), diag_exports))).runRestore(process.argv.slice(3));
   } else if (sub === "dashboard") {
     await (await Promise.resolve().then(() => (init_dashboard(), dashboard_exports))).runDashboard(process.argv.slice(3));
   } else if (sub === "theo") {
