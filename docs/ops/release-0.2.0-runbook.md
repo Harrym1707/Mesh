@@ -9,9 +9,9 @@ public gets is the founder's to take.
 | Item | State |
 |---|---|
 | Version | `@harrym1707/mesh` 0.1.0 → **0.2.0**, `@harrym1707/sdk` 0.1.1 → **0.2.0** (commit `9a71697`). npm already holds 0.1.0 and 0.1.1, so neither could be published again without a bump. |
-| Website runtime | `docs/site/dist` rebuilt at `9a71697` (commit `4b97f1e`). Manifest: build `9a71697`, sha256 `1bf868dc…288c5394`. |
-| Website pages | Unchanged. Every HTML page in `docs/site/dist` is byte-identical to `main`'s; only `mesh-runtime`, `mesh-version.json` and the sitemap dates differ. |
-| Merge into `main` | Dry-run clean (`git merge-tree`) at `main` `938cfbb`. The merged tree differs from this branch only by two traffic-snapshot files, so the staged runtime is the build `main` would produce. |
+| Website runtime | `docs/site/dist` rebuilt at `e394cca` (commit `e68e5c9`). Manifest: build `e394cca`, sha256 `8ae9de85…ebf9d3e53`. |
+| Website pages | Two new pages, `terms.html` and `privacy.html`. Every other page changes in its footer only: the company line is gone and links to Terms and Privacy are added. No other copy changed. |
+| Merge into `main` | Dry-run clean (`git merge-tree`) at `main` `938cfbb`, checked before the legal pages were added (they touch only site files, the statement text and one ops doc). The merged tree differs from this branch only by traffic-snapshot files, so the staged runtime is the build `main` would produce. |
 
 Live today, for comparison: the website serves build `c8378ea` (2026-11-04);
 npm `latest` is `mesh` 0.1.0 and `sdk` 0.1.1, both founder-published on
@@ -23,16 +23,15 @@ npm `latest` is `mesh` 0.1.0 and `sdk` 0.1.1, both founder-published on
   cold-install smoke test, CLI package build with both smoke tests: the same
   steps `release.yml` runs, in the same order.
 - `curl … | sh` from a local copy of the staged site into a clean home
-  directory, then `mesh version` (0.2.0, build `9a71697`), `mesh verify`,
-  `mesh theo --help`.
-- A full `mesh start` session with the installed build against a stand-in
+  directory, then `mesh version` (0.2.0, build `e394cca`) and `mesh verify`.
+- On the earlier staged build `9a71697` (same product code; only the company
+  name on the customer statement differs): `mesh theo --help`, the npm tarball
+  through `npx`, and a full `mesh start` session against a stand-in
   provider: three requests proxied, ledger written and verified, Theo ran four
   cycles in `recommend` mode and left the lossless default policy in place.
 - **Upgrade**: installed today's live build (`c8378ea`), switched the site to
-  the staged one, `mesh update` moved to `9a71697` and `mesh verify` passed.
+  the staged one, `mesh update` moved to `e394cca`.
   `mesh update --rollback` returned to `c8378ea`.
-- **npm route**: `npm pack` of the CLI package, run through `npx` (`version`,
-  `verify`).
 
 Not checked: Linux and Windows (CI's `install-smoke.yml` covers them on the
 PR), the launchd service (`mesh install`) on the staged build, and anything
@@ -60,13 +59,23 @@ against a real provider.
       Earlier versions were published by hand, so this may never have been
       done. Without it the tag workflow fails at the publish step and nothing
       is published.
-- [ ] **Company name in the site footer.** Every page says "Mesh AI
-      Technologies Limited · company no. 17543982". This release does not
-      change it, but confirm it is the registered name before drawing testers
-      to the site.
-- [ ] **You accept going public without Terms of Service or a DPA.** Opt-in
-      capture writes prompt content to the user's own disk. A controlled pilot
-      could cover that by agreement; a public installer cannot.
+- [ ] **Read the Terms and the Privacy policy** (`docs/site/terms.md`,
+      `docs/site/privacy.md`). They are a first draft written without a lawyer.
+      Three things in them are decisions, not wording:
+      1. The Terms grant anyone who accepts them the right to run Mesh in
+         production for their own use. The `LICENSE` names Harry Manley
+         personally as licensor, so that grant needs his authority, or the
+         licence re-issued in the company's name.
+      2. Liability is capped at the greater of fees paid in 12 months and £100.
+      3. No fee is due unless billing was agreed in writing.
+- [ ] **Add the registered office address and a contact email to both pages.**
+      A UK company's website must show its registered name, number, place of
+      registration and registered office address. The first three are on the
+      legal pages; the address is not, and nor is any email. The pages point
+      to the Companies House register for now.
+- [ ] **You accept going public without a DPA.** The architecture keeps
+      prompts off our systems, which answers most of what a DPA covers, but a
+      business customer may still ask for one.
 - [ ] **No commits since staging that change product code.** If there are, redo
       "Rebuild the site" below before merging.
 
@@ -75,7 +84,7 @@ against a real provider.
 ### 1. Merge the code
 
 Use **"Create a merge commit"** for both. Do not squash: the hosted runtime is
-stamped with commit `9a71697`, and squashing would remove that commit from
+stamped with commit `e394cca`, and squashing would remove that commit from
 `main`'s history.
 
 1. Merge **PR #31** (`theo/autonomous-agent` → `integration/trunk`).
@@ -92,14 +101,14 @@ Wait for the "Deploy site to GitHub Pages" run to finish, then:
 curl -fsS https://www.mesh-technology.com/mesh-version.json
 ```
 
-It should show `"version": "9a71697"` and the sha256 above. Then install into a
+It should show `"version": "e394cca"` and the sha256 above. Then install into a
 throwaway home directory and check it:
 
 ```bash
 export T=$(mktemp -d) && curl -fsSL https://www.mesh-technology.com/install.sh | HOME=$T sh && HOME=$T $T/.mesh/bin/mesh version && HOME=$T $T/.mesh/bin/mesh verify
 ```
 
-Expect `mesh 0.2.0 (build 9a71697)` and "All checks passed".
+Expect `mesh 0.2.0 (build e394cca)` and "All checks passed".
 
 ### 3. Publish to npm
 
@@ -115,7 +124,7 @@ npm view @harrym1707/mesh version && npm view @harrym1707/sdk version
 
 Both should print `0.2.0`. The npm runtime is rebuilt at the tag, so
 `npx @harrym1707/mesh version` reports the tag's commit as its build, not
-`9a71697`. That difference between the two channels is expected.
+`e394cca`. That difference between the two channels is expected.
 
 If trusted publishing is not set up and you would rather not set it up now,
 the packages can be published by hand from a checkout of the tag, as 0.1.x
@@ -143,7 +152,7 @@ off: the gate's quality graders have not been validated on real output.
 
 | What | How |
 |---|---|
-| The website runtime | On `main`: `git revert 4b97f1e` and push. `pages.yml` redeploys build `c8378ea`. Installed copies move back on their next check (the updater switches on any *different* version, not only a newer one). That automatic move back follows from the code and was not tested; the per-machine rollback below was. |
+| The website runtime | On `main`, put back the three runtime files from before the merge and push: `git checkout 938cfbb -- docs/site/dist/mesh docs/site/dist/mesh-runtime docs/site/dist/mesh-version.json`, then commit. `pages.yml` redeploys build `c8378ea` and the new pages stay. Installed copies move back on their next check (the updater switches on any *different* version, not only a newer one). That automatic move back follows from the code and was not tested; the per-machine rollback below was. |
 | One machine | `mesh update --rollback` |
 | npm | A version cannot be reused. Point `latest` back and warn: `npm dist-tag add @harrym1707/mesh@0.1.0 latest` and `npm deprecate @harrym1707/mesh@0.2.0 "<reason>"` (same for the SDK with 0.1.1). |
 
