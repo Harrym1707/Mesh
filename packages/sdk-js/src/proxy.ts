@@ -9,6 +9,7 @@ import { collectRequestText, measureOutputReEmission } from "../../core/dist/src
 import { normalizeProviderUsage, responseServiceTier } from "../../core/dist/src/provider-usage.js";
 import { responseText } from "./replay-gate.js";
 import { CachePrefixVolatilityGuard } from "./cache-volatility-guard.js";
+import { FanOutLatch, fanOutLatchKey } from "./fan-out-latch.js";
 import { reduceRequest, type MeshTokenReductionConfig } from "./reduce-request.js";
 import { extractBlindFeatures } from "./blind-features.js";
 import { createSavingsLedger, type SavingsLedger } from "./savings-ledger.js";
@@ -57,6 +58,16 @@ export type MeshProxyOptions = {
    * sealed inside an enclave). Off when unset — no features are computed.
    */
   blindFeaturesKey?: string;
+  /**
+   * Shared-prefix fan-out serialization (lever backlog P5): hold a request
+   * behind another in-flight request that shares the same {model, tools,
+   * system} prefix, so a multi-agent fan-out's sub-agents read each other's
+   * cache write instead of all racing to write it. Off by default — bytes
+   * sent are never affected, only send timing, but it is new and the
+   * collision rate on real traffic is still unmeasured (see docs/rnd/).
+   * `holdCapMs` should stay well under the caller's own request timeout.
+   */
+  fanOutLatch?: { holdCapMs: number };
 };
 
 export type MeshProxy = {
@@ -235,6 +246,7 @@ export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
   const reduction = (baseReduction.cacheTtl !== undefined && baseReduction.cacheVolatilityGuard === undefined)
     ? { ...baseReduction, cacheVolatilityGuard: new CachePrefixVolatilityGuard() }
     : baseReduction;
+  const fanOutLatch = options.fanOutLatch !== undefined ? new FanOutLatch(options.fanOutLatch) : undefined;
   const upstreams = {
     anthropic: (options.anthropicUpstream ?? "https://api.anthropic.com").replace(/\/$/, ""),
     openai: (options.openaiUpstream ?? "https://api.openai.com").replace(/\/$/, ""),
@@ -406,6 +418,20 @@ export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
       recentRequestHashes.set(bodyHash, requestId);
     }
 
+    // Only engage the latch for requests that actually carry a shared
+    // prefix worth not colliding on; a request with neither tools nor a
+    // system block has nothing in common with its siblings beyond the
+    // model, and latching those would serialize unrelated traffic for no
+    // reason (see docs/rnd/ for the stricter per-model-minimum gate still
+    // owed as a follow-up).
+    const reducedRequestObject = reducedRequest as { tools?: unknown; system?: unknown; model?: unknown };
+    const latchKey = fanOutLatch !== undefined &&
+        (Boolean(reducedRequestObject.system) ||
+          (Array.isArray(reducedRequestObject.tools) && reducedRequestObject.tools.length > 0))
+      ? fanOutLatchKey(reducedRequestObject)
+      : undefined;
+    const releaseLatch = latchKey !== undefined ? await fanOutLatch!.acquire(latchKey) : undefined;
+
     const startedAt = Date.now();
     let upstreamResponse: Response;
     try {
@@ -416,6 +442,7 @@ export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
         signal: upstreamControl.signal,
       });
     } catch (cause) {
+      releaseLatch?.();
       clearTimeout(phaseTimer);
       if (!res.headersSent && !res.destroyed) {
         res.writeHead(502, { "content-type": "application/json" });
@@ -423,6 +450,11 @@ export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
       }
       return;
     }
+    // Released as soon as the upstream's response headers are in hand —
+    // success or not — because that is the moment a provider's cache write
+    // for this prefix becomes able to register, win or lose. Holding any
+    // longer (through body streaming) would only add latency for no benefit.
+    releaseLatch?.();
     clearTimeout(phaseTimer);
 
     const responseHeaders: Record<string, string> = {};

@@ -14,6 +14,7 @@
     "example:gate": "node --import tsx examples/replay-gate-demo.ts",
     "example:ceiling": "node --import tsx examples/combined-ceiling.ts",
     "agent:ab": "node --import tsx evals/run-agent-ab.ts",
+    "fanout:collision": "node --import tsx evals/run-fanout-collision.ts",
     "gate:freshcap": "node --import tsx evals/run-replay-gate-freshcap.ts",
     "litellm:sample": "node --import tsx evals/make-litellm-traffic.ts",
     "litellm:triage": "node --import tsx evals/run-litellm-triage.ts",

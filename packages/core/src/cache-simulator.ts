@@ -110,7 +110,7 @@ export type SimulatedCall = {
   outputTokens: number;
   costUsd: number;
   /** Why nothing was cached, when nothing was. */
-  missReason?: "below-minimum" | "no-matching-prefix" | "expired" | "first-request";
+  missReason?: "below-minimum" | "no-matching-prefix" | "expired" | "first-request" | "racing-write";
 };
 
 export type SimulationResult = {
@@ -129,7 +129,7 @@ export type SimulationResult = {
   missReasons: Record<string, number>;
 };
 
-type Entry = { prompt: string; lastUsedAt: number };
+type Entry = { prompt: string; lastUsedAt: number; availableAt: number };
 
 function commonPrefixLength(left: string, right: string): number {
   const limit = Math.min(left.length, right.length);
@@ -149,13 +149,32 @@ export function simulateCache(
   requests: SimulatedRequest[],
   policy: CachePolicy,
   price: TokenPrice,
-  options: { countTokens?: TokenCounter } = {},
+  options: {
+    countTokens?: TokenCounter;
+    /**
+     * When set, a written entry only becomes READABLE this many seconds after
+     * the request that wrote it, as a function of that request's total input
+     * tokens. Providers document that a cache entry exists only once the
+     * writing request's first response bytes arrive, not at send time — so
+     * two requests sharing an unwritten prefix and arriving before that
+     * delay elapses (a fan-out firing several sub-agents at once with the
+     * same orchestrator system+tools block) BOTH pay the write price; the
+     * default (unset) keeps the simulator's long-standing instant-availability
+     * behaviour, under which every published band here was computed, so
+     * passing this option is opt-in and changes nothing unless a caller asks
+     * for it. The delay is an ESTIMATE of time-to-first-byte, not a documented
+     * provider number — callers should derive it from measured TTFB, never
+     * a guess that flatters either direction.
+     */
+    cacheAvailabilityDelaySeconds?: (writtenInputTokens: number) => number;
+  } = {},
 ): SimulationResult {
   if (requests.length === 0) throw new Error("A cache simulation needs at least one request.");
   if (policy.minimumCacheableTokens < 1 || policy.incrementTokens < 1) {
     throw new Error("Cache policy minimums and increments must be at least 1 token.");
   }
   const countTokens = options.countTokens ?? approximateTokenCount;
+  const availabilityDelay = options.cacheAvailabilityDelaySeconds ?? (() => 0);
 
   // The policy's read and write rates are derived from the base input rate, so
   // a catalogue that already carries cached rates stays consistent with it.
@@ -185,11 +204,19 @@ export function simulateCache(
     if (entries.length === 0) {
       missReason = calls.length === 0 ? "first-request" : "expired";
     } else {
-      // Longest exact prefix across live entries, as the providers describe.
+      // Longest exact prefix across live entries, as the providers describe —
+      // but an entry still being written (its availableAt is in the future
+      // relative to this request) cannot be read yet: the request racing it
+      // sees no cache, not an early hit.
       let bestChars = 0;
       let bestEntry: Entry | undefined;
+      let racingBestChars = 0;
       for (const entry of entries) {
         const shared = commonPrefixLength(entry.prompt, request.prompt);
+        if (entry.availableAt > request.atSeconds) {
+          if (shared > racingBestChars) racingBestChars = shared;
+          continue;
+        }
         if (shared > bestChars) {
           bestChars = shared;
           bestEntry = entry;
@@ -201,6 +228,10 @@ export function simulateCache(
       if (granted >= policy.minimumCacheableTokens) {
         cachedInputTokens = Math.min(granted, totalInputTokens);
         bestEntry!.lastUsedAt = request.atSeconds;
+      } else if (racingBestChars > bestChars) {
+        // A longer match existed but was still mid-write: this is the fan-out
+        // collision case, not an ordinary miss.
+        missReason = "racing-write";
       } else {
         missReason = granted === 0 ? "no-matching-prefix" : "below-minimum";
       }
@@ -232,7 +263,11 @@ export function simulateCache(
       ...(missReason === undefined ? {} : { missReason }),
     });
 
-    entries.push({ prompt: request.prompt, lastUsedAt: request.atSeconds });
+    entries.push({
+      prompt: request.prompt,
+      lastUsedAt: request.atSeconds,
+      availableAt: request.atSeconds + availabilityDelay(totalInputTokens),
+    });
     // Providers keep a bounded cache; holding every prompt forever would
     // overstate hit rates on long runs.
     if (entries.length > 64) entries.shift();

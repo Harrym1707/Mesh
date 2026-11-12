@@ -360,3 +360,61 @@ describe("compaction priced from recorded ledger traffic", () => {
       .toThrow(/after the first turn/);
   });
 });
+
+describe("cache availability delay (fan-out collision semantics)", () => {
+  const delay = () => 5; // a flat 5s stand-in for time-to-first-byte
+
+  it("without a delay, simultaneous same-prefix requests already read each other (today's optimistic default)", () => {
+    const prefix = filler(3_000);
+    const requests: SimulatedRequest[] = [
+      { atSeconds: 0, prompt: `${prefix}\nagent-a`, outputTokens: 100 },
+      { atSeconds: 0, prompt: `${prefix}\nagent-b`, outputTokens: 100 },
+      { atSeconds: 0, prompt: `${prefix}\nagent-c`, outputTokens: 100 },
+    ];
+    const result = simulateCache(requests, ANTHROPIC_CACHE_5M, price);
+    // Two of the three read the first one's write — the instant-availability
+    // assumption this option exists to correct.
+    expect(result.calls[1]!.cachedInputTokens).toBeGreaterThan(0);
+    expect(result.calls[2]!.cachedInputTokens).toBeGreaterThan(0);
+  });
+
+  it("with a realistic availability delay, simultaneous same-prefix requests all collide and all write", () => {
+    const prefix = filler(3_000);
+    const requests: SimulatedRequest[] = [
+      { atSeconds: 0, prompt: `${prefix}\nagent-a`, outputTokens: 100 },
+      { atSeconds: 0, prompt: `${prefix}\nagent-b`, outputTokens: 100 },
+      { atSeconds: 0, prompt: `${prefix}\nagent-c`, outputTokens: 100 },
+    ];
+    const result = simulateCache(requests, ANTHROPIC_CACHE_5M, price, { cacheAvailabilityDelaySeconds: delay });
+    expect(result.calls[1]!.cachedInputTokens).toBe(0);
+    expect(result.calls[2]!.cachedInputTokens).toBe(0);
+    expect(result.calls[1]!.missReason).toBe("racing-write");
+    expect(result.calls[2]!.missReason).toBe("racing-write");
+    expect(result.cachedInputTokens).toBe(0);
+  });
+
+  it("a request arriving after the delay elapses reads normally — only true simultaneity collides", () => {
+    const prefix = filler(3_000);
+    const requests: SimulatedRequest[] = [
+      { atSeconds: 0, prompt: `${prefix}\nagent-a`, outputTokens: 100 },
+      { atSeconds: 0, prompt: `${prefix}\nagent-b`, outputTokens: 100 },
+      // Arrives once agent-a's write would have registered.
+      { atSeconds: 10, prompt: `${prefix}\nagent-c`, outputTokens: 100 },
+    ];
+    const result = simulateCache(requests, ANTHROPIC_CACHE_5M, price, { cacheAvailabilityDelaySeconds: delay });
+    expect(result.calls[1]!.missReason).toBe("racing-write");
+    expect(result.calls[2]!.cachedInputTokens).toBeGreaterThan(0);
+  });
+
+  it("an explicit zero-delay function is indistinguishable from the omitted option", () => {
+    const prefix = filler(3_000);
+    const requests: SimulatedRequest[] = [
+      { atSeconds: 0, prompt: `${prefix}\nagent-a`, outputTokens: 100 },
+      { atSeconds: 0, prompt: `${prefix}\nagent-b`, outputTokens: 100 },
+    ];
+    const withZero = simulateCache(requests, ANTHROPIC_CACHE_5M, price, { cacheAvailabilityDelaySeconds: () => 0 });
+    const omitted = simulateCache(requests, ANTHROPIC_CACHE_5M, price);
+    expect(withZero.totalCostUsd).toBe(omitted.totalCostUsd);
+    expect(withZero.cachedInputTokens).toBe(omitted.cachedInputTokens);
+  });
+});

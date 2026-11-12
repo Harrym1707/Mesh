@@ -460,3 +460,145 @@ describe("MESH proxy — provably-blind learning stream", () => {
     expect(() => readFileSync(join(dir, "plain-anthropic.features.jsonl"), "utf8")).toThrow();
   });
 });
+
+describe("MESH proxy fan-out latch (P5)", () => {
+  /**
+   * A slow stub: every /v1/messages call records WHEN the upstream actually
+   * received it, then holds the response for `delayMs` before answering —
+   * the window during which a real provider's cache write for this request's
+   * prefix would still be in flight. This lets the test observe, at the
+   * network level, whether a second same-prefix request was held back by the
+   * proxy (so it reaches the upstream only after the first's delay elapses)
+   * or raced it (reaching the upstream almost immediately, like the first).
+   */
+  function slowStubUpstream(arrivals: number[], delayMs: number): Promise<{ server: Server; url: string }> {
+    const server = createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on("data", (c: Buffer) => chunks.push(c));
+      req.on("end", () => {
+        arrivals.push(Date.now());
+        const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as AnyObject;
+        const inputTokens = Math.ceil(JSON.stringify(body).length / 4);
+        setTimeout(() => {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({
+            id: "msg_stub",
+            content: [{ type: "text", text: "ok" }],
+            usage: { input_tokens: inputTokens, output_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+          }));
+        }, delayMs);
+      });
+    });
+    return new Promise((resolve) => {
+      server.listen(0, "127.0.0.1", () => {
+        const port = (server.address() as { port: number }).port;
+        resolve({ server, url: `http://127.0.0.1:${port}` });
+      });
+    });
+  }
+
+  const subAgentRequest = (systemPrompt: string, task: string): AnyObject => ({
+    model: "claude-sonnet-5-5-20260514",
+    max_tokens: 100,
+    system: systemPrompt,
+    tools: [{ name: "search", description: "Search the shared index.", input_schema: { type: "object", properties: {} } }],
+    messages: [{ role: "user", content: task }],
+  });
+
+  it("holds a second same-prefix sub-agent request behind the first, so it reaches the upstream only after the first's delay", async () => {
+    const arrivals: number[] = [];
+    const upstream = await slowStubUpstream(arrivals, 80);
+    const ledgerDir = mkdtempSync(join(tmpdir(), "mesh-fanout-"));
+    const proxy = await startMeshProxy({
+      ledgerDirectory: ledgerDir,
+      anthropicUpstream: upstream.url,
+      fanOutLatch: { holdCapMs: 2_000 },
+    });
+
+    const orchestratorSystem = "You are sub-agent #N of a research team. Shared tools and instructions follow.";
+    const started = Date.now();
+    const [a, b] = await Promise.all([
+      fetch(`${proxy.url}/v1/messages`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-api-key": "k" },
+        body: JSON.stringify(subAgentRequest(orchestratorSystem, "Task A: find comparable sales.")),
+      }),
+      fetch(`${proxy.url}/v1/messages`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-api-key": "k" },
+        body: JSON.stringify(subAgentRequest(orchestratorSystem, "Task B: check zoning records.")),
+      }),
+    ]);
+    expect(a.status).toBe(200);
+    expect(b.status).toBe(200);
+
+    expect(arrivals).toHaveLength(2);
+    const gapMs = Math.abs(arrivals[1]! - arrivals[0]!);
+    // Unlatched, both requests would reach the upstream within a few ms of
+    // each other. Latched, the second must wait roughly the first's delay.
+    expect(gapMs).toBeGreaterThanOrEqual(60);
+    expect(Date.now() - started).toBeLessThan(2_000);
+
+    await proxy.close();
+    upstream.server.close();
+  });
+
+  it("does not hold back a second request with a DIFFERENT shared prefix", async () => {
+    const arrivals: number[] = [];
+    const upstream = await slowStubUpstream(arrivals, 80);
+    const ledgerDir = mkdtempSync(join(tmpdir(), "mesh-fanout-"));
+    const proxy = await startMeshProxy({
+      ledgerDirectory: ledgerDir,
+      anthropicUpstream: upstream.url,
+      fanOutLatch: { holdCapMs: 2_000 },
+    });
+
+    const [a, b] = await Promise.all([
+      fetch(`${proxy.url}/v1/messages`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-api-key": "k" },
+        body: JSON.stringify(subAgentRequest("Team Alpha's shared instructions.", "Task.")),
+      }),
+      fetch(`${proxy.url}/v1/messages`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-api-key": "k" },
+        body: JSON.stringify(subAgentRequest("Team Beta's shared instructions.", "Task.")),
+      }),
+    ]);
+    expect(a.status).toBe(200);
+    expect(b.status).toBe(200);
+    expect(arrivals).toHaveLength(2);
+    const gapMs = Math.abs(arrivals[1]! - arrivals[0]!);
+    expect(gapMs).toBeLessThan(50);
+
+    await proxy.close();
+    upstream.server.close();
+  });
+
+  it("never engages when no fanOutLatch option is configured — identical to today's behaviour", async () => {
+    const arrivals: number[] = [];
+    const upstream = await slowStubUpstream(arrivals, 80);
+    const ledgerDir = mkdtempSync(join(tmpdir(), "mesh-fanout-"));
+    const proxy = await startMeshProxy({ ledgerDirectory: ledgerDir, anthropicUpstream: upstream.url });
+
+    const orchestratorSystem = "Shared orchestrator prefix.";
+    await Promise.all([
+      fetch(`${proxy.url}/v1/messages`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-api-key": "k" },
+        body: JSON.stringify(subAgentRequest(orchestratorSystem, "Task A.")),
+      }),
+      fetch(`${proxy.url}/v1/messages`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-api-key": "k" },
+        body: JSON.stringify(subAgentRequest(orchestratorSystem, "Task B.")),
+      }),
+    ]);
+    expect(arrivals).toHaveLength(2);
+    const gapMs = Math.abs(arrivals[1]! - arrivals[0]!);
+    expect(gapMs).toBeLessThan(50);
+
+    await proxy.close();
+    upstream.server.close();
+  });
+});
