@@ -41,6 +41,18 @@ const PAGES: Array<{ file: string; nav: string }> = [
   { file: "faq.md", nav: "FAQ" },
 ];
 
+/** Legal pages: built and listed in the sitemap, linked from every footer, but
+ * kept out of the top nav and out of llms-full.txt. They are also where the
+ * company's registered name and number are stated, as UK law requires a
+ * company website to do somewhere on it. */
+const LEGAL_PAGES: Array<{ file: string; nav: string }> = [
+  { file: "terms.md", nav: "Terms" },
+  { file: "privacy.md", nav: "Privacy" },
+];
+/** The registered company behind the Mesh trading name. One place, checked below. */
+const REGISTERED_NAME = "Flux AI Technologies Limited";
+const COMPANY_NUMBER = "17543982";
+
 function escapeHtml(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
@@ -224,8 +236,8 @@ ${extraHead}</head>
 ${body}
 <footer><strong>mesh</strong> — spend tokens where they matter. Every number on this site traces to a
 command and a commit — <a href="evidence.html">evidence</a>. Savings are measured per completed task;
-estimates are always labelled. <a href="${REPO_URL}">Source</a> · <a href="llms.txt">llms.txt</a><br>
-Mesh AI Technologies Limited · registered in England and Wales · company no. 17543982</footer>
+estimates are always labelled. <a href="${REPO_URL}">Source</a> · <a href="llms.txt">llms.txt</a> ·
+<a href="terms.html">Terms</a> · <a href="privacy.html">Privacy</a></footer>
 </main>
 </body>
 </html>
@@ -278,7 +290,7 @@ mkdirSync(outDir, { recursive: true });
 const built: string[] = [];
 writeFileSync(path.join(outDir, "index.html"), renderLanding(ORIGIN, REPO_URL), "utf8");
 built.push("index.html");
-for (const page of PAGES) {
+for (const page of [...PAGES, ...LEGAL_PAGES]) {
   const markdown = readFileSync(path.join(siteDir, page.file), "utf8");
   const { html, title, description } = renderBody(markdown);
   const extraHead = page.file === "faq.md" ? faqJsonLd(markdown) : page.file === "start.md" ? startJsonLd() : "";
@@ -333,6 +345,22 @@ for (const name of built) {
   if (/\]\(/.test(html)) failures.push(`${name}: unrendered markdown link`);
   if (/\*\*[^*]+\*\*/.test(html)) failures.push(`${name}: unrendered bold`);
   if (!html.includes("</table>") && (name === "overview.html" || name === "evidence.html")) failures.push(`${name}: expected a table`);
+}
+// Legal: every page links the terms and the privacy policy; those two pages state
+// the registered company name and number; and the name a bulk product rename
+// once produced ("Mesh AI Technologies Limited", a company that does not exist)
+// can never ship again.
+for (const name of built) {
+  const html = readFileSync(path.join(outDir, name), "utf8");
+  if (!html.includes('href="terms.html"') || !html.includes('href="privacy.html"')) failures.push(`${name}: footer links to terms/privacy missing`);
+  if (/Mesh AI Technologies/i.test(html)) failures.push(`${name}: names a company that does not exist`);
+}
+for (const legal of LEGAL_PAGES) {
+  const name = legal.file.replace(/\.md$/, ".html");
+  const html = readFileSync(path.join(outDir, name), "utf8");
+  if (!html.includes(REGISTERED_NAME) || !html.includes(COMPANY_NUMBER) || !html.includes("England and Wales")) {
+    failures.push(`${name}: registered company name, number or place of registration missing`);
+  }
 }
 const landing = readFileSync(path.join(outDir, "index.html"), "utf8");
 for (const [marker, why] of [
