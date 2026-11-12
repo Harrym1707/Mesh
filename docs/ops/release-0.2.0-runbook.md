@@ -52,7 +52,7 @@ against a real provider.
 
 ## Before you start
 
-- [ ] **CI is green on PR #31** at `4b97f1e` or later (`ci`, `install-smoke`).
+- [ ] **CI is green on PR #31** at `e68e5c9` or later (`ci`, `install-smoke`).
 - [ ] **npm trusted publishing is set up for both packages.** On npmjs.com, for
       `@harrym1707/sdk` and `@harrym1707/mesh`: Settings → Trusted Publisher →
       GitHub Actions, repository `Harrym1707/Mesh`, workflow `release.yml`.
