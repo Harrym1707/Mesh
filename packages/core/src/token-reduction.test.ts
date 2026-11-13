@@ -5,6 +5,7 @@ import {
   applyReducers,
   approximateTokenCount,
   collapseWhitespace,
+  dedupeOverlappingSentences,
   dedupeRepeatedBlocks,
   dedupeRepeatedLeadingBlock,
   priceReduction,
@@ -136,6 +137,82 @@ describe("dedupeRepeatedBlocks", () => {
     const result = dedupeRepeatedBlocks(24).reduce(text);
     expect(result.text).toBe(text);
     expect(result.notes).toEqual([]);
+  });
+});
+
+describe("dedupeOverlappingSentences", () => {
+  const sentence = (seed: string) =>
+    `${seed} the quick brown fox jumped over the lazy dog near the riverbank at dawn.`;
+
+  it("drops a sentence repeated across two chunks that differ as wholes (RAG stride overlap)", () => {
+    const shared = sentence("Shared overlap:");
+    const chunkA = `${shared} Chunk A's own unique tail follows here.`;
+    const chunkB = `${shared} Chunk B's own unique tail follows instead.`;
+    // Joined as a RAG prompt would: one line per retrieved chunk. Whole-line
+    // match (dedupeRepeatedBlocks) fails here because the lines differ.
+    const text = `Context:\n${chunkA}\n${chunkB}\nQuestion: what do the documents say?`;
+    const result = dedupeOverlappingSentences(12).reduce(text);
+    expect(result.text).toContain("Chunk A's own unique tail follows here.");
+    expect(result.text).toContain("Chunk B's own unique tail follows instead.");
+    expect(result.text.split("Shared overlap:").length - 1).toBe(1);
+    expect(result.notes).toHaveLength(1);
+  });
+
+  it("leaves text with no duplicate sentence untouched, byte-identical", () => {
+    const first = "The quarterly report highlighted a steady increase in regional sales volume this period.";
+    const second = "Separately, the operations team flagged a staffing shortage at the downtown distribution site.";
+    const text = `Context:\n${first} ${second}\nQuestion: what next?`;
+    const result = dedupeOverlappingSentences(12).reduce(text);
+    expect(result.text).toBe(text);
+    expect(result.notes).toEqual([]);
+  });
+
+  it("keeps the first occurrence verbatim and drops only later repeats", () => {
+    const shared = sentence("Repeat:");
+    const text = `${shared}\n${shared}\n${shared}`;
+    const result = dedupeOverlappingSentences(12).reduce(text);
+    expect(result.text.split("Repeat:").length - 1).toBe(1);
+    expect(result.notes).toHaveLength(2);
+  });
+
+  it("leaves short repeated sentences alone (below minimumSpanTokens)", () => {
+    const text = "Thanks. Got it. Thanks. One more unrelated thing here.";
+    const result = dedupeOverlappingSentences(12).reduce(text);
+    expect(result.text).toBe(text);
+    expect(result.notes).toEqual([]);
+  });
+
+  it("never dedupes sentences inside a fenced code block, even exact repeats", () => {
+    const line = sentence("Same code comment.");
+    const fence = `\`\`\`text\n${line} ${line}\n\`\`\``;
+    const result = dedupeOverlappingSentences(12).reduce(fence);
+    expect(result.text).toBe(fence);
+    expect(result.notes).toEqual([]);
+  });
+
+  it("never dedupes sentences that differ only in whitespace", () => {
+    const shared = sentence("Case:");
+    const text = `${shared}\n${shared.replace(/ /g, "  ")}`;
+    const result = dedupeOverlappingSentences(12).reduce(text);
+    expect(result.text).toBe(text);
+    expect(result.notes).toEqual([]);
+  });
+
+  it("never increases the token count", () => {
+    const shared = sentence("Idempotent check:");
+    const text = `${shared}\n${shared}\n${shared}`;
+    const before = approximateTokenCount(text);
+    const result = dedupeOverlappingSentences(12).reduce(text);
+    expect(approximateTokenCount(result.text)).toBeLessThanOrEqual(before);
+  });
+
+  it("is idempotent: running twice drops nothing more the second time", () => {
+    const shared = sentence("Twice:");
+    const text = `${shared}\n${shared}\nunique tail.`;
+    const once = dedupeOverlappingSentences(12).reduce(text);
+    const twice = dedupeOverlappingSentences(12).reduce(once.text);
+    expect(twice.text).toBe(once.text);
+    expect(twice.notes).toEqual([]);
   });
 });
 

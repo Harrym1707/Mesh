@@ -1,6 +1,6 @@
 // Specific core modules, not the barrel — see the note in proxy.ts.
 import { anthropicCacheableMinimumTokens, publishedModelPrices } from "../../core/dist/src/model-prices.js";
-import { approximateTokenCount, dedupeRepeatedBlocks, dedupeRepeatedLeadingBlock, type TokenCounter } from "../../core/dist/src/token-reduction.js";
+import { approximateTokenCount, dedupeOverlappingSentences, dedupeRepeatedBlocks, dedupeRepeatedLeadingBlock, type TokenCounter } from "../../core/dist/src/token-reduction.js";
 import { minifyToolSchemas } from "../../core/dist/src/tool-schema.js";
 import { resolveModelId } from "../../core/dist/src/price-catalogue.js";
 
@@ -71,6 +71,28 @@ export type MeshTokenReductionConfig = {
   };
   /** Remove exact duplicate blocks from instructions and message text. */
   duplicateContext?: boolean;
+  /**
+   * Remove exact duplicate SENTENCES anywhere in instructions and message
+   * text, not just whole blocks or whole lines. This is the shape a RAG
+   * (retrieval-augmented) request produces: indexers chunk documents with
+   * an overlapping stride, so two adjacent retrieved chunks placed in the
+   * same prompt repeat a byte-for-byte identical run of sentences even
+   * though the chunks differ as wholes - `duplicateContext` cannot reach
+   * this, because its finest granularity is a whole line and a retrieved
+   * chunk is normally formatted as one unbroken line or paragraph of prose,
+   * so the two overlapping runs never align on a line boundary for it to
+   * match (see docs/rnd/fundamentals/rag-context-rightsizing.md, lever T1).
+   *
+   * Lossless, exactly like `duplicateContext`: only an EXACT repeat of a
+   * sentence already kept earlier in the same text is ever dropped, and
+   * the first occurrence survives verbatim. Off by default because it is a
+   * new lever, not yet measured on real traffic beyond the simulator (see
+   * `evals/run-rag-chunk-overlap-dedup.ts`); opt in with `true`, or pass an
+   * object to tune `minimumSpanTokens` (the default, 12, is deliberately
+   * lower than `duplicateContext`'s 24-token block minimum, because a
+   * sentence is a shorter unit than a paragraph or whole excerpt).
+   */
+  chunkOverlapDedup?: boolean | { minimumSpanTokens?: number };
   /**
    * Move per-request values (timestamps, request ids) out of the front of the
    * instructions so the stable remainder becomes a cacheable prefix. Providers
@@ -694,6 +716,25 @@ function reduceText(
         lossless: true,
         estimatedTokensSaved: saved,
         detail: `Removed ${reduced.notes.length} duplicate block(s) from ${label}.`,
+      });
+    }
+  }
+  if (config.chunkOverlapDedup) {
+    const options = isPlainObject(config.chunkOverlapDedup) ? config.chunkOverlapDedup : {};
+    const minimumSpanTokens = options.minimumSpanTokens ?? 12;
+    if (!Number.isInteger(minimumSpanTokens) || minimumSpanTokens < 1) {
+      throw new Error("chunkOverlapDedup minimumSpanTokens must be a positive integer.");
+    }
+    const before = countTokens(current);
+    const reduced = dedupeOverlappingSentences(minimumSpanTokens, countTokens).reduce(current);
+    const saved = before - countTokens(reduced.text);
+    if (saved > 0) {
+      current = reduced.text;
+      changes.push({
+        lever: "chunk-overlap-dedup",
+        lossless: true,
+        estimatedTokensSaved: saved,
+        detail: `Removed ${reduced.notes.length} repeated overlapping sentence(s) from ${label}.`,
       });
     }
   }

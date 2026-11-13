@@ -83,6 +83,9 @@ function applyLever(config: MeshTokenReductionConfig, lever: TheoLever): void {
     case "duplicate-context-removal":
       config.duplicateContext = true;
       return;
+    case "chunk-overlap-dedup":
+      config.chunkOverlapDedup = true;
+      return;
     case "cache-prefix-repair":
       config.repairCachePrefix = true;
       return;
@@ -188,6 +191,7 @@ export function defaultPolicy(user: string, at: string): TheoPolicy {
 export function knownLeverIds(): string[] {
   return [
     "tool-schema-compaction", "tool-schema-description-trim", "duplicate-context-removal",
+    "chunk-overlap-dedup",
     "cache-prefix-repair", "stale-history-compaction", "cross-turn-memory-dedup",
     "fresh-tool-result-cap", "output-cap", "execution-tier-flex",
     "cache-ttl-5m", "cache-ttl-1h",
@@ -208,6 +212,7 @@ export const ENFORCEABLE_LEVERS: readonly EnforceableLever[] = [
   { id: "tool-schema-compaction", label: "Tool-schema compaction", members: ["tool-schema-compaction"] },
   { id: "tool-schema-description-trim", label: "Tool-schema description trim", members: ["tool-schema-description-trim"] },
   { id: "duplicate-context-removal", label: "Duplicate-context removal", members: ["duplicate-context-removal"] },
+  { id: "chunk-overlap-dedup", label: "Chunk-overlap dedup", members: ["chunk-overlap-dedup"] },
   { id: "cache-prefix-repair", label: "Cache-prefix repair", members: ["cache-prefix-repair"] },
   { id: "stale-history-compaction", label: "Stale-history compaction", members: ["stale-history-compaction"] },
   { id: "cross-turn-memory-dedup", label: "Cross-turn memory dedup", members: ["cross-turn-memory-dedup"] },

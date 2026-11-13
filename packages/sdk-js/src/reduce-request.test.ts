@@ -164,6 +164,83 @@ describe("reduceRequest", () => {
   });
 });
 
+describe("chunk overlap dedup", () => {
+  const sentence = (seed: string) =>
+    `${seed} the quick brown fox jumped over the lazy dog near the riverbank at dawn.`;
+
+  function ragRequest(chunkA: string, chunkB: string): Record<string, unknown> {
+    return {
+      model: "claude-sonnet-5-5",
+      system: "You are a careful RAG assistant. Answer only from the retrieved context below.",
+      messages: [{
+        role: "user",
+        content: `Retrieved context:\n${chunkA}\n${chunkB}\nQuestion: what do the documents say?`,
+      }],
+      max_tokens: 400,
+    };
+  }
+
+  it("is off by default", () => {
+    const shared = sentence("Shared overlap:");
+    const req = ragRequest(
+      `${shared} Chunk A's own unique tail follows here.`,
+      `${shared} Chunk B's own unique tail follows instead.`,
+    );
+    const { summary } = reduceRequest(req, {});
+    expect(summary.changes.some((change) => change.lever === "chunk-overlap-dedup")).toBe(false);
+  });
+
+  it("removes a sentence repeated across two chunks a whole-line match would miss", () => {
+    const shared = sentence("Shared overlap:");
+    const req = ragRequest(
+      `${shared} Chunk A's own unique tail follows here.`,
+      `${shared} Chunk B's own unique tail follows instead.`,
+    );
+    // duplicateContext alone (whole-line match) cannot catch this: the two lines differ.
+    const withoutLever = reduceRequest(req, { duplicateContext: true });
+    expect(JSON.stringify(withoutLever.request).split("Shared overlap:").length - 1).toBe(2);
+
+    const { request: reduced, summary } = reduceRequest(req, { duplicateContext: true, chunkOverlapDedup: true });
+    const change = summary.changes.find((entry) => entry.lever === "chunk-overlap-dedup")!;
+    expect(change.lossless).toBe(true);
+    expect(change.estimatedTokensSaved).toBeGreaterThan(0);
+    const serialized = JSON.stringify(reduced);
+    expect(serialized.split("Shared overlap:").length - 1).toBe(1);
+    expect(serialized).toContain("Chunk A's own unique tail follows here.");
+    expect(serialized).toContain("Chunk B's own unique tail follows instead.");
+  });
+
+  it("accepts a tuned minimumSpanTokens", () => {
+    const req = ragRequest("Thanks. Got it. Short chunk.", "Thanks. Got it. Another short chunk.");
+    const { summary } = reduceRequest(req, { chunkOverlapDedup: { minimumSpanTokens: 1 } });
+    expect(summary.changes.some((entry) => entry.lever === "chunk-overlap-dedup")).toBe(true);
+  });
+
+  it("skips rather than throws on an invalid minimumSpanTokens", () => {
+    const req = ragRequest(sentence("A"), sentence("B"));
+    const { summary } = reduceRequest(req, { chunkOverlapDedup: { minimumSpanTokens: -1 } });
+    expect(summary.skipped).toBe(true);
+    expect(summary.skippedReason).toMatch(/positive integer/);
+  });
+
+  it("does nothing when there is no duplicate sentence", () => {
+    const req = ragRequest(
+      "The quarterly report highlighted a steady increase in regional sales volume this period.",
+      "Separately, the operations team flagged a staffing shortage at the downtown distribution site.",
+    );
+    const { summary } = reduceRequest(req, { chunkOverlapDedup: true });
+    expect(summary.changes.some((entry) => entry.lever === "chunk-overlap-dedup")).toBe(false);
+  });
+
+  it("never mutates the caller's request", () => {
+    const shared = sentence("Shared overlap:");
+    const req = ragRequest(`${shared} tail one.`, `${shared} tail two.`);
+    const snapshot = JSON.stringify(req);
+    reduceRequest(req, { chunkOverlapDedup: true });
+    expect(JSON.stringify(req)).toBe(snapshot);
+  });
+});
+
 describe("cross-turn memory dedup", () => {
   const MEMORY =
     "AGENT MEMORY (persistent): user prefers metric units; deploy window is 14:00-16:00 UTC; the staging DB is " +
