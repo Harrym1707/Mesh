@@ -161,6 +161,85 @@ export function dedupeRepeatedBlocks(
 }
 
 /**
+ * Splits a line into (sentence, trailing-separator) pairs, the way
+ * `dedupeRepeatedBlocks`'s `dedupeLines` splits a block into (line, `\n`)
+ * pairs. The boundary is the same cheap heuristic used across MESH's
+ * research sandbox (`evals/fundamentals/rag_context_rightsizing.py`): text
+ * ending in `.`, `!` or `?` followed by whitespace, or a newline. Good
+ * enough to find a retrieval indexer's repeated span; not a linguistic
+ * parser, and it never needs to be, because every candidate match is still
+ * checked for exact byte equality before anything is dropped.
+ */
+const SENTENCE_BOUNDARY = /((?:(?<=[.!?])[ \t]+)|\n+)/;
+
+/**
+ * Removes exact duplicate SENTENCES anywhere in a text, not just whole
+ * blocks or whole lines. RAG indexers chunk documents with an overlapping
+ * stride (commonly 10-20%, up to the ~50% Databricks used in its own
+ * long-context RAG benchmark), so two adjacent retrieved chunks placed in
+ * the same request repeat a byte-for-byte identical run of sentences even
+ * though the chunks differ as wholes. `dedupeRepeatedBlocks` cannot reach
+ * this: its finest granularity is a whole line, and a retrieved chunk is
+ * normally formatted as one unbroken line (or one blank-line-separated
+ * paragraph) of prose — the two overlapping runs never align on a line
+ * boundary for it to match. This is the gap identified in
+ * docs/rnd/fundamentals/rag-context-rightsizing.md (lever T1).
+ *
+ * Lossless, exactly like `dedupeRepeatedBlocks`: only an EXACT repeat of a
+ * sentence already kept earlier in the SAME text is ever dropped; the first
+ * occurrence and every non-duplicate sentence survive byte-identical, and a
+ * reducer that increased the token count would be a bug caught by
+ * `applyReducers`'s own invariant check. Fenced and inline code are left
+ * alone, same as every other reducer here.
+ *
+ * `minimumSpanTokens` defaults lower than `dedupeRepeatedBlocks`'s 24
+ * (sentences are shorter units than paragraphs or whole excerpts); it
+ * exists for the same reason: an ordinary short sentence ("Thanks." /
+ * "Got it.") can recur by coincidence and is not retrieval overlap.
+ */
+export function dedupeOverlappingSentences(
+  minimumSpanTokens = 12,
+  countTokens: TokenCounter = approximateTokenCount,
+): Reducer {
+  return {
+    id: "dedupe-overlapping-sentences",
+    version: "1",
+    risk: "lossless",
+    reduce: (text) => {
+      const code: string[] = [];
+      const masked = text.replace(CODE_FENCE, (match) => {
+        code.push(match);
+        return `@@MESHCODE${code.length - 1}@@`;
+      });
+      const parts = masked.split(SENTENCE_BOUNDARY);
+      const seen = new Set<string>();
+      const notes: string[] = [];
+      let dropped = false;
+      const kept: string[] = [];
+      for (let index = 0; index < parts.length; index += 2) {
+        const sentence = parts[index] ?? "";
+        const separator = parts[index + 1] ?? "";
+        const key = sentence.trim();
+        const tokens = key === "" ? 0 : countTokens(sentence);
+        if (key !== "" && tokens >= minimumSpanTokens && seen.has(key)) {
+          dropped = true;
+          notes.push(
+            `Dropped a repeated ${tokens}-token sentence beginning "${key.replace(/\s+/g, " ").slice(0, 60)}".`,
+          );
+          continue;
+        }
+        if (key !== "") seen.add(key);
+        kept.push(sentence, separator);
+      }
+      if (!dropped) return { text, notes: [] };
+      const rejoined = kept.join("");
+      const restored = rejoined.replace(/@@MESHCODE(\d+)@@/g, (_match, index) => code[Number(index)]!);
+      return { text: restored, notes };
+    },
+  };
+}
+
+/**
  * Collapses redundant whitespace outside fenced and inline code, where layout is
  * meaningful. Individually small; free, and it compounds across every request.
  */

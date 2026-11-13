@@ -2,6 +2,14 @@
 
 **Axis:** rag-context-rightsizing (A3 redundancy, A4 irrelevance; touches A2 encoding)
 **Author:** FLUX R&D literature mine, 2026-10-28
+**Status (2026-11-13):** T1 (overlap/duplicate de-duplication) shipped as the
+`chunkOverlapDedup` lever — `packages/core/src/token-reduction.ts`
+(`dedupeOverlappingSentences`), `packages/sdk-js/src/reduce-request.ts`.
+Measured 6.5–15.6% on a synthetic fixture
+(`evals/run-rag-chunk-overlap-dedup.ts`); see
+`docs/rnd/2026-11-13-NOTES.md` for the honest limits (sentence-boundary
+assumption, synthetic fixture, not yet a published number). T2 (top-k tail
+truncation) is still open — flagged as the next night's natural follow-on.
 **Scope rule:** FLUX is a transparent proxy. It can only (a) rewrite the outgoing
 request body before forwarding and (b) read provider-reported usage after. No model
 weights, no logits/hidden states, no second LLM unless bundled on-machine (none bundled
