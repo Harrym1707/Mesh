@@ -8,7 +8,7 @@ routine and every analysis workflow follow this unless a dispatch overrides it.
 The volume is a population to sample, not a corpus to consume. Four rules:
 
 1. **Sample the shape that pays us, not the average.** The average public-chat
-   row is a 1–2 turn Q&A with no history to cache or dedupe — noise for FLUX.
+   row is a 1–2 turn Q&A with no history to cache or dedupe — noise for MESH.
    Filter to the paying shape first (e.g. ≥6 turns, has tool calls, long
    context) and sample within it. The filter is part of the finding.
 2. **Weight by tokens, not by row count.** Tokens are heavily concentrated (top
@@ -22,7 +22,7 @@ The volume is a population to sample, not a corpus to consume. Four rules:
    (e.g. "n=3,000 WildChat convos, ≥6 turns"). Reproducible, never cherry-picked.
 
 **Honesty flag that governs all three verticals:** biggest token volume is NOT
-automatically biggest FLUX-addressable saving. Well-built agents already cache,
+automatically biggest MESH-addressable saving. Well-built agents already cache,
 so measure NET of what the agent already does, never bill a saving the customer
 already has, and hunt the waste caching does NOT remove.
 

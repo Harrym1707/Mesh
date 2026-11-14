@@ -71,6 +71,19 @@ export type {
 } from "./semantic-compaction.js";
 export { CachePrefixVolatilityGuard, type CacheStampDecision } from "./cache-volatility-guard.js";
 export { renderLedgerReport, type LedgerReportOptions, type LedgerReportSpool } from "./report.js";
+export {
+  MESH_SIGNUP_URL,
+  formatSavingsCta,
+  savingsBadge,
+  savingsPercent,
+  type SavingsBadge,
+  type SavingsCtaOptions,
+  type SavingsSnapshot,
+} from "./cta.js";
+export {
+  savingsSnapshotFromEvents,
+  savingsSnapshotFromSpoolDir,
+} from "./savings-snapshot.js";
 export type {
   MeshHistoryCompactionConfig,
   MeshReductionChange,

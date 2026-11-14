@@ -167,4 +167,4 @@ Ready for `docs/rnd/lever-backlog.md`:
 ---
 
 *Raw slices/scripts under the scratchpad `data/` dir: `mc_*.jsonl`, `az24w_*.csv`,
-`apigen_strat.jsonl`, `toolace.jsonl`, `glaive.jsonl`, `mind2web_obs.jsonl`, `analyze.py`, `flux_lib.py`.*
+`apigen_strat.jsonl`, `toolace.jsonl`, `glaive.jsonl`, `mind2web_obs.jsonl`, `analyze.py`, `mesh_lib.py`.*

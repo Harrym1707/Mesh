@@ -24,7 +24,7 @@ These are distributions OF THESE SYSTEMS on SWE-bench, not universal truths.
   compressible to changed-lines (~6.9% of that system's total output);
   OpenHands' str_replace tool shape structurally eliminates the waste
   (anchor overhead 42% of edit emission but near-minimal).
-- Duplicate byte-identical actions: 8.1% / 4.1% of actions — retries FLUX
+- Duplicate byte-identical actions: 8.1% / 4.1% of actions — retries MESH
   can flag free.
 - Tool results: p99 2.5k / 6k tokens (OpenHands admits 10k-token results —
   fresh-result cap headroom confirmed on real traffic shape).

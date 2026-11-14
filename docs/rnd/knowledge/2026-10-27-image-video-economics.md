@@ -1,4 +1,4 @@
-# Image & video economics for token-priced models — and where FLUX honestly bites
+# Image & video economics for token-priced models — and where MESH honestly bites
 
 Day-shift output for the 2026-10-27 dispatch. Engineering notes.
 
@@ -102,7 +102,7 @@ Lossy worked example (Anthropic hi-res): drop to 1269×952 = 46×34 = **1,564 to
 Saving vs the 4,740 cap on Opus = (4740−1564)×4/1e6 = 3176×4/1e6 = $0.012704 →
 **$12.70/1,000** (critique fix: was $12.88, computed off the wrong 4,784 base).
 OpenAI lossy lever is `detail:low` (base only): gpt-4o 85 tok → $0.21/1,000;
-gpt-5.1 70 tok → $0.09/1,000. Both discard fidelity → under FLUX honesty rules,
+gpt-5.1 70 tok → $0.09/1,000. Both discard fidelity → under MESH honesty rules,
 opt-in and gated against task accuracy, never defaulted or sold as free.
 
 ### Proxy feasibility
@@ -132,9 +132,9 @@ only the first frame of an animated GIF; base64 inflates ×1.333.
 | OpenAI gpt-image-1.5 | per token | text-in $5 / out $10; image-in $8 / **out $32** per M | same **[primary]** |
 | OpenAI gpt-image-1-mini | per token | text-in $2; image-in $2.50 / out $8 per M | same **[primary]** |
 | OpenAI gpt-image-1, DALL·E 3 | — | **retired** (gpt-image-1 off 2026-10-23) | intuitionlabs **[aggregator]** |
-| OpenAI Sora 2 / Videos API | per second | $0.10/s 720p, Pro $0.30–0.50/s — **API removed 2026-09-24, no successor** | eesel.ai, framesurfer **[aggregator]** |
+| OpenAI Sora 2 / Videos API | per second | $0.10/s 720p, Pro $0.30–0.50/s — **API removed 2026-09-24, no successor** | eesel.ai, framesurfer [aggregator]; **removal now confirmed [primary] developers.openai.com/api/docs/deprecations (read 2026-11-05)** |
 | Google Veo 3.1 | per second | $0.75/s (≈$6 / 8-s clip); Veo 3 Fast $0.10/s video-only, $0.15/s +audio | costgoat, atlascloud **[aggregator]**; cloud.google.com table truncated → tiers UNKNOWN primary |
-| Google Imagen 4 | per image | Fast $0.02 / Std $0.04 / Ultra $0.06 | developersdigest **[aggregator]** |
+| Google Imagen 4 | per image | Fast $0.02 / Std $0.04 / Ultra $0.06 — ⚠️ **Imagen API appears SHUT DOWN as of 2026-11-05, replaced by Gemini-native image (Nano Banana); re-verify before relying on these figures** | developersdigest [aggregator]; retirement **[primary] aistudio.google.com/docs/imagen (read 2026-11-05)** |
 | Runway Gen-4 Turbo / 4.5 | per second (1 cr=$0.01) | Turbo 5 cr/s=$0.05/s; 4.5 12 cr/s=$0.12/s; $10 min | activepieces, apiframe **[aggregator]**; docs.dev.runwayml.com confirms credit ledger **[primary, mechanism]** |
 | Stability Stable Image Ultra | per image | 8 cr = **$0.08** | docs.stability.ai/pricing **[primary, 2026-10-27]** |
 | Stability SD3.5 L/Turbo/M/Flash | per image | $0.065 / $0.04 / $0.035 / $0.025 | same **[primary]** |
@@ -181,7 +181,7 @@ dates are aggregator-sourced; derived duplicate costs inherit that uncertainty.
 ### HONEST VERDICT per workload
 
 Only OpenAI image models are token-priced; everything else is flat per-image or
-per-second. **FLUX's text-token levers cannot reduce the generation charge on any
+per-second. **MESH's text-token levers cannot reduce the generation charge on any
 per-image or per-second provider** — you cannot trim a prompt to make a Runway
 second or a Stable Image Ultra image cost less. Even on OpenAI the cost is
 dominated by **image-output tokens** ($30–32/M), a fixed function of
@@ -193,19 +193,22 @@ count is UNKNOWN (pricing page says "use the calculator").
 - **Runway video:** measure duplicates ($0.05–0.12/s re-billed) + the one truly
   billed failure class (SAFETY.INPUT). **Real, narrow.**
 - **Google Veo/Imagen:** failures largely not billed; no idempotency.
-  **Duplicate detection only; otherwise FLUX cannot help.**
+  **Duplicate detection only; otherwise MESH cannot help.** (Update 2026-11-05:
+  the **Imagen API appears retired**, replaced by Gemini-native image — the live
+  path is `generate_content`, not the per-image Imagen endpoint; re-verify.)
 - **Stability:** duplicate detection derivable ($0.08/Ultra); failure billing
   UNKNOWN. **Duplicate help; rest UNKNOWN.**
 - **BFL FLUX:** duplicate help; failure billing + idempotency UNKNOWN; plus the
-  brand collision below. **Duplicate help only; careful on naming.**
-- **Sora / OpenAI Videos API:** **retired 2026-09-24. No live workload — FLUX
+  naming note below (the collision is now resolved by our FLUX→MESH rename).
+  **Duplicate help only.**
+- **Sora / OpenAI Videos API:** **retired 2026-09-24. No live workload — MESH
   cannot help.**
 
-One line: on generation APIs FLUX's only broadly-defensible value is
+One line: on generation APIs MESH's only broadly-defensible value is
 **duplicate-request detection** (universal, arithmetic-derivable, action-
-contingent — FLUX reports, the customer must suppress) plus **billed-failure
+contingent — MESH reports, the customer must suppress) plus **billed-failure
 accounting on the two providers that actually charge (Runway safety-input, OpenAI
-moderation)**. The headline generation charge is per-unit and **FLUX cannot reduce
+moderation)**. The headline generation charge is per-unit and **MESH cannot reduce
 it** — say so.
 
 ---
@@ -323,7 +326,7 @@ Each: mechanism + why it might be wrong.
    + limit-safety only.
 3. **Duplicate-generation detection (metering).** Mechanism: fingerprint
    submitted generation requests, flag byte-identical/near re-sends on the ledger.
-   *Why wrong:* FLUX only reports; the saving is contingent on the customer
+   *Why wrong:* MESH only reports; the saving is contingent on the customer
    suppressing. Duplicate frequency is UNKNOWN until measured; near-dupe matching
    risks false positives on legitimately-repeated prompts.
 4. **Billed-failure accounting.** Mechanism: match provider error classes to
@@ -334,7 +337,7 @@ Each: mechanism + why it might be wrong.
 5. **Idempotency-hygiene flag.** Mechanism: verify customer retries carry a reused
    key (OpenAI SDK does; app-level + most providers do not) and flag the uncovered
    double-bill surface. *Why wrong:* catches only the retry-storm subset; most
-   providers have no key to reuse, so the "fix" is customer-side dedup, not FLUX.
+   providers have no key to reuse, so the "fix" is customer-side dedup, not MESH.
 6. **Frame dedup (byte-exact lossless + perceptual lossy).** Mechanism: drop
    repeated frames before forwarding. *Why wrong:* text-only `dedupeRepeatedBlocks`
    won't touch image blocks — this is net-new image-aware code; perceptual dedup is
@@ -352,24 +355,27 @@ Each: mechanism + why it might be wrong.
 **Repo reality (verified at commit `59a034a`):** `proxy.ts` routes only Anthropic
 `/v1/messages` and OpenAI `/v1/responses` + `/v1/chat/completions` — **no Gemini
 `generateContent` path**; `reduce-request.ts` is text-only (no image/base64/resize/
-frame/patch references). So candidates 1,2,6 are net-new code, and **FLUX cannot
+frame/patch references). So candidates 1,2,6 are net-new code, and **MESH cannot
 touch Gemini native video at all today**. Only candidate 7's cache lever already
 ships.
 
 ---
 
-## Brand note — Black Forest Labs' FLUX name collision (facts only)
+## Brand note — Black Forest Labs' FLUX name collision (resolved by the MESH rename)
 
 Black Forest Labs ships a commercial image/video API literally named **FLUX**
-(FLUX.1, FLUX.2, FLUX 3, Kontext, Klein) at `docs.bfl.ai` **[primary]**. Our M&V
-product is also FLUX. Facts:
-- Any copy pairing "FLUX" + "image generation" + "API" collides in search with a
-  well-funded model vendor; we rank nowhere on those terms.
-- A statement line reading "FLUX" could be read as "the BFL model," not our M&V
-  layer. If we ever instrument a BFL-model workload, "FLUX measuring FLUX" needs
-  UI disambiguation.
-- Not researched, flagged for founder: do not GEO-target image-generation
-  keywords under the bare name FLUX.
+(FLUX.1, FLUX.2, FLUX 3, Kontext, Klein) at `docs.bfl.ai` **[primary]**. Our
+product was **formerly also named FLUX**; it is now **MESH**, which resolves the
+collision this note originally flagged. Residual facts to keep in mind:
+- The old name "FLUX" collided in search with a well-funded model vendor; the
+  rename to MESH removes that overlap. Any historical FLUX-era copy or links still
+  carry the collision until they are migrated.
+- If we ever instrument a BFL-model workload, "**MESH measuring FLUX**" is now
+  unambiguous in UI (our layer = MESH, the model = FLUX) — the former
+  "FLUX measuring FLUX" problem is gone.
+- GEO note (historical): FLUX-era guidance was to avoid targeting image-generation
+  keywords under the bare name FLUX; moot under MESH, but any surviving
+  FLUX-branded pages still shouldn't.
 
 ---
 
@@ -383,8 +389,10 @@ product is also FLUX. Facts:
 - **OpenAI late-moderation billing** — community-reported, not provider-published.
 - **Duplicate/retry-storm frequency** in any real customer's traffic — no provider
   telemetry; must be measured, not assumed.
-- **Veo/Runway/Imagen/BFL exact prices + Sora/gpt-image-1 dates** — aggregator-
-  sourced; primary cells were blank/truncated on fetch.
+- **Veo/Runway/Imagen/BFL exact prices + gpt-image-1 date** — aggregator-sourced;
+  primary cells were blank/truncated on fetch. (Sora removal date is now confirmed
+  primary — see the pricing map. Imagen's live status itself is now in doubt — see
+  the Imagen row.)
 - **GPT per-model patch caps** (30k reject threshold, 2,500-patch budgets) —
   reported from a single rendered page, not cross-verified.
 - **Accuracy-vs-fps / -resolution crossover** — no provider publishes a curve.

@@ -181,7 +181,7 @@ arrival, and run the existing replay gate (`evals/run-effort-gate.ts` style) on
 task completion. One decision: does completion hold when oversized observations
 are head+tail-truncated on arrival? If yes AND raw obs are fat → A4 is real and
 large on that workload. If completion drops → A4 is gated-and-small everywhere,
-and FLUX should not chase it beyond the near-lossless normalizer.
+and MESH should not chase it beyond the near-lossless normalizer.
 
 **Confidence: medium.** Two real workloads measured directly + two more from
 local measured data; the cache simulation is faithful and conservative. The

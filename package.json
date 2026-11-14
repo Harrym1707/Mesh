@@ -23,6 +23,7 @@
     "eval:replay": "node --import tsx evals/run-replay.ts",
     "route:demo": "node --import tsx evals/routing-mvp-demo.ts",
     "route:policy": "node --import tsx evals/create-routing-policy.ts",
+    "gtm:prospects": "node --import tsx scripts/gtm/prospects.ts",
     "demo:local-tier": "node --import tsx scripts/local-tier-demo.ts",
     "demo:theo-coverage": "node --import tsx scripts/theo-coverage-demo.ts",
     "benchmark:run": "node --import tsx evals/run-benchmark.ts",
@@ -39,7 +40,16 @@
     "test:watch": "vitest",
     "lint": "eslint .",
     "typecheck": "tsc -b --pretty false",
-    "build:cli": "node --import tsx scripts/build-cli-package.ts"
+    "build:cli": "node --import tsx scripts/build-cli-package.ts",
+    "lab:demo": "node --import tsx lab/cli.ts demo",
+    "lab:run": "node --import tsx lab/cli.ts run",
+    "lab:watch": "node --import tsx lab/cli.ts watch",
+    "lab:sweep": "node --import tsx lab/cli.ts sweep",
+    "lab:live": "node --import tsx lab/cli.ts live",
+    "lab:browse": "node --import tsx lab/cli.ts browse",
+    "lab:status": "node --import tsx lab/cli.ts status",
+    "lab:verify": "node --import tsx lab/cli.ts verify",
+    "typecheck:lab": "tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --strict --skipLibCheck lab/index.ts lab/cli.ts lab/lab.test.ts"
   },
   "dependencies": {
     "@harrym1707/sdk": "workspace:*",

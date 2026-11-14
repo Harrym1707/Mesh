@@ -1,10 +1,10 @@
 # Dataset analysis findings — 2026-10-27 (sample-derived, calibration only)
 
-Engineering findings report for FLUX R&D. Consolidates three independent sampling passes run 2026-10-27 — production serving traces (Tier 1), agent/tool-use trajectories (Tier 2), chat traffic (Tier 3) — into one calibration reference for the lever backlog.
+Engineering findings report for MESH R&D. Consolidates three independent sampling passes run 2026-10-27 — production serving traces (Tier 1), agent/tool-use trajectories (Tier 2), chat traffic (Tier 3) — into one calibration reference for the lever backlog.
 
-Honesty contract for this doc: every figure carries its sample size and is **sample-derived, not a billed or published savings %**. Nothing here is extrapolated to a fleet-wide or billed percentage. Token counts are provider-reported where the source carried them (Mooncake, Azure, BurstGPT, SWE-Bench-Verified-O1 `usage`) and tokenizer-proxy otherwise (FLUX `approximateTokenCount` for agent corpora; tiktoken `cl100k_base` for WildChat, read as ±~10% vs the Claude tokenizer). Sources a tier marked unreachable (LMSYS-Chat-1M, ToolBench) contribute no numbers and appear only under "What the data does NOT support."
+Honesty contract for this doc: every figure carries its sample size and is **sample-derived, not a billed or published savings %**. Nothing here is extrapolated to a fleet-wide or billed percentage. Token counts are provider-reported where the source carried them (Mooncake, Azure, BurstGPT, SWE-Bench-Verified-O1 `usage`) and tokenizer-proxy otherwise (MESH `approximateTokenCount` for agent corpora; tiktoken `cl100k_base` for WildChat, read as ±~10% vs the Claude tokenizer). Sources a tier marked unreachable (LMSYS-Chat-1M, ToolBench) contribute no numbers and appear only under "What the data does NOT support."
 
-FLUX defaults these calibrate against: cacheable minimum 1024 (Sonnet/Opus/Fable) / 2048 (Haiku); semantic-compaction pre-pass `maxTokens=200`, `minimumTurns=3`, `keepRecentTurns=2`; cache TTL 5m (1.25x write premium) vs 1h (2x write premium).
+MESH defaults these calibrate against: cacheable minimum 1024 (Sonnet/Opus/Fable) / 2048 (Haiku); semantic-compaction pre-pass `maxTokens=200`, `minimumTurns=3`, `keepRecentTurns=2`; cache TTL 5m (1.25x write premium) vs 1h (2x write premium).
 
 ---
 
@@ -97,10 +97,10 @@ Raw slices saved at `/private/tmp/claude-501/-Users-harrymanley-Library-Applicat
 
 ### Tier 2 — Agent / tool-use trajectories (sample-derived)
 
-Rows pulled live via HuggingFace datasets-server rows API and raw GitHub. Token figures use FLUX `approximateTokenCount` (ported to Python, verified byte-identical on 4 test strings); re-emission uses the exact `measureOutputReEmission` from `packages/core/src/output-diagnostics.ts`.
+Rows pulled live via HuggingFace datasets-server rows API and raw GitHub. Token figures use MESH `approximateTokenCount` (ported to Python, verified byte-identical on 4 test strings); re-emission uses the exact `measureOutputReEmission` from `packages/core/src/output-diagnostics.ts`.
 
 **1. nebius/SWE-rebench-openhands-trajectories — n=200 trajectories (of 67,074).** Richest source: ships a separate `tools` field.
-- Tool schema: 5 tools/traj (fixed), 15,672 bytes = 4,962 FLUX tokens, identical across all 200. 48.0% of first request (median); 12.1% median / 15.6% mean across all turns.
+- Tool schema: 5 tools/traj (fixed), 15,672 bytes = 4,962 MESH tokens, identical across all 200. 48.0% of first request (median); 12.1% median / 15.6% mean across all turns.
 - History: 60.5 assistant turns/traj median, p90 100, max 100. Request size per turn (n=13,083): median 41,116, p90 75,534, max 131,776 tok.
 - Output re-emission (assistant content + tool_call args, n=13,083): median 0.0%, mean 0.1%, p90 0.0%, p99 3.4%. Tool-call-args-only: all 0.0%.
 - Byte-identical duplicate tool-results: 904/13,084 = 6.9%. Consecutive byte-identical (retry proxy): 0/26,167 = 0.00%.

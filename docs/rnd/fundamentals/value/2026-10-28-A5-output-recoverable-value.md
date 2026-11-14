@@ -1,7 +1,7 @@
 # A5 output-reduction — the CLEAR, DEFENSIBLE value (2026-10-28)
 
 Axis owner: A5-output value analyst. Question: how much output-token **cost** is
-really recoverable by FLUX's one black-box output lever — the shipped
+really recoverable by MESH's one black-box output lever — the shipped
 `outputEffort` dial (`output_config.effort`) — split by **workload shape**, every
 number honesty-labelled, lossless-vs-gated called, plus the single cheapest live
 experiment that confirms or kills it. Builds on the literature mine
@@ -12,7 +12,7 @@ new API money spent.
 
 > Labels: `measured` = tiktoken o200k_base on real data in this repo;
 > `derived` = arithmetic on measured anchors; `literature` = published claim;
-> `estimate` = my judgement. FLUX can only rewrite the request body + read
+> `estimate` = my judgement. MESH can only rewrite the request body + read
 > provider usage. LOSSLESS → billable unconditionally. LOSSY → changes what the
 > model emits → must clear a task-completion replay gate on the customer's own
 > traffic before a cent is billed.
@@ -159,7 +159,7 @@ One soundness note (not a blocker): the catalogue carries "Sonnet 5.5" but
 `pickModel` falls back to the bare id `claude-sonnet-5`; if that bare id does not
 resolve to a priced entry the gate still runs (price is optional — the token-delta
 verdict stands; only the `$` line is omitted). To guarantee the `$` line appears,
-set `FLUX_LIVE_MODEL=claude-sonnet-5-5` (or whatever the workspace serves) before
+set `MESH_LIVE_MODEL=claude-sonnet-5-5` (or whatever the workspace serves) before
 the live run.
 
 ### The cheapest live proof — exact spec
@@ -177,8 +177,8 @@ the live run.
 - **Expected cost (Sonnet 5.5, $2/M in, $10/M out):** **~$0.11 realistic**
   (baseline ~350 / low ~110 / medium ~200 output tok per task), **≤ $0.50 absolute
   worst case** if every call ran to the 1024-token cap (`derived`).
-- **Run:** `set -a && source ~/.config/flux/anthropic.env && set +a &&
-  FLUX_LIVE_MODEL=claude-sonnet-5-5 node --import tsx evals/run-effort-gate.ts`
+- **Run:** `set -a && source ~/.config/mesh/anthropic.env && set +a &&
+  MESH_LIVE_MODEL=claude-sonnet-5-5 node --import tsx evals/run-effort-gate.ts`
 
 **What it proves / kills.** It is a *mechanism* proof on a reasoning-heavy demo
 set (the regime where overthinking-waste is highest, so a favorable but legitimate

@@ -1,6 +1,6 @@
 # A3/A4 — Prompt compression literature (LLMLingua family, Selective Context, gist tokens)
 
-Axis: **A3A4-prompt-compression**. Question for FLUX: can any published
+Axis: **A3A4-prompt-compression**. Question for MESH: can any published
 prompt-compression technique shrink INPUT tokens by rewriting request bytes
 only — no model/logit access, no second LLM, inside a ~tens-of-ms latency
 budget — and can we bill it?
@@ -9,7 +9,7 @@ budget — and can we bill it?
 literature is LOSSY and requires running a *second model* — either a small
 causal LM for perplexity scoring (LLMLingua / LongLLMLingua / Selective
 Context) or a trained token classifier (LLMLingua-2) or a fine-tuned target
-(gist/soft-prompt) — so under FLUX's "no bundled LLM today + tens-of-ms
+(gist/soft-prompt) — so under MESH's "no bundled LLM today + tens-of-ms
 budget + lossless-bills-unconditionally" constraints the entire family is
 **REJECT today**; the single least-bad research candidate is
 LLMLingua-2-small, and even it is lossy (needs a replay quality gate), takes
@@ -17,9 +17,9 @@ LLMLingua-2-small, and even it is lossy (needs a replay quality gate), takes
 
 ---
 
-## The FLUX gate, applied up front
+## The MESH gate, applied up front
 
-FLUX can only (a) rewrite the outgoing request body before forwarding and
+MESH can only (a) rewrite the outgoing request body before forwarding and
 (b) read provider-reported usage after. It **cannot run a second LLM unless
 bundled on-machine (none bundled today)**, cannot see target logits, and has
 a ~tens-of-ms interactive budget. Two rules decide everything below:
@@ -33,8 +33,8 @@ a ~tens-of-ms interactive budget. Two rules decide everything below:
   pruning methods are black-box *with respect to the target* (they never
   touch the target's logits) — but they are NOT byte-only: they need an
   auxiliary model to *decide* what to cut. That auxiliary model is itself a
-  second LLM/encoder FLUX would have to bundle. So "works with black-box
-  LLMs" in these papers ≠ "works for FLUX as a pure byte rewrite."
+  second LLM/encoder MESH would have to bundle. So "works with black-box
+  LLMs" in these papers ≠ "works for MESH as a pure byte rewrite."
 
 ---
 
@@ -49,7 +49,7 @@ a ~tens-of-ms interactive budget. Two rules decide everything below:
   drop on the authors' benchmarks; 2,366-token prompt → 117 tokens with
   "almost unchanged" performance *(literature-claim, author-reported)*.
   Degrades sharply past ~25-30x on GSM8K *(literature-claim)*.
-- **Lossless/lossy:** LOSSY. **Black-box for FLUX:** NO — needs a bundled
+- **Lossless/lossy:** LOSSY. **Black-box for MESH:** NO — needs a bundled
   7B compressor LM (12.5-16.5 GB RAM, independent benchmark below).
 - **Verdict: REJECT** (second LLM required; latency; lossy).
 
@@ -63,7 +63,7 @@ a ~tens-of-ms interactive budget. Two rules decide everything below:
   ~10k-token prompts *(all literature-claim, author-reported)*.
 - **Note:** the query-aware step makes the rewrite depend on the *current
   question* → maximally cache-hostile (see caching section).
-- **Lossless/lossy:** LOSSY. **Black-box for FLUX:** NO (second LLM).
+- **Lossless/lossy:** LOSSY. **Black-box for MESH:** NO (second LLM).
 - **Verdict: REJECT** (second LLM; per-query volatility).
 
 ### 3. LLMLingua-2 (Pan et al., ACL Findings 2024) — arXiv 2403.12968
@@ -79,7 +79,7 @@ a ~tens-of-ms interactive budget. Two rules decide everything below:
   prior compressors; end-to-end **1.6x-2.9x** at 2x-5x. MeetingBank 3x QA:
   14.9 s → 7.5 s end-to-end, compressor itself **0.4 s** (vs 2.1 s for
   LLMLingua). Model-inference-only **0.01-0.03 s** on A100. RAM **0.66-3.25 GB**.
-- **Lossless/lossy:** LOSSY (deletes tokens). **Black-box for FLUX:** NO as a
+- **Lossless/lossy:** LOSSY (deletes tokens). **Black-box for MESH:** NO as a
   byte rewrite — but it is the **only** family member whose compute profile
   (small encoder, 10-30 ms pure inference, sub-GB small variant) is even in
   the conversation IF we ever bundle a model.
@@ -97,7 +97,7 @@ a ~tens-of-ms interactive budget. Two rules decide everything below:
   ROUGE-1 0.500 (−0.070), BERTScore-F1 0.896 (−0.015). Authors recommend
   ≤0.35 as the usable threshold — i.e. real-world safe compression is modest,
   not 20x.
-- **Lossless/lossy:** LOSSY. **Black-box for FLUX:** NO (second LLM).
+- **Lossless/lossy:** LOSSY. **Black-box for MESH:** NO (second LLM).
 - **Verdict: REJECT** (second LLM; modest safe ratio).
 
 ### 5. Gist tokens (Mu et al., NeurIPS 2023) — arXiv 2304.08467
@@ -105,7 +105,7 @@ a ~tens-of-ms interactive budget. Two rules decide everything below:
   prompt is distilled into a few "gist" activation tokens that are then
   KV-cached. Up to **26x** compression, "minimal quality loss", up to **40%
   FLOPs** / **4.2% wall-time** reduction *(literature-claim)*.
-- **Lossless/lossy:** LOSSY. **Black-box for FLUX:** NO — **white-box**:
+- **Lossless/lossy:** LOSSY. **Black-box for MESH:** NO — **white-box**:
   requires fine-tuning the target and injecting *continuous embeddings*, which
   a provider HTTP API will not accept as request bytes.
 - **Verdict: REJECT** (white-box; not byte-expressible).
@@ -114,7 +114,7 @@ a ~tens-of-ms interactive budget. Two rules decide everything below:
   (surveyed in arXiv 2410.12388)
 - **Mechanism:** encode context into learned continuous vectors. 500xCompressor
   reports 6x-480x at **62.3%-72.9%** capability retention *(literature-claim)*.
-- **Lossless/lossy:** LOSSY. **Black-box for FLUX:** NO — soft prompts are
+- **Lossless/lossy:** LOSSY. **Black-box for MESH:** NO — soft prompts are
   embeddings, not text; cannot be sent over a text-completion API, and most
   need a fine-tuned/aligned target.
 - **Verdict: REJECT** (white-box / not byte-expressible). Same for
@@ -149,12 +149,12 @@ ratios the method papers advertise.
 
 ---
 
-## Caching interaction (FLUX A1 is DONE — protect it)
+## Caching interaction (MESH A1 is DONE — protect it)
 
 - Every method here **re-edits the prompt bytes on each request**. LongLLMLingua
   is query-conditional, so the compressed bytes change with every user
   question — the worst case.
-- FLUX's largest confirmed win is retransmission/caching (A1). A token-pruning
+- MESH's largest confirmed win is retransmission/caching (A1). A token-pruning
   rewrite applied to an otherwise-stable, cacheable prefix would **change the
   prefix bytes and bust the provider's prompt cache**, converting cache-reads
   (cheap) back into full input (expensive). On a well-cached agent the cache
@@ -165,11 +165,11 @@ ratios the method papers advertise.
 
 ---
 
-## Bottom line for FLUX
+## Bottom line for MESH
 
 1. **No prompt-compression method is a lossless A2 lever** — none can be billed
    unconditionally; all require a replay quality gate.
-2. **All require a second model** FLUX does not bundle: a causal LM (LLMLingua /
+2. **All require a second model** MESH does not bundle: a causal LM (LLMLingua /
    LongLLMLingua / Selective Context) or a token-classifier encoder
    (LLMLingua-2), or they are white-box soft prompts (gist / ICAE / 500x).
    Under "no bundled LLM today," the whole family is **REJECT today**.
@@ -180,7 +180,7 @@ ratios the method papers advertise.
    larger than anything compression offers.
 5. **The only thing worth a sandbox** is LLMLingua-2-small as a *future,
    opt-in, long-context, non-cached-tail, quality-gated* lever — explicitly a
-   RESEARCH item, contingent on FLUX ever bundling an on-machine encoder.
+   RESEARCH item, contingent on MESH ever bundling an on-machine encoder.
    Sandbox skeleton: `evals/fundamentals/prompt_compression_probe.py`.
 
 Primary sources: LLMLingua https://arxiv.org/abs/2310.05736 ·

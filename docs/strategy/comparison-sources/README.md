@@ -19,11 +19,11 @@ docs/site/comparison.md claims. Key corrections to the old page:
   auditable (daily automated price audits, customer-overridable prices,
   exact-cost ingestion) — credit it. MIT except ee/. Cloud Core $29 / Pro
   $199 / Enterprise $2,499; unlimited MIT self-host. v4 shipped 2026.
-- FLUX's surviving differentiators: per-request LOSSLESS token reduction +
+- MESH's surviving differentiators: per-request LOSSLESS token reduction +
   verified, customer-recomputable savings ledger + do-not-pay-us verdict +
-  loss accounting (negatives bill against FLUX) + volatility guard. State
+  loss accounting (negatives bill against MESH) + volatility guard. State
   LiteLLM's cache flag generously, then the difference: placement without
   measurement can lose money silently (our own live export proved it) —
-  FLUX meters the net, including when the answer is "don't pay us".
+  MESH meters the net, including when the answer is "don't pay us".
 - UNVERIFIED (do not publish): Helicone per-request overage rates, Helicone
   gateway GA date, ai-gateway repo licence, Headroom ownership/pricing.

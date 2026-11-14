@@ -4,7 +4,7 @@ import { defineConfig } from "vitest/config";
 // TypeScript sources are the tests of record.
 export default defineConfig({
   test: {
-    include: ["packages/**/src/**/*.test.ts", "evals/**/*.test.ts"],
+    include: ["packages/**/src/**/*.test.ts", "evals/**/*.test.ts", "lab/**/*.test.ts"],
     exclude: ["**/dist/**", "**/node_modules/**"],
   },
 });
