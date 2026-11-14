@@ -63,6 +63,56 @@ describe("reduceRequest", () => {
     expect(trim.lossless).toBe(false);
   });
 
+  it("keeps a nested Pydantic model's $defs/$ref pair intact by default (no silent schema corruption)", () => {
+    const withNestedModel = request({
+      tools: [{
+        type: "function",
+        function: {
+          name: "open_ticket",
+          description: LONG_DESCRIPTION,
+          parameters: {
+            $schema: "https://json-schema.org/draft/2020-12/schema",
+            $defs: { ContactInfo: { title: "ContactInfo", type: "object", properties: { email: { type: "string" } } } },
+            type: "object",
+            properties: { contact: { $ref: "#/$defs/ContactInfo" } },
+          },
+        },
+      }],
+    });
+    const { request: reduced } = reduceRequest(withNestedModel, { toolSchemas: true });
+    const serialised = JSON.stringify(reduced);
+    expect(serialised).toContain('"$ref":"#/$defs/ContactInfo"');
+    expect(serialised).toContain("ContactInfo");
+  });
+
+  it("leaves tool order untouched by default", () => {
+    const threeTools = request({ tools: toolCatalogue(3) });
+    const { request: reduced } = reduceRequest(threeTools, { toolSchemas: true });
+    const tools = (reduced as Record<string, unknown>).tools as Array<{ function: { name: string } }>;
+    expect(tools.map((t) => t.function.name)).toEqual(["lookup_0", "lookup_1", "lookup_2"]);
+  });
+
+  it("canonicalOrder sorts the tool catalogue and reports a zero-token cache-stability lever", () => {
+    const reversed = request({ tools: toolCatalogue(3).reverse() });
+    const { request: reduced, summary } = reduceRequest(reversed, {
+      toolSchemas: { canonicalOrder: true },
+    });
+    const tools = (reduced as Record<string, unknown>).tools as Array<{ function: { name: string } }>;
+    expect(tools.map((t) => t.function.name)).toEqual(["lookup_0", "lookup_1", "lookup_2"]);
+    const orderChange = summary.changes.find((change) => change.lever === "tool-schema-canonical-order")!;
+    expect(orderChange.lossless).toBe(true);
+    expect(orderChange.estimatedTokensSaved).toBe(0);
+  });
+
+  it("canonicalOrder makes two turns that resend the same tools in a different order serialize identically", () => {
+    const turnA = request({ tools: toolCatalogue(3) });
+    const turnB = request({ tools: toolCatalogue(3).reverse() });
+    const { request: reducedA } = reduceRequest(turnA, { toolSchemas: { canonicalOrder: true } });
+    const { request: reducedB } = reduceRequest(turnB, { toolSchemas: { canonicalOrder: true } });
+    expect(JSON.stringify((reducedA as Record<string, unknown>).tools))
+      .toBe(JSON.stringify((reducedB as Record<string, unknown>).tools));
+  });
+
   it("removes an exactly duplicated context block", () => {
     const withDuplicate = request({
       input: [{ role: "user", content: `${BLOCK}\n\n${BLOCK}\n\nWhy was my refund delayed?` }],
