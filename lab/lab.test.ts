@@ -19,6 +19,27 @@ import { repairBlockArraySystem } from "./experiments/block-array-repair.js";
 import { qualifyPayingShape } from "./paying-shape.js";
 import { cadenceSweep, sessionLengthSweep } from "./sweeps.js";
 import { harnessEvidence } from "./evidence.js";
+import { guardStudy, liveResidual, priceSession, stampStudy } from "./live-study.js";
+import { SpanKeyedStamper } from "./experiments/span-keyed-stamp.js";
+import { LegacyVolatilityGuard } from "./experiments/legacy-guard.js";
+import { browsingArm, browsingSession, priceBrowsing, qualifyBrowsingShape } from "./browsing-shape.js";
+import {
+  SUPERSEDED_STUB,
+  dedupeStaleSnapshotLines,
+  isPageSnapshot,
+  maskRef,
+  moveBreakpointBeforeFreshSnapshot,
+  supersedeStaleSnapshots,
+} from "./experiments/page-snapshots.js";
+import {
+  LIVE_CODING_CONFIG,
+  LIVE_MODEL,
+  LIVE_PREAMBLE,
+  liveCodingAgentRequests,
+  liveSupportChatRequests,
+} from "./live-shapes.js";
+import { reduceRequest } from "../packages/sdk-js/src/reduce-request.js";
+import { CachePrefixVolatilityGuard } from "../packages/sdk-js/src/cache-volatility-guard.js";
 import { isTerminal } from "./types.js";
 import { readLiveNumbers } from "./numbers.js";
 import type { OptimisationLead } from "./types.js";
@@ -384,6 +405,317 @@ describe("paying-shape tier (repo agent fixture, simulated grader)", () => {
     const loose = qualifyPayingShape({ maxQualityDegradation: 0.05 });
     expect(loose.bestWithinCeiling!.id).toBe("outputCap");
     expect(loose.ceilingBreaker).toBeUndefined();
+  });
+});
+
+describe("live study — what the real run still leaves on the table", () => {
+  it("the replicas still match the script that produced the live spools", () => {
+    const script = readFileSync(new URL("../evals/run-live-agents.ts", import.meta.url), "utf8");
+    for (const fragment of [
+      "Operating rule ${i}: cite sources, escalate anything risky, keep answers tight.",
+      "Record ${i}: settlement entry nominal, reconciliation standard, no notification sent, annotation routine.",
+      "Current time: 2026-10-13T09:0${turn}:00Z",
+      "Investigate account 1009 and summarise.",
+      "how do I reset my password?",
+      "Look up records in subsystem ${i}. Use this for questions about topic ${i}. Returns a paginated list.",
+    ]) {
+      expect(script).toContain(fragment);
+    }
+  });
+
+  it("LIVE: after Mesh, output is the largest part of the remaining bill", () => {
+    const residual = liveResidual()!;
+    for (const row of [...residual.rows, residual.total]) {
+      expect(row.freshInput + row.cacheRead + row.cacheWrite + row.output).toBeCloseTo(1, 6);
+    }
+    expect(residual.total.output).toBeGreaterThan(0.5);
+    expect(residual.rows.find((r) => r.agent === "coding-agent")!.output).toBeGreaterThan(0.5);
+  });
+
+  it("the replica reproduces the live coding agent's stamp pattern under the guard as it shipped then", () => {
+    const study = guardStudy();
+    expect(study.legacyStamps).toEqual([true, true, false, false, false]);
+    expect(study.live!.stampPattern).toEqual(["stamped", "stamped", "suppressed", "suppressed", "suppressed"]);
+    // The provider read the prefix back on turn 2 — the repaired prefix IS stable.
+    expect(study.live!.provenCachedTokens).toBeGreaterThan(1024);
+  });
+
+  it("the product guard now keeps the stamp on every turn of that replica", () => {
+    const study = guardStudy();
+    expect(study.productStamps).toEqual([true, true, true, true, true]);
+    // Same placement, same cost as the lab's first-sight arm: the experiment is in the product.
+    expect(study.productCost).toBe(study.spanFirstSightCost);
+    expect(study.productCost).toBeLessThan(study.legacyCost);
+    expect(study.productInputSavingPercent).toBeGreaterThan(40);
+  });
+
+  it("span-keyed stamping recovers the suppressed turns", () => {
+    const study = guardStudy();
+    expect(study.spanOnRepeatStamps).toEqual([false, true, true, true, true]);
+    expect(study.spanFirstSightStamps).toEqual([true, true, true, true, true]);
+    expect(study.spanFirstSightCost).toBeLessThan(study.spanOnRepeatCost);
+    expect(study.spanOnRepeatCost).toBeLessThan(study.legacyCost);
+    // DERIVED-FROM-LIVE: a real share of the real bill, bounded on both sides.
+    expect(study.live!.onRepeatPercentOfBill).toBeGreaterThan(10);
+    expect(study.live!.firstSightPercentOfBill).toBeGreaterThan(study.live!.onRepeatPercentOfBill);
+    expect(study.live!.firstSightPercentOfBill).toBeLessThan(25);
+  });
+
+  it("is lossless: it emits only bytes the product already emits, stamped or unstamped", () => {
+    const { cacheTtl: _ttl, ...unstampedConfig } = LIVE_CODING_CONFIG;
+    const strip = (value: unknown) => JSON.stringify(value, (key, inner) => (key === "cache_control" ? undefined : inner));
+    const stamper = new SpanKeyedStamper(LIVE_CODING_CONFIG);
+    for (const request of liveCodingAgentRequests()) {
+      const outcome = stamper.reduce(request);
+      const productStamped = reduceRequest(request, LIVE_CODING_CONFIG).request;
+      const productUnstamped = reduceRequest(request, unstampedConfig).request;
+      if (outcome.systemStamped) expect(strip(outcome.request)).toBe(strip(productStamped));
+      else expect(outcome.request).toEqual(productUnstamped);
+    }
+  });
+
+  it("never pays a write premium on a prefix that does not repeat", () => {
+    // A build counter at the head of the prompt: not a timestamp or UUID, so
+    // prefix repair cannot move it and the stamped span is different every turn.
+    const tools = liveSupportChatRequests()[0]!.tools;
+    const churning = Array.from({ length: 5 }, (_unused, i) => ({
+      model: LIVE_MODEL,
+      system: `Build ${i + 17}\n${LIVE_PREAMBLE}`,
+      tools,
+      messages: [{ role: "user", content: `question ${i}` }],
+      max_tokens: 500,
+    }));
+    const config = { toolSchemas: true, duplicateContext: true, repairCachePrefix: true, cacheTtl: "5m" } as const;
+    const onRepeat = new SpanKeyedStamper(config);
+    const outcomes = churning.map((request) => onRepeat.reduce(request));
+    expect(outcomes.every((o) => !o.systemStamped)).toBe(true);
+    const cautious = priceSession(outcomes.map((o) => o.request));
+    expect(cautious.cost).toBe(cautious.uncachedCost); // no premium, no loss
+    // Stamping at first sight on the same traffic DOES lose — which is why it
+    // is reserved for a route whose span is already known to repeat.
+    const eager = new SpanKeyedStamper(config, { stampOnFirstSight: true });
+    const eagerCost = priceSession(churning.map((request) => eager.reduce(request).request));
+    expect(eagerCost.cost).toBeGreaterThan(eagerCost.uncachedCost);
+  });
+
+  it("stamps a repaired prefix even though the raw clock ticks — with a history that extends properly", () => {
+    const tools = liveSupportChatRequests()[0]!.tools;
+    const script = [
+      { role: "user", content: "Open the incident." },
+      { role: "assistant", content: "Opened. What next?" },
+      { role: "user", content: "Check the error rate." },
+      { role: "assistant", content: "Error rate is nominal." },
+      { role: "user", content: "Close it." },
+    ];
+    // Turn k re-sends the first 2k+1 messages verbatim: a real, extending conversation.
+    const ticking = [0, 1, 2].map((turn) => ({
+      model: LIVE_MODEL,
+      system: `Current time: 2026-10-13T09:0${turn}:00Z\n${LIVE_PREAMBLE}`,
+      tools,
+      messages: script.slice(0, turn * 2 + 1),
+      max_tokens: 500,
+    }));
+    const config = { toolSchemas: true, duplicateContext: true, repairCachePrefix: true, cacheTtl: "5m" } as const;
+
+    // The guard as shipped for the live run: the raw system changed, so it
+    // suppresses — although repair has made the stamped span stable.
+    const legacyGuard = new LegacyVolatilityGuard();
+    const legacy = ticking.map(
+      (request) => reduceRequest(request, { ...config, cacheVolatilityGuard: legacyGuard }).request as Record<string, unknown>,
+    );
+    expect(priceSession(legacy).perRequest.map((r) => r.stamped)).toEqual([true, false, false]);
+    // The product guard now compares the span the breakpoint covers.
+    const guard = new CachePrefixVolatilityGuard();
+    const product = ticking.map(
+      (request) => reduceRequest(request, { ...config, cacheVolatilityGuard: guard }).request as Record<string, unknown>,
+    );
+    expect(priceSession(product).perRequest.map((r) => r.stamped)).toEqual([true, true, true]);
+    expect(priceSession(product).cost).toBeLessThan(priceSession(legacy).cost);
+
+    const stamper = new SpanKeyedStamper(config, { stampOnFirstSight: true });
+    const spanKeyed = priceSession(ticking.map((request) => stamper.reduce(request).request));
+    expect(spanKeyed.perRequest.map((r) => r.stamped)).toEqual([true, true, true]);
+    // Turns 2 and 3 read the prefix turn 1 wrote.
+    expect(spanKeyed.perRequest[1]!.read).toBeGreaterThan(1024);
+    expect(spanKeyed.perRequest[2]!.read).toBeGreaterThan(1024);
+    expect(spanKeyed.cost).toBe(priceSession(product).cost);
+  });
+
+  it("keeps the system breakpoint when the client rewrites its history", () => {
+    const tools = liveSupportChatRequests()[0]!.tools;
+    // Stable tools + system, same opening message, but the rest of the history is replaced each turn.
+    const rewriting = Array.from({ length: 4 }, (_unused, i) => ({
+      model: LIVE_MODEL,
+      system: LIVE_PREAMBLE,
+      tools,
+      messages: [
+        { role: "user", content: "Start the session." },
+        { role: "assistant", content: `Rolling summary, revision ${i}.` },
+        { role: "user", content: `Next step ${i}.` },
+      ],
+      max_tokens: 500,
+    }));
+    const config = { toolSchemas: true, duplicateContext: true, cacheTtl: "5m" } as const;
+
+    // The guard as shipped for the live run: all-or-nothing — once the history
+    // stops extending, no breakpoint at all.
+    const legacyGuard = new LegacyVolatilityGuard();
+    const legacy = rewriting.map(
+      (request) => reduceRequest(request, { ...config, cacheVolatilityGuard: legacyGuard }).request as Record<string, unknown>,
+    );
+    expect(priceSession(legacy).perRequest.map((r) => r.stamped)).toEqual([true, false, false, false]);
+    // The product guard now withholds only the newest-message breakpoint.
+    const guard = new CachePrefixVolatilityGuard();
+    const product = rewriting.map(
+      (request) => reduceRequest(request, { ...config, cacheVolatilityGuard: guard }).request as Record<string, unknown>,
+    );
+    expect(priceSession(product).perRequest.map((r) => r.stamped)).toEqual([true, true, true, true]);
+    expect(product.slice(1).every((request) => !JSON.stringify(request.messages).includes("cache_control"))).toBe(true);
+    expect(priceSession(product).cost).toBeLessThan(priceSession(legacy).cost);
+
+    const stamper = new SpanKeyedStamper(config);
+    const outcomes = rewriting.map((request) => stamper.reduce(request));
+    expect(outcomes.map((o) => o.systemStamped)).toEqual([false, true, true, true]);
+    // The history breakpoint is withheld on the turns where the history was rewritten.
+    expect(outcomes.slice(1).every((o) => !o.messageStamped)).toBe(true);
+    expect(priceSession(outcomes.map((o) => o.request)).cost).toBeLessThan(priceSession(legacy).cost);
+  });
+
+  it("the never-stamped support chat would have read its shared prefix", () => {
+    const study = stampStudy();
+    expect(study.prefixShare).toBeGreaterThan(0.8);
+    expect(study.spanOnRepeatCost).toBeLessThan(study.unstampedCost);
+    expect(study.live!.onRepeatPercentOfBill).toBeGreaterThan(20);
+    expect(study.live!.firstSightPercentOfBill).toBeGreaterThan(study.live!.onRepeatPercentOfBill);
+    // The prefix size comes from what the provider really cached, not the replica's estimate.
+    expect(study.live!.prefixTokens).toBe(guardStudy().live!.provenCachedTokens);
+  });
+
+  it("the pipeline promotes it as lossless and records that the saving is a counterfactual", () => {
+    const ledger = new LabLedger(root, { now });
+    runToQuiescence(ledger, { now });
+    const lead = ledger.listRecords().find((r) => r.techniqueKey === "span-keyed-cache-stamping")!;
+    expect(lead.status).toBe("promoted");
+    expect(lead.evaluation!.lossless).toBe(true);
+    expect(lead.evaluation!.basis).toContain("DERIVED-FROM-LIVE");
+    expect(lead.redTeam!.findings.some((f) => /counterfactual/i.test(f.description))).toBe(true);
+  });
+});
+
+describe("browsing agents: stale page snapshots", () => {
+  type Message = { role: string; content: Array<{ type: string; content?: string; cache_control?: unknown }> | string };
+  const snapshots = (request: Record<string, unknown>): string[] =>
+    (request.messages as Message[]).flatMap((message) =>
+      Array.isArray(message.content)
+        ? message.content.filter((block) => block.type === "tool_result").map((block) => block.content!)
+        : [],
+    );
+  const session = browsingSession(12);
+  const final = session.requests.at(-1)!;
+
+  it("recognises a snapshot by shape, for both ref styles, and nothing else", () => {
+    expect(snapshots(final).every(isPageSnapshot)).toBe(true);
+    expect(snapshots(browsingSession(3, { interactiveOnly: true }).requests.at(-1)!).every(isPageSnapshot)).toBe(true);
+    expect(isPageSnapshot("PASS src/a.test.ts\n".repeat(20))).toBe(false);
+    expect(isPageSnapshot(SUPERSEDED_STUB)).toBe(false);
+  });
+
+  it("never touches the newest snapshot — the one the agent acts on", () => {
+    for (const rewrite of [dedupeStaleSnapshotLines, supersedeStaleSnapshots]) {
+      for (const request of session.requests) {
+        const before = snapshots(request);
+        const after = snapshots(rewrite(request));
+        expect(after.at(-1)).toBe(before.at(-1));
+        expect(after).toHaveLength(before.length);
+      }
+    }
+    for (const id of ["lineDedup", "supersede", "both"]) {
+      expect(browsingArm(qualifyBrowsingShape(), id).freshPagesAltered).toBe(0);
+    }
+  });
+
+  it("line dedup keeps every element and every piece of text the agent saw", () => {
+    const original = new Set(snapshots(final).flatMap((text) => text.split("\n")).filter((l) => l.trim() !== "").map(maskRef));
+    const kept = new Set(snapshots(dedupeStaleSnapshotLines(final)).flatMap((text) => text.split("\n")).map(maskRef));
+    for (const line of original) expect(kept.has(line)).toBe(true);
+    const arm = browsingArm(qualifyBrowsingShape(), "lineDedup");
+    expect(arm.factsReadable).toBe(arm.factsTotal);
+  });
+
+  it("supersession does lose earlier page text — which is why it needs a gate", () => {
+    const superseded = snapshots(supersedeStaleSnapshots(final));
+    expect(superseded.slice(0, -1).every((text) => text === SUPERSEDED_STUB)).toBe(true);
+    const arm = browsingArm(qualifyBrowsingShape(), "supersede");
+    expect(arm.factsReadable).toBeLessThan(arm.factsTotal);
+  });
+
+  it("rewrites each older snapshot once and leaves it byte-stable, so the cache keeps extending", () => {
+    for (const rewrite of [dedupeStaleSnapshotLines, supersedeStaleSnapshots]) {
+      for (let index = 2; index < session.requests.length - 1; index += 1) {
+        const earlier = snapshots(rewrite(session.requests[index]!));
+        const later = snapshots(rewrite(session.requests[index + 1]!));
+        // Everything except the snapshot that was newest last turn is unchanged.
+        expect(later.slice(0, earlier.length - 1)).toEqual(earlier.slice(0, -1));
+      }
+      // Idempotent: running the rewrite over its own output changes nothing.
+      expect(rewrite(rewrite(final))).toEqual(rewrite(final));
+    }
+  });
+
+  it("moving the breakpoint changes placement only, and is what makes the rewrite pay", () => {
+    const config = { toolSchemas: true, duplicateContext: true, repairCachePrefix: true, cacheTtl: "5m" } as const;
+    const strip = (value: unknown) => JSON.stringify(value, (key, inner) => (key === "cache_control" ? undefined : inner));
+    const stamped = session.requests.map((request) => reduceRequest(supersedeStaleSnapshots(request), config).request as Record<string, unknown>);
+    const moved = stamped.map(moveBreakpointBeforeFreshSnapshot);
+    moved.forEach((request, index) => expect(strip(request)).toBe(strip(stamped[index])));
+    // The fresh snapshot no longer carries a marker; the block before it does.
+    const last = (moved.at(-1)!.messages as Message[]).at(-1)!;
+    expect(JSON.stringify(last)).not.toContain("cache_control");
+    expect(JSON.stringify((moved.at(-1)!.messages as Message[]).at(-2))).toContain("cache_control");
+    // With the breakpoint ON the fresh snapshot, each write is spoiled a turn later.
+    expect(priceBrowsing(moved, session.outputTokens).cost).toBeLessThan(priceBrowsing(stamped, session.outputTokens).cost);
+  });
+
+  it("out of the box Mesh saves nothing on this shape; the cache flag is what pays", () => {
+    const result = qualifyBrowsingShape();
+    expect(browsingArm(result, "defaults").savingVsRawPercent).toBeCloseTo(0, 1);
+    expect(browsingArm(result, "today").savingVsRawPercent).toBeGreaterThan(60);
+    expect(browsingArm(result, "today").factsReadable).toBe(result.arms[0]!.factsTotal);
+  });
+
+  it("both Mesh arms beat today, grow with session length, and do not depend on stable refs", () => {
+    const savings = (steps: number, id: string, stableRefs = true) =>
+      browsingArm(qualifyBrowsingShape({ steps, stableRefs }), id).savingVsTodayPercent;
+    for (const id of ["lineDedup", "supersede"]) {
+      expect(savings(6, id)).toBeGreaterThan(0);
+      expect(savings(12, id)).toBeGreaterThan(savings(6, id));
+      expect(savings(24, id)).toBeGreaterThan(savings(12, id));
+      expect(savings(12, id, false)).toBeCloseTo(savings(12, id, true), 6);
+    }
+    expect(savings(12, "supersede")).toBeGreaterThan(savings(12, "lineDedup"));
+  });
+
+  it("the source-side idea and Mesh's are complementary, and the generic fresh cap is unsafe here", () => {
+    const result = qualifyBrowsingShape();
+    const both = browsingArm(result, "both").savingVsTodayPercent;
+    expect(both).toBeGreaterThan(browsingArm(result, "atSource").savingVsTodayPercent);
+    expect(both).toBeGreaterThan(browsingArm(result, "supersede").savingVsTodayPercent);
+    expect(browsingArm(result, "atSource").needsCustomerChange).toBe(true);
+    expect(browsingArm(result, "supersede").needsCustomerChange).toBe(false);
+    // The generic cap truncates every page the agent is about to act on.
+    expect(browsingArm(result, "freshCap").freshPagesAltered).toBe(result.steps);
+  });
+
+  it("the pipeline rests both levers at needs_gate with quality unmeasured", () => {
+    const ledger = new LabLedger(root, { now });
+    runToQuiescence(ledger, { now });
+    for (const key of ["stale-page-snapshot-line-dedup", "stale-page-snapshot-supersession"]) {
+      const lead = ledger.listRecords().find((r) => r.techniqueKey === key)!;
+      expect(lead.status).toBe("needs_gate");
+      expect(lead.evaluation!.lossless).toBe(false);
+      expect(lead.evaluation!.qualityUnmeasured).toBe(true);
+      expect(lead.evaluation!.basis).toContain("SIMULATOR");
+    }
   });
 });
 

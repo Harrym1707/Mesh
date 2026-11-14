@@ -19,6 +19,24 @@ log it here · commit locally only when green · do not push (left for review).
 3a. ~~Wire the tiers into the pipeline~~ — **Done — iteration 5.**
 3b. ~~Long-session variant~~ and 5. ~~Cache-TTL sensitivity~~ — **Done — iteration 4.**
 
+**Added 2026-11-14 (iteration 7), ahead of the list below:**
+- **One small live run** on the corrected cache guard, to turn the
+  DERIVED-FROM-LIVE figure for the coding agent (20.7% of its bill, 6.1% of the
+  live basket) into LIVE. Needs a provider key — Harry's call.
+- **A browsing workload with a real grader**, so the two stale-snapshot levers
+  (`needs_gate`) can be judged. Without one they stay lab-only.
+- **Exclude page snapshots from the generic fresh tool-result cap.** On the
+  browsing shape the cap truncates every page the agent is about to act on.
+- **Stamping an unflagged workload once its prefix repeats** (the live support
+  chat) is still lab-only; in the product the cache flag comes from the caller
+  or a Theo policy.
+
+**Added 2026-11-12 (iteration 6):**
+- ~~Span-keyed cache stamping into the product~~ — **Done — iteration 7**, for
+  workloads that carry the cache flag.
+- **Output.** 57.7% of the remaining live bill and no measured lever. Needs a
+  task-completion gate with a real model before `outputEffort` can be judged.
+
 **Open after the 24-hour run (in priority order):**
 - **Real replay gate for the `needs_gate` levers** (fresh tool-result cap,
   block-array prefix repair). Needs real traffic or a provider key — Harry's call.
@@ -36,6 +54,147 @@ log it here · commit locally only when green · do not push (left for review).
 6. **Red-team hardening.** Property tests for every reducer: never increases
    tokens, idempotent, preserves fenced code, byte-identical on clean input.
 7. README + floorplan refresh; final report at 24h.
+
+### Iteration 7 — 2026-11-14 · the cache guard fix ships; browsing agents
+
+Harry: "as long as it does not affect quality then do it"; look at
+vercel-labs/agent-browser and "see if we can do it better"; "make sure we ship
+this to live code".
+
+**1. Product change — the cache guard decides each breakpoint separately.**
+`packages/sdk-js/src/cache-volatility-guard.ts`, `reduce-request.ts`.
+- The guard now compares the content the system breakpoint would actually cover
+  (after Mesh's levers), supplied by the reducer, instead of the client's raw
+  `{tools, system}`. A clock that prefix repair has moved behind the breakpoint
+  is no longer churn.
+- A history that does not extend withholds only the breakpoint on the newest
+  message. The tools + system breakpoint stays: it sits before the history.
+- Each track recovers after two consecutive stable turns, as before.
+- Quality: placement only. A test asserts that, with the markers removed, the
+  guarded request equals the unguarded one on every turn of both live shapes.
+  Money: a span that really changes is still suppressed (tested); nothing is
+  stamped that the existing first-turn rule would not already stamp.
+- The guard as it shipped for the live run is frozen in
+  `lab/experiments/legacy-guard.ts` so the replica still reproduces the spool
+  (stamp, stamp, –, –, –). Under the product guard the same replica is stamped
+  on all five turns: **SIMULATOR −53.4% input** on the replica;
+  **DERIVED-FROM-LIVE 20.7% of the live coding agent's bill, 6.1% of the
+  $0.20103 basket** — a counterfactual, not a re-run. LIVE stays 18.2%.
+- Not covered: the live support chat (never stamped) carries no cache flag, so
+  this fix does not reach it. Its 29.1%–36.9% needs the flag from the caller or
+  a Theo policy (`cache-ttl-5m` is already a policy lever).
+- Reaches users only when this branch is merged and a release is cut; the
+  release branch (`theo/autonomous-agent`) does not have it yet.
+
+**2. agent-browser — what it does, and what Mesh can do that it cannot.**
+agent-browser (Rust CLI over CDP) returns a page as a compact accessibility
+snapshot with an element ref per line; `snapshot -i` keeps interactive elements
+only. Its site claims ~200–400 tokens against ~3,000–5,000 for a full DOM, with
+no method given. That cuts the cost of EACH snapshot, at the source, and needs
+the customer to swap their browser tool. It leaves every earlier snapshot in
+the transcript, re-sent on every later turn — the quadratic part.
+
+`lab/browsing-shape.ts` (+ `pnpm lab:browse`) is a synthetic 6/12/24-snapshot
+shop checkout priced with explicit breakpoints. **SIMULATOR, synthetic; sizes,
+script and length are ESTIMATES; no grader.** Whole bill:
+
+| Arm (12 snapshots) | vs no Mesh | vs Mesh today | Page text readable | Customer change |
+|---|---|---|---|---|
+| Mesh defaults (no cache flag) | 0.0% | — | 79/79 | no |
+| Mesh today (lossless + cache flag) | 73.5% | 0.0% | 79/79 | no |
+| Interactive-only at the source (agent-browser idea) | 80.4% | 26.3% | 0/79 | yes |
+| Mesh: stale-snapshot line dedup | 76.8% | 12.7% | 79/79 | no |
+| Mesh: stale snapshots superseded | 81.8% | 31.6% | 7/79 | no |
+| Source-side + Mesh supersession | 85.5% | 45.4% | 0/79 | yes |
+
+- Old snapshots being re-sent are 64.8% of the raw input bill at 12 snapshots
+  (48.0% at 6, 76.2% at 24). The Mesh arms grow with session length: line dedup
+  3.3% / 12.7% / 22.6%, supersession 21.4% / 31.6% / 44.6% at 6 / 12 / 24.
+- Out of the box Mesh saves nothing on this shape. The cache flag is what pays.
+- `lab/experiments/page-snapshots.ts` (lab-local): line dedup drops from each
+  older snapshot only the lines the next one repeats, with dead refs masked so
+  tools that renumber refs do not defeat it — every element and text line is
+  kept at its last occurrence (tested). Supersession replaces older snapshots
+  with a stub. Both move the breakpoint to just before the fresh snapshot;
+  with the breakpoint ON it, every write is spoiled one turn later (tested).
+- Both change what the model reads → both rest at `needs_gate`, quality
+  unmeasured. The two ideas are complementary, not rivals.
+- Warning arm: the generic fresh tool-result cap truncates all 12 fresh pages.
+
+**Verification:** full suite green, `tsc -b` and `typecheck:lab` clean (counts
+in the commit message).
+
+### Iteration 6 — 2026-11-12 · what the LIVE run still leaves on the table (agents)
+
+Asked: find more ways to cut token usage on agentic workflows. Instead of
+another fixture, this reads the LIVE spools (`evals/live-exports-2026-10-26/`,
+the run behind the 18.2% in `docs/NUMBERS.md`) — content-blind: token counts,
+lever ids, dollars.
+
+**Built**
+- `lab/live-study.ts` (+ `pnpm lab:live`): `liveResidual()`, `guardStudy()`,
+  `stampStudy()`, and a span pricing model for replicas.
+- `lab/live-shapes.ts`: constant-for-constant replicas of the live coding agent
+  and support chat (the script itself cannot be imported — importing runs it).
+  A test checks the replicas still match the script.
+- `lab/experiments/span-keyed-stamp.ts` (lab-local, NOT in the product).
+
+**Finding 1 — LIVE: output is most of what is left.** After Mesh, output is
+**57.7%** of the remaining live bill (coding agent 62.5%); fresh uncached input
+is 39.2%; cache reads + writes together 3.0%. The lab has no measured lever for
+output. That is now the largest open item, with a LIVE basis.
+
+**Finding 2 — the cache guard suppresses breakpoints that would still read.**
+The live coding agent's spool: stamped, stamped, then `cache-ttl-suppressed` on
+turns 3–5. Turn 2 read 2,267 cached tokens, so the repaired prefix is provably
+stable; turns 3–5 then paid full price for that same prefix. The replica
+reproduces this pattern exactly under the product guard. Two causes, each
+pinned by its own test:
+1. The guard hashes the RAW `{tools, system}`, so a per-turn clock reads as
+   churn even after `repairCachePrefix` has moved it out of the stamped span.
+2. It is all-or-nothing: a history that does not extend also suppresses the
+   tools + system breakpoint, which sits before the history and still reads.
+
+The existing product test that shows the repaired placement "earns" calls the
+reducer without the guard; the proxy installs the guard automatically. No
+branch (`main`, `integration/trunk`, `theo/autonomous-agent`) changes this.
+
+**Finding 3 — a reusable prefix that was never stamped.** The live support chat
+shipped the same tools + system on all six requests and carried no stamp
+(`cacheTtl` is a per-workload caller flag); every request was billed fresh.
+
+**Experiment — span-keyed stamping.** Key the system breakpoint on the exact
+span Mesh would stamp (tools + stamped system blocks, after Mesh's deterministic
+levers): stamp once that span has been seen before; keep the message breakpoint
+only when the raw history extends. Lossless — it emits only bytes the product
+already emits, stamped or unstamped (tested).
+
+| Agent | Basis | Stamp once the span repeats | Stamp at first sight (known route) |
+|---|---|---|---|
+| Coding agent replica, input cost | SIMULATOR | −35.6% | −53.4% |
+| Coding agent, share of live bill | DERIVED-FROM-LIVE | 13.8% ($0.00816) | 20.7% ($0.01224) |
+| Support chat replica, input cost | SIMULATOR | −54.3% | −69.1% |
+| Support chat, share of live bill | DERIVED-FROM-LIVE | 29.1% ($0.01519) | 36.9% ($0.01927) |
+| Both, share of the $0.20103 live basket | DERIVED-FROM-LIVE | 11.6% | 15.7% |
+
+**Qualification.**
+- DERIVED-FROM-LIVE is counterfactual arithmetic on verbatim provider usage with
+  the documented multipliers (write 1.25×, read 0.1×). It is **not** a re-run:
+  no request was sent. It is not LIVE and does not change the 18.2%.
+- The live basket is 30 requests; the "agents" in it are scripted. The coding
+  agent's history is rebuilt each turn by the script, which is one of the two
+  triggers. Real agents that window or summarise their history hit the same
+  path; how common that is on customer traffic is unknown.
+- "Stamp once the span repeats" never pays a write premium on a prefix that does
+  not repeat (tested: cost equals uncached). "At first sight" does lose on
+  non-repeating prefixes (tested), so it needs a route already known to repeat.
+- The support-chat figure uses the 2,267-token prefix the provider actually
+  cached in the coding run (same tools + system), not the replica's estimate.
+
+**Pipeline.** New lead `span-keyed-cache-stamping` → promoted as lossless, with
+basis recorded and a Red Team note that the saving is a counterfactual.
+
+**Verification:** 584 tests green (10 new), `typecheck:lab` clean.
 
 ### Iteration 5 — 14:36 → 21:00 · harness evidence in the pipeline; `needs_gate`
 

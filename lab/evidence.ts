@@ -11,12 +11,14 @@
 // passes only a SIMULATED grader is never promoted: the Maintainer rests it at
 // `needs_gate` until a real replay gate has run.
 
+import { browsingArm, qualifyBrowsingShape } from "./browsing-shape.js";
 import { qualifyOnCaptures, capturesAvailable } from "./captures.js";
+import { guardStudy, stampStudy } from "./live-study.js";
 import { qualifyPayingShape } from "./paying-shape.js";
 import { cadenceSweep } from "./sweeps.js";
 
 export type HarnessEvidence = {
-  harness: "paying-shape" | "cadence-sweep" | "wire-captures";
+  harness: "paying-shape" | "cadence-sweep" | "wire-captures" | "live-spools" | "browsing-shape";
   /**
    * The lever's saving. For paying-shape levers this is the POINTS of whole-bill
    * saving the lever adds on top of the rung below it; for the others it is the
@@ -52,7 +54,47 @@ function rungEvidence(id: string, scope: string, note: string): HarnessEvidence 
   };
 }
 
+/** A browsing-shape arm, judged against what Mesh already does on that shape. */
+function browsingEvidence(armId: string, note: (short: string, long: string) => string): HarnessEvidence {
+  const session = qualifyBrowsingShape({ steps: 12 });
+  const short = qualifyBrowsingShape({ steps: 6 });
+  const long = qualifyBrowsingShape({ steps: 24 });
+  const arm = browsingArm(session, armId);
+  return {
+    harness: "browsing-shape",
+    savingPercent: arm.savingVsTodayPercent,
+    scope: "whole-bill saving on a 12-snapshot browsing session, on top of Mesh's lossless stack with the cache flag",
+    qualityDrop: null, // no grader runs on this shape
+    lossless: false,
+    basis:
+      "SIMULATOR — synthetic browsing session (lab/browsing-shape.ts); page sizes, the step script and the session " +
+      "length are ESTIMATES",
+    grader: "none",
+    note:
+      `${note(browsingArm(short, armId).savingVsTodayPercent.toFixed(1), browsingArm(long, armId).savingVsTodayPercent.toFixed(1))} ` +
+      `Static page text still readable at the end of the session: ${arm.factsReadable} of ${arm.factsTotal} lines. ` +
+      `For comparison, interactive-only snapshots at the source (the agent-browser idea, a customer-side change) save ` +
+      `${browsingArm(session, "atSource").savingVsTodayPercent.toFixed(1)}% on the same session.`,
+  };
+}
+
 const EVIDENCE: Record<string, () => HarnessEvidence | undefined> = {
+  "stale-page-snapshot-line-dedup": () =>
+    browsingEvidence(
+      "lineDedup",
+      (short, long) =>
+        `Lab-local experiment (lab/experiments/page-snapshots.ts). ${short}% on a 6-snapshot session, ${long}% on 24: ` +
+        "the saving grows with session length because it removes re-sent history.",
+    ),
+
+  "stale-page-snapshot-supersession": () =>
+    browsingEvidence(
+      "supersede",
+      (short, long) =>
+        `Lab-local experiment (lab/experiments/page-snapshots.ts). ${short}% on a 6-snapshot session, ${long}% on 24. ` +
+        "Text that appeared only on an earlier page is gone.",
+    ),
+
   "fresh-tool-result-cap": () =>
     rungEvidence(
       "freshCap",
@@ -94,6 +136,48 @@ const EVIDENCE: Record<string, () => HarnessEvidence | undefined> = {
       note:
         `Choosing the 1h TTL from the observed gap saves ${slow.ttl1h.savingPercent.toFixed(1)}%, where a 5m stamp ` +
         `gives ${slow.ttl5m.savingPercent.toFixed(1)}% (every write expires unread).`,
+    };
+  },
+
+  "span-keyed-cache-stamping": () => {
+    const guard = guardStudy();
+    const stamp = stampStudy();
+    const range = (low: number, high: number) => `${low.toFixed(1)}%–${high.toFixed(1)}%`;
+    if (!guard.live) {
+      // No spools on disk: fall back to the replica, input side only.
+      return {
+        harness: "live-spools",
+        savingPercent: guard.onRepeatInputSavingPercent,
+        scope: "input-bill saving on the live coding-agent replica, stamping once the span repeats",
+        qualityDrop: 0,
+        lossless: true,
+        basis: "SIMULATOR — replica of the live coding-agent shape (lab/live-shapes.ts), span pricing",
+        grader: "not needed: breakpoint placement only, the bytes the model reads are identical",
+        note: "Live spools not found; no LIVE arithmetic available.",
+      };
+    }
+    return {
+      harness: "live-spools",
+      // The conservative policy (stamp once the span has repeated) on the agent
+      // whose stamp the product guard suppressed.
+      savingPercent: guard.live.onRepeatPercentOfBill,
+      scope: "share of the live coding agent's whole post-Mesh bill, stamping once the span repeats",
+      qualityDrop: 0,
+      lossless: true,
+      basis:
+        "DERIVED-FROM-LIVE — counterfactual arithmetic on verbatim provider usage " +
+        "(evals/live-exports-2026-10-26); the replica reproduces the live stamp pattern",
+      grader: "not needed: breakpoint placement only, the bytes the model reads are identical",
+      note:
+        `Live coding agent: ${range(guard.live.onRepeatPercentOfBill, guard.live.firstSightPercentOfBill)} of its bill ` +
+        `(stamp suppressed on ${guard.live.suppressedTurns} of ${guard.live.stampPattern.length} turns while the same ` +
+        `${guard.live.provenCachedTokens}-token prefix was billed fresh).` +
+        (stamp.live
+          ? ` Live support chat, never stamped: ${range(stamp.live.onRepeatPercentOfBill, stamp.live.firstSightPercentOfBill)} of its bill.`
+          : "") +
+        " A counterfactual, not re-run against the provider." +
+        " In the product since 2026-11-14 for workloads that carry the cache flag (the upper coding-agent figure);" +
+        " stamping an unflagged workload once its span repeats is still lab-only.",
     };
   },
 

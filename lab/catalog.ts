@@ -296,6 +296,62 @@ export const CATALOG: CatalogEntry[] = [
     datasetFixtureId: "chat-session",
   },
   {
+    title: "Span-keyed cache stamping (stamp what the provider matches)",
+    description:
+      "Found in the LIVE spools. The product decides cache breakpoints with a conversation guard that hashes the RAW tools + system and withholds EVERY breakpoint on churn. Two blind spots: a per-turn clock reads as churn even after prefix repair has moved it out of the stamped span, and a rewritten history suppresses the tools + system breakpoint that sits before the history and would still read. On the live coding agent the stamp was suppressed on 3 of 5 turns while the same 2,267-token prefix was billed fresh; the live support chat (same tool belt on every request) was never stamped at all. Keying the system breakpoint on the stamped span itself — stamp once that exact span has repeated — recovers both, and never pays a write premium on a prefix that does not repeat.",
+    category: "cache-placement",
+    bucket: "core",
+    techniqueKey: "span-keyed-cache-stamping",
+    hypothesis:
+      "Placing the system breakpoint whenever the exact span Mesh would stamp has been seen before reads the stable tools + system prefix on every later request, with no change to what the model reads.",
+    shape: "autonomous-agent",
+    controlSurface: "cache-placement",
+    featureInputs: ["keyed-prefix-hash", "inter-arrival-timing", "structural-counts"],
+    changesCustomerApplication: false,
+    expectedTokenReductionPercent: 14,
+    // Measured against the LIVE spools (lab/live-study.ts via lab/evidence.ts).
+    techniqueId: "span-keyed-cache-stamping",
+    defaultParams: { stampOnFirstSight: false },
+    datasetFixtureId: "live-spools",
+  },
+  {
+    title: "Stale page-snapshot line dedup (browsing agents)",
+    description:
+      "Prompted by vercel-labs/agent-browser, which makes each page snapshot cheap at the source (interactive elements only, compact text, element refs) but needs the customer to swap their browser tool and leaves every earlier snapshot in the transcript, re-sent on every turn. Mesh sits where the transcript is. When a newer page snapshot arrives, drop from the previous one only the lines that reappear in the newer one (element refs masked: an older snapshot's refs are dead, and tools that renumber refs would otherwise defeat the match), and move the cache breakpoint to just before the fresh snapshot so the compacted history is what gets cached. Every element and every piece of page text the agent saw stays in the transcript at its last occurrence. Works with any browser tool; not byte-lossless, so gate-required.",
+    category: "deduplication",
+    bucket: "core",
+    techniqueKey: "stale-page-snapshot-line-dedup",
+    hypothesis:
+      "Removing from each superseded page snapshot only the lines the next snapshot repeats cuts the re-sent history without removing anything the agent could still need.",
+    shape: "autonomous-agent",
+    controlSurface: "deduplication",
+    featureInputs: ["structural-counts", "token-counts", "keyed-prefix-hash"],
+    changesCustomerApplication: false,
+    expectedTokenReductionPercent: 12,
+    // Measured by the browsing-shape harness (lab/browsing-shape.ts via lab/evidence.ts).
+    techniqueId: "stale-page-snapshot-line-dedup",
+    defaultParams: { maskRefs: true, breakpoint: "before-fresh-snapshot" },
+    datasetFixtureId: "browsing-shape",
+  },
+  {
+    title: "Stale page-snapshot supersession (browsing agents)",
+    description:
+      "The aggressive form of the lever above. A page snapshot's element refs stop being valid the moment a newer snapshot exists, so replace every snapshot except the newest with a one-line stub and cache the compacted history. Roughly three times the saving of line dedup, but text that only appeared on an earlier page (a price, a reference number the agent did not restate) is no longer readable. Lossy; needs a real task-completion gate on a browsing workload before it could ship.",
+    category: "compaction",
+    bucket: "core",
+    techniqueKey: "stale-page-snapshot-supersession",
+    hypothesis:
+      "A browsing agent acts on the newest page; replacing superseded snapshots with a stub removes most of the re-sent history without changing its next action.",
+    shape: "autonomous-agent",
+    controlSurface: "context-compaction",
+    featureInputs: ["structural-counts", "token-counts", "keyed-prefix-hash"],
+    changesCustomerApplication: false,
+    expectedTokenReductionPercent: 30,
+    techniqueId: "stale-page-snapshot-supersession",
+    defaultParams: { breakpoint: "before-fresh-snapshot" },
+    datasetFixtureId: "browsing-shape",
+  },
+  {
     title: "Fresh tool-result cap",
     description:
       "Agentic lever. Cap oversized tool results at injection, before first send — a fresh oversized result bills once at the full input rate and only its cached re-reads are discounted. On the paying shape it is the single largest lossy lever (about 10 points of whole-bill saving) and it subsumes history compaction. Lossy by definition: the headline, errors and paths survive, the rest collapses.",

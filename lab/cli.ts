@@ -16,6 +16,8 @@ import { capturesAvailable, qualifyOnCaptures } from "./captures.js";
 import { readLiveNumbers } from "./numbers.js";
 import { qualifyPayingShape } from "./paying-shape.js";
 import { cadenceSweep, sessionLengthSweep } from "./sweeps.js";
+import { guardStudy, liveResidual, liveSpoolsAvailable, stampStudy } from "./live-study.js";
+import { qualifyBrowsingShape } from "./browsing-shape.js";
 import { fleetSavings } from "./workloads.js";
 import type { OptimisationRecord } from "./types.js";
 
@@ -260,6 +262,81 @@ switch (command) {
     printStatus(ledger);
     break;
   }
+  case "live": {
+    if (!liveSpoolsAvailable()) {
+      console.log("No live spools found under evals/live-exports-2026-10-26/.");
+      break;
+    }
+    const pct = (share: number) => `${(share * 100).toFixed(1)}%`.padStart(6);
+    const residual = liveResidual();
+    console.log("WHERE THE BILL STILL SITS AFTER MESH — LIVE (real provider usage, evals/live-exports-2026-10-26)\n");
+    if (residual) {
+      console.log(`  ${"agent".padEnd(18)} ${"bill".padStart(9)}   fresh in  cache rd  cache wr   output`);
+      for (const row of [...residual.rows, residual.total]) {
+        console.log(
+          `  ${row.agent.padEnd(18)} $${row.actualUsd.toFixed(5)}   ${pct(row.freshInput)}    ${pct(row.cacheRead)}    ${pct(row.cacheWrite)}   ${pct(row.output)}`,
+        );
+      }
+    }
+    const marks = (stamps: boolean[]) => stamps.map((s) => (s ? "stamp" : "  –  ")).join(" ");
+    const guard = guardStudy();
+    console.log("\nCODING AGENT — a stable prefix the conversation guard refused to stamp");
+    if (guard.live) {
+      console.log(`  LIVE spool:          ${guard.live.stampPattern.join(" ")}`);
+      console.log(`                       the provider read ${guard.live.provenCachedTokens} cached tokens on turn 2, then billed that prefix fresh ${guard.live.suppressedTurns} times`);
+    }
+    console.log(`  replica, guard then: ${marks(guard.legacyStamps)}   (the guard as shipped for the live run)`);
+    console.log(`  replica, guard NOW:  ${marks(guard.productStamps)}   (in the product: span-compared, one decision per breakpoint)`);
+    console.log(`  replica, on-repeat:  ${marks(guard.spanOnRepeatStamps)}   (lab only: stamp once the span has repeated, no caller flag)`);
+    console.log(`  SIMULATOR  input cost −${guard.productInputSavingPercent.toFixed(1)}% on the replica with the product guard now (−${guard.onRepeatInputSavingPercent.toFixed(1)}% for the lab-only on-repeat rule)`);
+    if (guard.live) {
+      console.log(
+        `  DERIVED-FROM-LIVE  $${guard.live.onRepeatUsd.toFixed(5)}–$${guard.live.firstSightUsd.toFixed(5)} of a $${guard.live.actualUsd.toFixed(5)} bill ` +
+          `= ${guard.live.onRepeatPercentOfBill.toFixed(1)}%–${guard.live.firstSightPercentOfBill.toFixed(1)}%  (counterfactual, not re-run)`,
+      );
+      console.log(`                     the product fix corresponds to the upper figure: this workload carries the cache flag, so it is stamped from turn 1`);
+    }
+    const stamp = stampStudy();
+    console.log("\nSUPPORT CHAT — the same tools + system on every request, never stamped (NOT changed by the product fix: stamping needs the workload's cache flag, from the caller or a Theo policy)");
+    console.log(`  SIMULATOR  input cost −${stamp.onRepeatInputSavingPercent.toFixed(1)}% to −${stamp.firstSightInputSavingPercent.toFixed(1)}% on the replica`);
+    if (stamp.live) {
+      console.log(
+        `  DERIVED-FROM-LIVE  $${stamp.live.onRepeatUsd.toFixed(5)}–$${stamp.live.firstSightUsd.toFixed(5)} of a $${stamp.live.actualUsd.toFixed(5)} bill ` +
+          `= ${stamp.live.onRepeatPercentOfBill.toFixed(1)}%–${stamp.live.firstSightPercentOfBill.toFixed(1)}%  (using the ${stamp.live.prefixTokens}-token prefix the provider cached in the coding run)`,
+      );
+    }
+    if (residual && guard.live && stamp.live) {
+      const low = guard.live.onRepeatUsd + stamp.live.onRepeatUsd;
+      const high = guard.live.firstSightUsd + stamp.live.firstSightUsd;
+      console.log(
+        `\nBOTH TOGETHER  $${low.toFixed(5)}–$${high.toFixed(5)} of the $${residual.total.actualUsd.toFixed(5)} live basket ` +
+          `= ${((low / residual.total.actualUsd) * 100).toFixed(1)}%–${((high / residual.total.actualUsd) * 100).toFixed(1)}% of what is still being paid (DERIVED-FROM-LIVE)`,
+      );
+    }
+    break;
+  }
+  case "browse": {
+    console.log("BROWSING AGENTS — SIMULATOR on a SYNTHETIC session (page sizes, script and length are ESTIMATES; no grader)\n");
+    for (const steps of [6, 12, 24]) {
+      const result = qualifyBrowsingShape({ steps });
+      console.log(
+        `${steps} page snapshots, ~${result.averageSnapshotTokens.toFixed(0)} tokens each — old snapshots being re-sent are ` +
+          `${(result.staleSnapshotShareOfRawInput * 100).toFixed(1)}% of the raw input bill`,
+      );
+      console.log(`  ${"arm".padEnd(62)} vs no Mesh   vs Mesh today   page text readable   needs customer change`);
+      for (const arm of result.arms) {
+        console.log(
+          `  ${arm.label.padEnd(62)} ${`${arm.savingVsRawPercent.toFixed(1)}%`.padStart(9)}   ${`${arm.savingVsTodayPercent.toFixed(1)}%`.padStart(11)}   ` +
+            `${`${arm.factsReadable}/${arm.factsTotal}`.padStart(16)}   ${arm.needsCustomerChange ? "yes" : "no"}` +
+            (arm.freshPagesAltered > 0 ? `   ← truncates ${arm.freshPagesAltered} fresh pages the agent must act on` : ""),
+        );
+      }
+      console.log("");
+    }
+    console.log("Whole bill (input + output), against the raw uncached session and against Mesh's lossless stack with the cache flag.");
+    console.log("The Mesh snapshot arms are lab-only experiments (lab/experiments/page-snapshots.ts) and change what the model reads: gate-required.");
+    break;
+  }
   case "sweep": {
     // On demand: these re-run the cache simulation many times. --full adds the
     // 20-turn sessions, which take several minutes.
@@ -302,7 +379,7 @@ switch (command) {
   }
   default:
     console.log(
-      "Usage: lab <demo|run|watch|status|sweep|verify> [--root <dir>]\n" +
+      "Usage: lab <demo|run|watch|status|live|browse|sweep|verify> [--root <dir>]\n" +
         "  watch [--interval <ms>] [--idle <n>] [--ticks <n>] [--forever]\n" +
         "  sweep [--tasks <n>] [--full]",
     );

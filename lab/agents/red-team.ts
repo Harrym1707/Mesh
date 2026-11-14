@@ -83,11 +83,12 @@ export function redTeamRun(ledger: LabLedger, record: OptimisationRecord): Optim
         resolved: false,
       });
     }
-    if (/ESTIMATE|synthetic|one session/i.test(`${evidence.basis} ${evidence.note}`)) {
+    if (/ESTIMATE|synthetic|one session|counterfactual/i.test(`${evidence.basis} ${evidence.note}`)) {
       findings.push({
         severity: "minor",
         category: "invalid-assumption",
-        description: "The measurement rests on a synthetic or single-sample input, not on representative traffic.",
+        description:
+          "The measurement rests on a synthetic, single-sample or counterfactual input, not on a run of this lever against representative traffic.",
         evidence: evidence.basis,
         resolved: false,
       });
