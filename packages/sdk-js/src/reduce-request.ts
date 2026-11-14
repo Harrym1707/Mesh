@@ -68,6 +68,14 @@ export type MeshTokenReductionConfig = {
   toolSchemas?: boolean | {
     descriptions?: "keep" | "truncate" | "drop";
     maximumDescriptionTokens?: number;
+    /**
+     * Sort the tool catalogue into a stable, name-ordered canonical order
+     * before it is sent. Protects the cache prefix against a framework that
+     * resends the same tools in a different array order turn-to-turn (a
+     * mutable registry, conditional subsets, dict iteration) — the set and
+     * schema of each tool is unchanged, only the order. Off by default.
+     */
+    canonicalOrder?: boolean;
   };
   /** Remove exact duplicate blocks from instructions and message text. */
   duplicateContext?: boolean;
@@ -959,12 +967,17 @@ export function reduceRequest(
       const minified = minifyToolSchemas(next.tools, {
         countTokens,
         descriptions: (toolOptions.descriptions as "keep" | "truncate" | "drop" | undefined) ?? "keep",
+        canonicalOrder: toolOptions.canonicalOrder === true,
         ...(typeof toolOptions.maximumDescriptionTokens === "number"
           ? { maximumDescriptionTokens: toolOptions.maximumDescriptionTokens }
           : {}),
       });
       const saved = minified.tokensBefore - minified.tokensAfter;
-      if (saved > 0) {
+      const reordered = minified.changes.some((change) => change.kind === "tool-order");
+      // A pure reorder saves zero tokens (`saved` stays 0) but must still be
+      // applied, or the only effect of canonicalOrder would be silently
+      // dropped — the whole point is bytes the request wouldn't otherwise have.
+      if (saved > 0 || reordered) {
         next.tools = minified.tools;
         if (minified.losslessTokensSaved > 0) {
           changes.push({
@@ -980,6 +993,15 @@ export function reduceRequest(
             lossless: false,
             estimatedTokensSaved: minified.lossyTokensSaved,
             detail: "Trimmed tool descriptions, which is how the model chooses between tools.",
+          });
+        }
+        if (reordered) {
+          changes.push({
+            lever: "tool-schema-canonical-order",
+            lossless: true,
+            estimatedTokensSaved: 0,
+            detail: "Reordered the tool catalogue into a stable order so a resend with a different " +
+              "array order does not needlessly break the cached prefix.",
           });
         }
       }

@@ -29,7 +29,106 @@ import { approximateTokenCount, type TokenCounter } from "./token-reduction.js";
  */
 
 /** Keys the provider's schema validator reads but the model never sees as prose. */
-const PLUMBING_KEYS = new Set(["$schema", "$id", "$comment", "$defs"]);
+const PLUMBING_KEYS = new Set(["$schema", "$id", "$comment"]);
+
+/**
+ * JSON Schema's two shared-definition conventions: `$defs` (2020-12, what
+ * Pydantic v2 and modern LangChain/MCP tool schemas emit) and `definitions`
+ * (draft-07, still emitted by Pydantic v1 and some older generators). A
+ * `$ref` can point into either. Earlier code treated `$defs` as plumbing and
+ * deleted it unconditionally — which is wrong: Anthropic and OpenAI both
+ * document support for `$ref`/`$defs` in tool schemas (nested Pydantic
+ * models routinely compile to exactly this shape), so a tool with even one
+ * nested model had its definitions block removed while its `$ref` pointers
+ * stayed behind, pointing at nothing. That is corruption, not compaction.
+ */
+const DEFINITION_CONTAINER_KEYS = new Set(["$defs", "definitions"]);
+const REF_PATTERN = /^#\/(?:\$defs|definitions)\/([^/]+)/;
+
+/** Collect every `$ref` target name reachable from `node`, recursively. */
+function collectRefNames(node: unknown, out: Set<string>): void {
+  if (Array.isArray(node)) {
+    for (const item of node) collectRefNames(item, out);
+    return;
+  }
+  if (typeof node !== "object" || node === null) return;
+  for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+    if (key === "$ref" && typeof value === "string") {
+      const match = REF_PATTERN.exec(value);
+      if (match?.[1] !== undefined) out.add(decodeURIComponent(match[1]));
+      continue;
+    }
+    collectRefNames(value, out);
+  }
+}
+
+/** Every named entry across all `$defs`/`definitions` containers in `tool`. */
+function collectDefinitions(node: unknown, out: Map<string, unknown>): void {
+  if (Array.isArray(node)) {
+    for (const item of node) collectDefinitions(item, out);
+    return;
+  }
+  if (typeof node !== "object" || node === null) return;
+  for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+    if (DEFINITION_CONTAINER_KEYS.has(key) && typeof value === "object" && value !== null) {
+      for (const [name, definition] of Object.entries(value as Record<string, unknown>)) {
+        out.set(name, definition);
+      }
+      continue;
+    }
+    collectDefinitions(value, out);
+  }
+}
+
+/**
+ * Which named definitions in `tool` are actually reachable from a `$ref` the
+ * model's schema walk would follow — starting from refs used OUTSIDE any
+ * definitions container, then transitively through whatever those
+ * definitions themselves reference. A definition unreachable from any live
+ * `$ref` can be deleted with certainty: nothing in the schema can ever point
+ * at it, so removing it changes zero bytes the model's traversal ever sees.
+ */
+function liveDefinitionNames(tool: unknown): Set<string> {
+  const definitions = new Map<string, unknown>();
+  collectDefinitions(tool, definitions);
+  if (definitions.size === 0) return new Set();
+
+  const seeds = new Set<string>();
+  collectSeedRefs(tool, seeds);
+
+  const live = new Set<string>();
+  const queue = [...seeds];
+  while (queue.length > 0) {
+    const name = queue.pop()!;
+    if (live.has(name)) continue;
+    live.add(name);
+    const definition = definitions.get(name);
+    if (definition === undefined) continue; // dangling ref to a name that was never defined
+    const nested = new Set<string>();
+    collectRefNames(definition, nested);
+    for (const next of nested) if (!live.has(next)) queue.push(next);
+  }
+  return live;
+}
+
+/** Like {@link collectRefNames}, but does not descend into definitions
+ *  containers — it finds only the refs the *usable* schema actually makes. */
+function collectSeedRefs(node: unknown, out: Set<string>): void {
+  if (Array.isArray(node)) {
+    for (const item of node) collectSeedRefs(item, out);
+    return;
+  }
+  if (typeof node !== "object" || node === null) return;
+  for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+    if (DEFINITION_CONTAINER_KEYS.has(key)) continue;
+    if (key === "$ref" && typeof value === "string") {
+      const match = REF_PATTERN.exec(value);
+      if (match?.[1] !== undefined) out.add(decodeURIComponent(match[1]));
+      continue;
+    }
+    collectSeedRefs(value, out);
+  }
+}
 
 export type MinifyOptions = {
   /**
@@ -43,11 +142,28 @@ export type MinifyOptions = {
   dropExamples?: boolean;
   /** Tool names to keep. Omit to keep all; naming a subset is lossy. */
   keepTools?: readonly string[];
+  /**
+   * Sort the retained tool array into a stable, name-ordered canonical order.
+   * The set and schema of each tool is unchanged — only the array's order
+   * moves — but a framework that resends the same catalogue in a different
+   * order turn-to-turn (e.g. because it rebuilds the list from a mutable
+   * registry) breaks the cache prefix on every such turn for no reason. Off
+   * by default: it is a serialization-order change, so it ships opt-in.
+   */
+  canonicalOrder?: boolean;
   countTokens?: TokenCounter;
 };
 
 export type MinifyChange = {
-  kind: "plumbing" | "redundant-title" | "formatting" | "description" | "examples" | "dropped-tool";
+  kind:
+    | "plumbing"
+    | "redundant-title"
+    | "formatting"
+    | "description"
+    | "examples"
+    | "dropped-tool"
+    | "unused-definition"
+    | "tool-order";
   lossless: boolean;
   /** Where in the catalogue, e.g. a tool name or a property path. */
   at: string;
@@ -123,6 +239,10 @@ export function minifyToolSchemas(tools: unknown[], options: MinifyOptions = {})
 
   const keep = options.keepTools === undefined ? undefined : new Set(options.keepTools);
   const retained: unknown[] = [];
+  // Scoped to whichever tool `prune` is currently walking — recomputed per
+  // tool because `$defs`/`definitions` and the `$ref`s pointing into them
+  // are local to each tool's own parameter schema, not shared catalogue-wide.
+  let currentLiveDefinitionNames: Set<string> = new Set();
 
   tools.forEach((tool, index) => {
     const name = toolNameOf(tool, index);
@@ -137,6 +257,7 @@ export function minifyToolSchemas(tools: unknown[], options: MinifyOptions = {})
       });
       return;
     }
+    currentLiveDefinitionNames = liveDefinitionNames(tool);
     retained.push(prune(tool, name));
   });
 
@@ -154,6 +275,26 @@ export function minifyToolSchemas(tools: unknown[], options: MinifyOptions = {})
           tokensSaved: countTokens(JSON.stringify({ [key]: value })),
           detail: `Removed ${key}, which the model never reads.`,
         });
+        continue;
+      }
+      if (DEFINITION_CONTAINER_KEYS.has(key) && typeof value === "object" && value !== null) {
+        const kept: Record<string, unknown> = {};
+        for (const [defName, defValue] of Object.entries(value as Record<string, unknown>)) {
+          if (!currentLiveDefinitionNames.has(defName)) {
+            changes.push({
+              kind: "unused-definition",
+              lossless: true,
+              at: `${path}.${key}.${defName}`,
+              tokensSaved: countTokens(JSON.stringify({ [defName]: defValue })),
+              detail: `Removed "${defName}": no "$ref" anywhere in this tool's schema points to it.`,
+            });
+            continue;
+          }
+          kept[defName] = prune(defValue, `${path}.${key}.${defName}`);
+        }
+        // An empty container is only ever reachable via refs we just proved
+        // dead, so dropping it removes no $ref's target — nothing points here.
+        if (Object.keys(kept).length > 0) output[key] = kept;
         continue;
       }
       if (key === "title" && typeof value === "string") {
@@ -209,16 +350,43 @@ export function minifyToolSchemas(tools: unknown[], options: MinifyOptions = {})
     return output;
   }
 
+  // Canonical ordering: a pure array-order change, so it is scored as a cache
+  // stability measure (tokensSaved: 0), never as a token saving. It is also
+  // why this runs AFTER pruning rather than before — sorting by name must see
+  // each tool's final (post-prune) identity, not reorder first and prune
+  // second, which would make the recorded order depend on an arbitrary input
+  // order for ties (there are none here since tool names are unique, but the
+  // sequencing is the honest invariant to hold regardless).
+  let ordered = retained;
+  if (options.canonicalOrder) {
+    const named = retained.map((tool, index) => ({ name: toolNameOf(tool, index), tool }));
+    const sorted = [...named].sort((a, b) => a.name.localeCompare(b.name));
+    const moved = sorted.some((entry, index) => entry.tool !== named[index]!.tool);
+    if (moved) {
+      changes.push({
+        kind: "tool-order",
+        lossless: true,
+        at: "catalogue",
+        tokensSaved: 0,
+        detail: "Reordered the tool catalogue into a stable, name-sorted order. The set and schema of " +
+          "each tool is unchanged; this exists so a framework that resends the same catalogue in a " +
+          "different order turn-to-turn (a mutable registry, conditional tool subsets, dict iteration) " +
+          "does not break the cached prefix on every such turn for no reason.",
+      });
+    }
+    ordered = sorted.map((entry) => entry.tool);
+  }
+
   // Compact serialisation is hygiene, NOT a billable saving: every client
   // JSON-encodes the request body and the provider tokenises the parsed
   // structure, not the byte formatting, so whitespace removal saves zero real
   // tokens (verified against Anthropic count_tokens). No formatting change is
   // recorded — the honest lossless savings are the content removals above.
-  const compact = JSON.stringify(retained);
+  const compact = JSON.stringify(ordered);
   const tokensAfter = countTokens(compact);
 
   return {
-    tools: retained,
+    tools: ordered,
     tokensBefore,
     tokensAfter,
     losslessTokensSaved: changes.filter((change) => change.lossless)

@@ -115,6 +115,169 @@ describe("minifyToolSchemas", () => {
   });
 });
 
+/**
+ * Shaped the way Pydantic v2's `model_json_schema()` actually emits a tool
+ * whose parameters include a nested model — e.g. what LangChain's
+ * `bind_tools`/MCP tool registration sends when a tool argument is itself a
+ * BaseModel. `$ref` points into `$defs`; `additionalProperties: false` is
+ * what strict-mode schemas require; the nested model's own `title` restates
+ * its definition name, exactly as Pydantic auto-generates it.
+ */
+function pydanticToolWithNestedModel(name: string): unknown {
+  return {
+    type: "function",
+    function: {
+      name,
+      description: "Create a support ticket for the named contact.",
+      parameters: {
+        $schema: "https://json-schema.org/draft/2020-12/schema",
+        $defs: {
+          ContactInfo: {
+            title: "ContactInfo",
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              email: { type: "string", title: "Email" },
+              phone: { type: "string", title: "Phone" },
+            },
+            required: ["email"],
+          },
+        },
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          contact: { $ref: "#/$defs/ContactInfo" },
+          priority: { type: "string", enum: ["low", "high"] },
+        },
+        required: ["contact"],
+      },
+    },
+  };
+}
+
+describe("minifyToolSchemas — $defs / $ref (Pydantic-shaped schemas)", () => {
+  it("keeps a $defs entry a $ref still points to, instead of corrupting the schema", () => {
+    const result = minifyToolSchemas([pydanticToolWithNestedModel("open_ticket")]);
+    const serialised = JSON.stringify(result.tools);
+    // The regression this guards: $defs used to be unconditionally removed as
+    // "plumbing", leaving `{"$ref":"#/$defs/ContactInfo"}` dangling — a
+    // provider given that schema can no longer resolve what `contact` is.
+    expect(serialised).toContain('"$ref":"#/$defs/ContactInfo"');
+    expect(serialised).toContain('"ContactInfo"');
+    expect(JSON.parse(serialised)[0].function.parameters.$defs.ContactInfo.properties.email).toBeDefined();
+  });
+
+  it("removes a $defs entry nothing refers to, and reports it as lossless", () => {
+    const tool = pydanticToolWithNestedModel("open_ticket") as any;
+    tool.function.parameters.$defs.Unused = { title: "Unused", type: "object", properties: {} };
+    const result = minifyToolSchemas([tool]);
+    const serialised = JSON.stringify(result.tools);
+    expect(serialised).not.toContain("Unused");
+    expect(serialised).toContain("ContactInfo"); // the live one survives
+    const removed = result.changes.find((c) => c.kind === "unused-definition");
+    expect(removed?.lossless).toBe(true);
+    expect(removed?.at).toContain("Unused");
+  });
+
+  it("drops the whole $defs container once every entry in it is unreferenced", () => {
+    const lean = [{
+      type: "function",
+      function: {
+        name: "ping",
+        parameters: {
+          $defs: { Orphan: { type: "object", properties: {} } },
+          type: "object",
+          properties: { id: { type: "string" } },
+        },
+      },
+    }];
+    const result = minifyToolSchemas(lean);
+    expect(JSON.stringify(result.tools)).not.toContain("$defs");
+  });
+
+  it("follows a transitive chain: a definition referenced only by another live definition survives", () => {
+    const chained = [{
+      type: "function",
+      function: {
+        name: "schedule",
+        parameters: {
+          $defs: {
+            Appointment: {
+              type: "object",
+              properties: { location: { $ref: "#/$defs/Address" } },
+            },
+            Address: { type: "object", properties: { city: { type: "string" } } },
+          },
+          type: "object",
+          properties: { appointment: { $ref: "#/$defs/Appointment" } },
+        },
+      },
+    }];
+    const result = minifyToolSchemas(chained);
+    const serialised = JSON.stringify(result.tools);
+    expect(serialised).toContain("Appointment");
+    expect(serialised).toContain("Address"); // kept only via the transitive hop through Appointment
+    expect(result.changes.some((c) => c.kind === "unused-definition")).toBe(false);
+  });
+
+  it("handles legacy draft-07 `definitions` the same way as `$defs`", () => {
+    const draft07 = [{
+      type: "function",
+      function: {
+        name: "legacy_tool",
+        parameters: {
+          definitions: {
+            Live: { type: "object", properties: { x: { type: "string" } } },
+            Dead: { type: "object", properties: { y: { type: "string" } } },
+          },
+          type: "object",
+          properties: { v: { $ref: "#/definitions/Live" } },
+        },
+      },
+    }];
+    const result = minifyToolSchemas(draft07);
+    const serialised = JSON.stringify(result.tools);
+    expect(serialised).toContain("Live");
+    expect(serialised).not.toContain("Dead");
+  });
+
+  it("still strips genuine plumbing ($schema) and redundant titles inside a kept $defs entry", () => {
+    const tool = pydanticToolWithNestedModel("open_ticket") as any;
+    tool.function.parameters.$defs.ContactInfo.$comment = "internal note";
+    const result = minifyToolSchemas([tool]);
+    const serialised = JSON.stringify(result.tools);
+    expect(serialised).not.toContain("internal note");
+    expect(serialised).not.toContain("$schema");
+  });
+});
+
+describe("minifyToolSchemas — canonicalOrder", () => {
+  it("leaves order untouched by default", () => {
+    const result = minifyToolSchemas([tool("zebra", "Z."), tool("alpha", "A.")]);
+    expect(result.tools.map((t: any) => t.function.name)).toEqual(["zebra", "alpha"]);
+    expect(result.changes.some((c) => c.kind === "tool-order")).toBe(false);
+  });
+
+  it("sorts tools by name and records a zero-token cache-stability change when order moves", () => {
+    const result = minifyToolSchemas([tool("zebra", "Z."), tool("alpha", "A.")], { canonicalOrder: true });
+    expect(result.tools.map((t: any) => t.function.name)).toEqual(["alpha", "zebra"]);
+    const reorder = result.changes.find((c) => c.kind === "tool-order");
+    expect(reorder?.lossless).toBe(true);
+    expect(reorder?.tokensSaved).toBe(0);
+  });
+
+  it("records no tool-order change when the input was already canonical", () => {
+    const result = minifyToolSchemas([tool("alpha", "A."), tool("zebra", "Z.")], { canonicalOrder: true });
+    expect(result.changes.some((c) => c.kind === "tool-order")).toBe(false);
+  });
+
+  it("makes two differently-ordered resends of the same catalogue serialize identically", () => {
+    const a = minifyToolSchemas([tool("zebra", "Z."), tool("alpha", "A."), tool("mid", "M.")], { canonicalOrder: true });
+    const b = minifyToolSchemas([tool("alpha", "A."), tool("mid", "M."), tool("zebra", "Z.")], { canonicalOrder: true });
+    expect(JSON.stringify(a.tools)).toBe(JSON.stringify(b.tools));
+  });
+});
+
 describe("auditToolCatalogue", () => {
   it("separates what is free from what needs verifying", () => {
     const audit = auditToolCatalogue([tool("a", LONG), tool("b", LONG), tool("c", LONG)]);
