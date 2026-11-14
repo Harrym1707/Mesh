@@ -51,14 +51,48 @@ describe("CachePrefixVolatilityGuard", () => {
     expect(guard.observe(turn(4, "09:05:00Z")).stamp).toBe(true);
   });
 
-  it("suppresses when the history is rewritten instead of extended", () => {
+  it("withholds only the message breakpoint when the history is rewritten instead of extended", () => {
     const guard = new CachePrefixVolatilityGuard();
     expect(guard.observe(turn(2)).stamp).toBe(true);
     const rewritten = turn(2) as { messages: Array<Record<string, unknown>> };
     rewritten.messages[1] = { role: "assistant", content: "[summarised by the client framework]" };
     const decision = guard.observe(rewritten);
-    expect(decision.stamp).toBe(false);
+    // The tools + system breakpoint sits BEFORE the history, so a rewritten
+    // history cannot stop it reading; only the newest-message breakpoint is lost.
+    expect(decision.stamp).toBe(true);
+    expect(decision.messageBreakpoint).toBe(false);
     expect(decision.reason).toContain("history was rewritten");
+  });
+
+  it("restores the message breakpoint after two consecutive extending turns", () => {
+    const guard = new CachePrefixVolatilityGuard();
+    guard.observe(turn(2));
+    const rewritten = turn(2) as { messages: Array<Record<string, unknown>> };
+    rewritten.messages[1] = { role: "assistant", content: "[summarised by the client framework]" };
+    expect(guard.observe(rewritten).messageBreakpoint).toBe(false);
+    const grow = (extra: number): Record<string, unknown> => ({
+      ...rewritten,
+      messages: [
+        ...rewritten.messages,
+        ...Array.from({ length: extra }, (_, index) => ({ role: index % 2 === 0 ? "assistant" : "user", content: `more ${index}` })),
+      ],
+    });
+    expect(guard.observe(grow(2)).messageBreakpoint).toBe(false); // first extending turn: still proving
+    expect(guard.observe(grow(4))).toEqual({ stamp: true });      // second: fully restored
+  });
+
+  it("compares the stamped span when the reducer supplies it, not the raw system", () => {
+    const guard = new CachePrefixVolatilityGuard();
+    // The raw system ticks every turn, but the content the breakpoint covers
+    // (what the provider matches on) is identical: that is not churn.
+    for (let index = 0; index < 5; index += 1) {
+      const decision = guard.observe(turn(index, `09:0${index}:00Z`), { stampedPrefix: ["m", null, [{ type: "text", text: PREAMBLE }]] });
+      expect(decision.stamp).toBe(true);
+    }
+    // And a span that does change is still caught.
+    const changed = guard.observe(turn(5, "09:05:00Z"), { stampedPrefix: ["m", null, [{ type: "text", text: `${PREAMBLE} v2` }]] });
+    expect(changed.stamp).toBe(false);
+    expect(changed.reason).toContain("tools/system changed");
   });
 
   it("keeps conversations independent: churn in one never suppresses another", () => {
@@ -179,6 +213,64 @@ describe("reduceRequest with the guard and the volatile-tail placement", () => {
     expect(suppression).toBeDefined();
     expect(suppression!.detail).toContain("never reads");
     expect(second.summary.changes.find((change) => change.lever === "cache-ttl-5m")).toBeUndefined();
+  });
+
+  // The 2026-10-26 live coding-agent spool: a full ISO clock in the system
+  // (which prefix repair relocates) and a history the client rebuilds each
+  // turn. The guard used to withhold everything from turn 3 on while the
+  // provider had the stable prefix cached; these pin the corrected behaviour.
+  const liveShaped = (turnIndex: number, rebuilt: boolean): Record<string, unknown> => {
+    const base = turn(turnIndex, `2026-10-13T09:0${turnIndex}:00Z`) as { messages: Array<Record<string, unknown>> };
+    if (rebuilt && turnIndex > 0) {
+      base.messages[1] = { role: "assistant", content: `Summary as of turn ${turnIndex}.` };
+    }
+    return base;
+  };
+  const stripStamps = (value: unknown): unknown =>
+    JSON.parse(JSON.stringify(value, (key, inner) => (key === "cache_control" ? undefined : inner)));
+
+  it("keeps the system breakpoint on every turn when repair has moved the per-turn clock out of it", () => {
+    const shared = { ...config, cacheVolatilityGuard: new CachePrefixVolatilityGuard() };
+    for (let index = 0; index < 6; index += 1) {
+      const { request: reduced, summary } = reduceRequest(liveShaped(index, false), shared);
+      const system = (reduced as { system: Array<{ text: string; cache_control?: unknown }> }).system;
+      expect(system[0]!.cache_control).toEqual({ type: "ephemeral", ttl: "5m" });
+      expect(system[0]!.text).toEqual(`${PREAMBLE}\n`);
+      expect(summary.changes.some((change) => change.lever === "cache-ttl-5m")).toBe(true);
+    }
+  });
+
+  it("keeps the system breakpoint when the client rewrites its history, and withholds only the message one", () => {
+    const shared = { cacheTtl: "5m", cacheVolatilityGuard: new CachePrefixVolatilityGuard() } as const;
+    const first = reduceRequest(turn(2), shared);
+    expect(JSON.stringify((first.request as { messages: unknown }).messages)).toContain("cache_control");
+    const rewritten = turn(2) as { messages: Array<Record<string, unknown>> };
+    rewritten.messages[1] = { role: "assistant", content: "[summarised by the client framework]" };
+    const second = reduceRequest(rewritten, shared);
+    const reduced = second.request as { system: Array<{ cache_control?: unknown }>; messages: unknown };
+    expect(reduced.system[0]!.cache_control).toEqual({ type: "ephemeral", ttl: "5m" });
+    expect(JSON.stringify(reduced.messages)).not.toContain("cache_control");
+    const note = second.summary.changes.find((change) => change.lever === "cache-ttl-suppressed");
+    expect(note!.detail).toContain("newest message withheld");
+    expect(second.summary.changes.some((change) => change.lever === "cache-ttl-5m")).toBe(true);
+  });
+
+  it("changes only where breakpoints go: with the markers removed, the guarded request equals the unguarded one", () => {
+    // The quality argument, as a test. Whatever the guard decides, the model
+    // must be sent exactly the content the existing (unguarded) stamp sends.
+    const guarded = { ...config, cacheVolatilityGuard: new CachePrefixVolatilityGuard() };
+    for (const rebuilt of [false, true]) {
+      for (let index = 0; index < 6; index += 1) {
+        const raw = liveShaped(index, rebuilt);
+        const withGuard = reduceRequest(raw, guarded).request as { system: unknown; messages: unknown };
+        const without = reduceRequest(raw, { ...config }).request as { system: unknown; messages: unknown };
+        const text = (system: unknown): string => Array.isArray(system)
+          ? (system as Array<{ text: string }>).map((block) => block.text).join("")
+          : String(system);
+        expect(text(withGuard.system)).toEqual(text(without.system));
+        expect(stripStamps(withGuard.messages)).toEqual(stripStamps(without.messages));
+      }
+    }
   });
 });
 
