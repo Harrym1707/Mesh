@@ -4,12 +4,12 @@
 > - **Pricing stays 1% of verified savings — PARKED, do not pursue 1%-of-spend
 >   now.** Q1 kept only as a future-options note.
 > - **The "do your agents already cache?" triage question is REJECTED** — it
->   frames FLUX as a caching bolt-on. Do not build it.
+>   frames MESH as a caching bolt-on. Do not build it.
 > - Build priority is levers that are visibly MORE than caching (Q2 local
 >   semantic compaction, Q4 routing). Ship, don't strategise.
 
 Four founder questions to dig into. Nightly R&D: extend each section; hold the
-honesty policy (docs/strategy, flux-honesty-rules) as a hard constraint — a
+honesty policy (docs/strategy, mesh-honesty-rules) as a hard constraint — a
 pricing or lever idea that requires abandoning "prompts never leave the
 machine" or "only bill verified value" must be flagged as a brand break, not
 quietly adopted. First-pass reasoning below is the starting point, not the
@@ -83,12 +83,12 @@ Data and trust are the moats; levers are commoditisable. The dream stack:
 
 ## Q4 — If we solve model orchestration (all-in-one), what changes?
 
-This is the answer to "is FLUX defensible once caching is solved" — yes,
+This is the answer to "is MESH defensible once caching is solved" — yes,
 because routing is an independent, LARGER, unsaturated lever:
 - Caching/dedup shave a % off a bill; routing a request from a frontier model
   to a cheap tier or a local OSS model is a step-change (10–100× per request,
   or → $0 for local). The biggest savings live here, not in caching.
-- It makes FLUX valuable to even a perfectly-cached agent: route the trivial
+- It makes MESH valuable to even a perfectly-cached agent: route the trivial
   40% of calls elsewhere while holding quality — savings no caching touches.
 - Position shift: from "cost proxy" to "the inference control plane" every
   request flows through. Bigger, stickier, higher switching cost.

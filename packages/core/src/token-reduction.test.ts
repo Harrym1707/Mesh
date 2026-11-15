@@ -7,6 +7,7 @@ import {
   collapseWhitespace,
   dedupeRepeatedBlocks,
   dedupeRepeatedLeadingBlock,
+  minifyJsonBlocks,
   priceReduction,
   recommendOutputCap,
 } from "./token-reduction.js";
@@ -234,6 +235,33 @@ describe("collapseWhitespace", () => {
     const result = collapseWhitespace().reduce("alpha beta");
     expect(result.text).toBe("alpha beta");
     expect(result.notes).toEqual([]);
+  });
+});
+
+describe("minifyJsonBlocks", () => {
+  it("minifies pretty-printed JSON inside a json fence, preserving values", () => {
+    const pretty = '```json\n{\n  "name": "alice",\n  "roles": [\n    "admin",\n    "user"\n  ]\n}\n```';
+    const result = minifyJsonBlocks().reduce(pretty);
+    expect(result.text).toContain('```json\n{"name":"alice","roles":["admin","user"]}\n```');
+    expect(result.notes).toHaveLength(1);
+    // The surviving JSON parses back to the same value.
+    const body = result.text.replace(/```json\n|\n```/g, "");
+    expect(JSON.parse(body)).toEqual({ name: "alice", roles: ["admin", "user"] });
+    expect(result.text.length).toBeLessThan(pretty.length);
+  });
+
+  it("leaves invalid JSON and non-json fences byte-identical", () => {
+    const notJson = "```json\nthis is not json\n```";
+    expect(minifyJsonBlocks().reduce(notJson).text).toBe(notJson);
+    const python = "```python\n{ 'a':   1 }\n```";
+    expect(minifyJsonBlocks().reduce(python).text).toBe(python);
+  });
+
+  it("never increases token count (safe in applyReducers)", () => {
+    const text = '```json\n{"already":"tight"}\n```\nprose    here';
+    const before = approximateTokenCount(text);
+    const result = minifyJsonBlocks().reduce(text);
+    expect(approximateTokenCount(result.text)).toBeLessThanOrEqual(before);
   });
 });
 

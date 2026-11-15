@@ -10,7 +10,7 @@ Every number carries a basis label: **measured / derived-from-data /
 literature-claim / estimate**. Measuring stick: python3 + tiktoken o200k_base.
 Sandboxes under `evals/fundamentals/value/`. This file is appended as work lands.
 
-FLUX constraints: black-box byte rewrite of the outgoing request + read provider
+MESH constraints: black-box byte rewrite of the outgoing request + read provider
 usage. LOSSLESS (model reads equivalent token sequence) bills unconditionally;
 LOSSY (changes what the model sees) must clear a task-completion replay gate.
 
@@ -31,7 +31,7 @@ Three redundancy levers already live in the reducer — any A3 "value" must be
    gated, OFF by default)** — `token-reduction.ts:301`. Removes a repeated
    *leading* block that is byte-identical to turn 1's opening, across the `user`
    turns of a message array (the continuous-memory/persona-prefix pattern).
-   Replaces with a `[flux: N tokens … omitted]` marker.
+   Replaces with a `[mesh: N tokens … omitted]` marker.
 3. **Stale-history compaction + fresh-tool-result-cap (LOSSY, gated)** —
    `reduce-request.ts`. Digests/caps oversized tool-result *bodies* (whole stale
    tool results), not a redundancy lever per se but it already reclaims the
@@ -59,7 +59,7 @@ Sandboxes: `evals/fundamentals/value/a3_redundancy_probe.py` (chat),
 | near-identical msg mass (0.80–0.995) | 51,147 | 6.05% | lossy, GATED |
 
 The raw 8.14% **confirms** the ~7–9% duplicate ceiling — but **~85% of it is in
-the cacheable prefix**, where FLUX's shipped A1 already discounts it 10×.
+the cacheable prefix**, where MESH's shipped A1 already discounts it 10×.
 Deduping there changes prefix bytes and busts the cache it rides on, for
 near-zero net. The honest clean save is **1.18%**.
 
@@ -109,7 +109,7 @@ EXHAUSTED.
 
 **Near-lossless, GATED: one real incremental lever, ~1.4% on agent workloads.**
 Cross-turn **exact-duplicate fresh tool_result replacement**: when an agent
-re-runs a command and the provider returns byte-identical output, FLUX replaces
+re-runs a command and the provider returns byte-identical output, MESH replaces
 the *fresh* (uncached) copy with a reference marker to the identical earlier copy
 that already sits in the cached prefix. This does NOT edit the cached prefix (no
 cache-bust) and nets the fresh copy's full uncached cost. Measured **1.43% / 1.42%

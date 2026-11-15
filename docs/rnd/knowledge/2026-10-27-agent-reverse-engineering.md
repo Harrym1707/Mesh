@@ -110,13 +110,13 @@ multiply" (`ai-sdk.ts:1087-1095`).
 `apply_patch`, everyone else (incl. Claude) gets `editor`
 (`model-tool-routing.ts:59-73`). Output already diff-shaped.
 
-### FLUX lever map — Cline
+### MESH lever map — Cline
 | lever | verdict | arithmetic / reason |
 |---|---|---|
 | Tool-schema compaction | **APPLIES on cache-miss/cold turns ONLY** | On warm turns the schemas sit at the **front** of the cached prefix; editing them invalidates the entire downstream prefix, forcing a 1.25x re-write of system+tools+history — so a warm-turn trim is net-negative, not a saving (review D4, consistent with OpenHands reasoning). Addressable surface = cold/cache-miss turns: a 30% trim (~750 tok) saves `750 × $2/MTok ≈ $0.0015` on that cold turn; the turn-1 cache-write saves `750 × $2.50/MTok ≈ $0.00188` once. The drafts' "$0.011 over a 50-turn session @ cache-read" warm figure is withdrawn. |
 | Exact duplicate-context dedup | **N/A — neutralised by caching** | Full transcript resent verbatim but the duplicated prefix already bills at cache-read 0.1x; dedup would only recover value on cache-miss turns and editing the prefix forces a 1.25x re-write downstream. Exclude. |
 | Cache placement + volatility guard | **ALREADY-DONE — exclude** | Rolling ephemeral breakpoint (`ai-sdk.ts:425-438`); prefix carries no per-turn volatility. Residual ~0 (at most one daily-date cache roll). |
-| Fresh-tool-result cap | **ALREADY-DONE — exclude** | Generation-time caps: read/run/search 48,000 chars (`output-limits.ts:18,47,50`; `MAX_READ_LINES = 2000` `:41`) ≈ ~16k tok each; compaction truncates stale results to 2,000 chars (`TOOL_RESULT_CHAR_LIMIT`, `compaction-shared.ts:35,132-156`). FLUX could only add value by capping below 48k on the live turn, which deletes context the agent chose to keep. |
+| Fresh-tool-result cap | **ALREADY-DONE — exclude** | Generation-time caps: read/run/search 48,000 chars (`output-limits.ts:18,47,50`; `MAX_READ_LINES = 2000` `:41`) ≈ ~16k tok each; compaction truncates stale results to 2,000 chars (`TOOL_RESULT_CHAR_LIMIT`, `compaction-shared.ts:35,132-156`). MESH could only add value by capping below 48k on the live turn, which deletes context the agent chose to keep. |
 | Byte-identical retry metering | **N/A / visibility only** (downgraded, review D6) | Cline already aggregates and reports the re-billed attempts in `finish.usage` (`retry-empty-response.ts:24-50`). Metering what the agent already surfaces adds no user-verifiable new value, so this is not a billable lever here. |
 | Output re-emission metering | **N/A** | Diff/patch output (above); no whole-file reprint, output not cacheable. |
 
@@ -199,7 +199,7 @@ Observations capped at creation: terminal `MAX_CMD_OUTPUT_SIZE = 30000` chars
 (`terminal/constants.py:17`), file_editor `MAX_RESPONSE_LEN_CHAR = 16000`
 (`file_editor/utils/config.py:1`).
 
-### FLUX lever map — OpenHands
+### MESH lever map — OpenHands
 | lever | verdict | arithmetic / reason |
 |---|---|---|
 | Cache placement + volatility guard | **ALREADY-DONE — exclude** | Static/dynamic split, frozen datetime, rolling 2nd breakpoint (`llm/llm.py:2998-3026`, `agent/agent.py:581-601`, `dynamic.py:28-43`). This *is* the lever, in code. |
@@ -213,7 +213,7 @@ Observations capped at creation: terminal `MAX_CMD_OUTPUT_SIZE = 30000` chars
 tool + ~4,000 static-system + ~20,000 history cached, + ~1,500-tok new delta.
 Naive no-cache full resend: 28,500 × $2/MTok = **$0.057/turn**. OpenHands as-is:
 ~27,000 read × $0.10 = $0.0027 + ~1,500 write × $2.50 = $0.00375 → **≈
-$0.0065/turn** (~89% already saved by the agent's own caching). A FLUX
+$0.0065/turn** (~89% already saved by the agent's own caching). A MESH
 dedup/compaction pass operates on the $0.0027 cache-read portion and risks a
 $2.50/MTok re-write — near-zero, possibly negative.
 
@@ -280,12 +280,12 @@ EVER RETURN CODE IN A SEARCH/REPLACE BLOCK", `editblock_prompts.py:27-28`, block
 weak models, and aider tells the user to "Use a stronger model that can return
 diffs" when output tokens are exhausted (`base_coder.py:1666-1667`).
 
-### FLUX lever map — Aider
+### MESH lever map — Aider
 | lever | verdict | arithmetic / reason |
 |---|---|---|
 | Tool-schema compaction | **N/A** | Default path sends 0 tool schema (`base_coder.py:96`; `models.py:1006`). |
 | Exact duplicate-context dedup | **ALREADY-DONE — exclude** | File bodies sent once per turn in a dedicated chunk, not also in history (`chat_chunks.py:16-26`; `base_coder.py:789-793`); history weak-model-summarised at a bounded threshold. No duplicate blob to dedup. |
-| Cache placement (mechanism) | **ALREADY-DONE — exclude** | Aider implements multi-breakpoint `cache_control` placement (`chat_chunks.py:28-55`). The only gap is default-off, fixed by aider's own `--cache-prompts` flag — billing FLUX for flipping the agent's own switch violates the end-user rule. |
+| Cache placement (mechanism) | **ALREADY-DONE — exclude** | Aider implements multi-breakpoint `cache_control` placement (`chat_chunks.py:28-55`). The only gap is default-off, fixed by aider's own `--cache-prompts` flag — billing MESH for flipping the agent's own switch violates the end-user rule. |
 | Cache placement + volatility guard | **APPLIES, narrow, conditional** | Only once the customer has enabled `--cache-prompts`. Aider marks the volatile `repo` chunk cacheable under `refresh="auto"` (`repomap.py:597-602`); a guard that drops the repo breakpoint on mention-changing turns avoids a wasted write. A 1,024-tok repo-map re-written needlessly: avoidable ≈ `1,024 × ($2.50 − $2.00)/MTok = $0.00051/affected turn`. Tiny, mention-change-gated. |
 | Fresh-tool-result cap | **N/A** | No tool-result messages in the default text-edit flow; shell/test output is user-gated plain text (`base_coder.py:2471-2484`). |
 | Byte-identical retry metering | **N/A (not billed)** | Retries fire only on pre-output failures (`ex_info.retry`); providers don't bill failed completions. |
@@ -294,7 +294,7 @@ diffs" when output tokens are exhausted (`base_coder.py:1666-1667`).
 Dominant real cost (default caching OFF): a ~7,500-tok stable prefix resent at full
 input = 7,500 × $2/MTok = **$0.015/turn**; enabling caching cuts it to 7,500 ×
 $0.10/MTok = **$0.00075/turn**. But that saving is captured by aider's own
-`--cache-prompts`, so FLUX cannot bill for it.
+`--cache-prompts`, so MESH cannot bill for it.
 
 ---
 
@@ -352,7 +352,7 @@ failed call with no billable completion. Format/blocklist/bash-syntax requeries
 **Output shape.** `str_replace_editor` with `old_str`/`new_str`
 (`tools/edit_anthropic/config.yaml` L37-45); no whole-file reprint.
 
-### FLUX lever map — SWE-agent
+### MESH lever map — SWE-agent
 | lever | verdict | arithmetic / reason |
 |---|---|---|
 | Tool-schema compaction | **APPLIES, trivial after cache** | 30-turn trajectory, tools ~750 tok. Uncached: 30 × 750 × $2/MTok = $0.045. With default cache: 1 write (750 × $2.50/MTok = $0.00188) + 29 reads (21,750 × $0.10/MTok = $0.00218) ≈ $0.00405. Compacting the docstring 750→450 tok (−40%): saves ~0.4 × $0.00405 ≈ **$0.0016/trajectory**. Real but negligible. |
@@ -362,7 +362,7 @@ failed call with no billable completion. Format/blocklist/bash-syntax requeries
 | Byte-identical retry metering | **N/A** | Retries follow unbilled exceptions; the one billed retry (format requery) is not byte-identical. |
 | Output re-emission metering | **N/A** | `str_replace` diffs. |
 
-Verdict: on the shipped default, FLUX has almost nothing to add — correct
+Verdict: on the shipped default, MESH has almost nothing to add — correct
 multi-turn cache placement with a volatility guard, capped observations, diff
 output. Only residual is sub-cent-per-trajectory docstring compaction.
 
@@ -417,7 +417,7 @@ But `write_conclusion` passes the entire generated report back as input context
 (`report_generation.py` L89-98; `writer.py` L143-152) — paying input to re-read its
 own output.
 
-### FLUX lever map — gpt-researcher (all figures estimate + CONTINGENT on D14)
+### MESH lever map — gpt-researcher (all figures estimate + CONTINGENT on D14)
 | lever | verdict | arithmetic / reason |
 |---|---|---|
 | Tool-schema compaction | **N/A** | No tools. |
@@ -475,17 +475,17 @@ resend.
 **Output shape.** No imposed file-reprint/diff format; the only output-side
 mechanism is the input-side `DeferredToolResultReader` (bounded line ranges).
 
-### FLUX lever map — CrewAI (native Claude path)
+### MESH lever map — CrewAI (native Claude path)
 | lever | verdict | arithmetic / reason |
 |---|---|---|
-| Tool-schema compaction | **ALREADY-DONE (opt-in) / APPLIES (default-off portion)** | Native `tool_search` with `defer_loading` (`completion.py` L652-660, `_apply_tool_search` L727+, types `tool_search_tool_regex/bm25_20251119`) removes inactive schemas, as does skill lazy-loading — but `tool_search` defaults `None`, so by default all schemas are sent every turn. FLUX compaction applies to the default-off case; exclude any account with `tool_search`/skills on. |
+| Tool-schema compaction | **ALREADY-DONE (opt-in) / APPLIES (default-off portion)** | Native `tool_search` with `defer_loading` (`completion.py` L652-660, `_apply_tool_search` L727+, types `tool_search_tool_regex/bm25_20251119`) removes inactive schemas, as does skill lazy-loading — but `tool_search` defaults `None`, so by default all schemas are sent every turn. MESH compaction applies to the default-off case; exclude any account with `tool_search`/skills on. |
 | Exact duplicate-context dedup | **Mostly N/A** | A single request carries a normal conversation. Cross-agent re-billing in a Crew is legitimate relay, not intra-request duplication. |
 | Cache placement + volatility guard | **ALREADY-DONE — exclude** | Breakpoints on system + stable prompt, date/skills kept out of the prefix. |
 | Fresh-tool-result cap | **ALREADY-DONE — exclude** | 25%-of-context deferral on by default (`use_better_compaction=True`, `agent_executor.py` L221). |
 | Byte-identical retry metering | **N/A** | Throttle-only, unbilled. |
 | Output re-emission metering | **N/A** at framework level. |
 
-Net: FLUX can honestly claim very little on CrewAI's native Claude path — the
+Net: MESH can honestly claim very little on CrewAI's native Claude path — the
 residual is tool-schema compaction only when the customer has not enabled
 `tool_search`. LiteLLM fallback path UNKNOWN.
 
@@ -525,17 +525,17 @@ churn, so a breakpoint would be safe — it is simply not placed.
 
 **Output shape.** No imposed format; determined by the user's tools.
 
-### FLUX lever map — LangGraph default
+### MESH lever map — LangGraph default
 | lever | verdict | arithmetic / reason (estimate; Sonnet 5.5, stated toy scenario) |
 |---|---|---|
-| Cache placement + volatility guard | **APPLIES, but subject to the end-user-capability test (review D5)** | Prefix S = 4,000 tok (system ~1,500 + 6 tools ~2,500), N = 8 turns. No cache: 8 × 4,000 × $2/MTok = $0.064/run. One ephemeral breakpoint: write 4,000 × $2.50/MTok = $0.010 + reads 7 × 4,000 × $0.10/MTok = $0.0028 = $0.0128. Saving ≈ **$0.051/run**. **Capability test:** `langchain-anthropic` exposes a latent `cache_control` kwarg, so the same test aider got applies. It is defensible that FLUX integration ≠ the customer's own capability here — there is **no single user-facing toggle** (unlike aider's `--cache-prompts`); enabling it needs code changes to message construction / model kwargs that the prebuilt does not surface. The lever is claimable only on that argued basis, and only where the customer has not wired caching themselves. |
+| Cache placement + volatility guard | **APPLIES, but subject to the end-user-capability test (review D5)** | Prefix S = 4,000 tok (system ~1,500 + 6 tools ~2,500), N = 8 turns. No cache: 8 × 4,000 × $2/MTok = $0.064/run. One ephemeral breakpoint: write 4,000 × $2.50/MTok = $0.010 + reads 7 × 4,000 × $0.10/MTok = $0.0028 = $0.0128. Saving ≈ **$0.051/run**. **Capability test:** `langchain-anthropic` exposes a latent `cache_control` kwarg, so the same test aider got applies. It is defensible that MESH integration ≠ the customer's own capability here — there is **no single user-facing toggle** (unlike aider's `--cache-prompts`); enabling it needs code changes to message construction / model kwargs that the prebuilt does not surface. The lever is claimable only on that argued basis, and only where the customer has not wired caching themselves. |
 | Fresh-tool-result cap | **APPLIES; headline demoted (review D10)** | No cap; a large tool result is resent every later turn. **Invented worked input, not a measured distribution:** a 20,000-tok result emitted at turn 2 and resent in 6 later turns = 120,000 × $2/MTok = $0.24/run; capping to a ~200-tok reference saves ≈ 6 × 19,800 × $2/MTok ≈ $0.238/run. Tie to a measured tool-result distribution (cf. the 10-26 ground-truth file: p99 2.5k–6k tok, 10k admitted) before using any magnitude as a headline. |
 | Tool-schema compaction | **APPLIES, but overlaps the cache lever — do not double-count** | Uncached: 6 tools ~2,400 tok × 8 × $2/MTok = $0.0384; removing inactive-tool schema ≈ $0.031/run **only under an ASSUMED ~80% inactive ratio (review D7, ungrounded — replace with a measured active/inactive ratio)**. Once the cache lever is applied, the tool block bills at cache-read $0.10/MTok and compaction's marginal saving shrinks ~20x. Price jointly, never additively. |
 | Exact duplicate-context dedup | **Mostly N/A** intra-request; multi-agent relay re-billing is inherent, not strippable. |
 | Byte-identical retry metering | **N/A** (throttle-only, unbilled). |
 | Output re-emission metering | **N/A** at framework level. |
 
-Net: FLUX genuinely applies on the LangGraph default (ships none of cache
+Net: MESH genuinely applies on the LangGraph default (ships none of cache
 placement, tool compaction, or a tool-result cap), subject to the capability
 argument above and to measuring the tool-result distribution and inactive-tool
 ratio rather than assuming them.
@@ -579,10 +579,10 @@ for an identical request (avoids a call, not a double-bill); default off.
 
 **Output shape.** No imposed format.
 
-### FLUX lever map — AutoGen default
+### MESH lever map — AutoGen default
 | lever | verdict | arithmetic / reason (estimate; Sonnet 5.5) |
 |---|---|---|
-| Cache placement + volatility guard | **APPLIES, subject to the same end-user-capability test (D5)** | Same structure as LangGraph: S=4,000, N=8 → ≈ **$0.051/run** saved per agent; in an M-agent team the uncached prefix is paid per agent so it scales ~×(agents that take turns). AutoGen has no user-facing caching toggle and no `cache_control` path at all, so the "FLUX integration ≠ customer capability" argument is stronger here than for LangGraph. |
+| Cache placement + volatility guard | **APPLIES, subject to the same end-user-capability test (D5)** | Same structure as LangGraph: S=4,000, N=8 → ≈ **$0.051/run** saved per agent; in an M-agent team the uncached prefix is paid per agent so it scales ~×(agents that take turns). AutoGen has no user-facing caching toggle and no `cache_control` path at all, so the "MESH integration ≠ customer capability" argument is stronger here than for LangGraph. |
 | Fresh-tool-result cap | **APPLIES by default (headline demoted, D10)** | `UnboundedChatCompletionContext` keeps full tool outputs. Same invented-input worked case as LangGraph: ~$0.24/run on a single 20k result over 6 turns; tie to a measured distribution. **Exclude** accounts that configured Buffered/TokenLimited contexts. |
 | Tool-schema compaction | **APPLIES, overlaps cache lever — price jointly** | ~2,400-tok block × 8 × $2/MTok = $0.0384 uncached; removal ≈ $0.031/run **(ASSUMED ~80% inactive, D7)**; collapses ~20x once the cache lever is applied. |
 | Exact duplicate-context dedup | **N/A intra-request / inherent across agents** (see new-lever candidate). |
@@ -604,11 +604,11 @@ cache lever per agent.
 2. **The resend is only waste when it is uncached.** The decisive split across the
    whole study is caching, not resend volume. Where the agent caches (Cline,
    OpenHands, SWE-agent default, CrewAI native, Aider-with-flag), the resent prefix
-   bills at cache-read $0.10/MTok and FLUX's resend-oriented levers are
+   bills at cache-read $0.10/MTok and MESH's resend-oriented levers are
    ALREADY-DONE or net-negative (editing a cached prefix forces a $2.50/MTok
    re-write downstream). Where the agent does not cache (LangGraph default, AutoGen
    default, gpt-researcher), the same bytes bill at $2/MTok and the cache lever is
-   real. **The single biggest determinant of whether FLUX can help an account is
+   real. **The single biggest determinant of whether MESH can help an account is
    "does this agent already cache its prefix".**
 3. **Tool schemas ship every turn almost everywhere**, but after turn 1 they sit in
    the cached prefix, so schema compaction is a cold/cache-miss-turn lever worth
@@ -628,7 +628,7 @@ cache lever per agent.
 6. **Three agents already implement the heavy levers in source** (Cline, OpenHands,
    SWE-agent): cache placement + volatility guard, fresh-tool-result cap, diff
    output. CrewAI's native path adds a 25%-context cap and opt-in tool_search.
-   These are the honest "FLUX cannot help much here" segment and should become a
+   These are the honest "MESH cannot help much here" segment and should become a
    do-not-pay-us label on the site, exactly as the dispatch allows.
 
 ## New lever candidates
@@ -639,7 +639,7 @@ cache lever per agent.
 routing code). In interactive coding, think/read/test gaps routinely exceed 5
 minutes; when a gap exceeds the TTL the entire cached prefix
 (system + tools + full history, often 50k–150k tok) expires and the next turn
-re-bills it at cache-write or full input instead of cache-read. FLUX meters it from
+re-bills it at cache-write or full input instead of cache-read. MESH meters it from
 observed request timestamps + per-request `cache_read` vs `cache_write` usage (both
 already in the usage stream Cline aggregates) and recommends the 1-hour tier or a
 keep-warm ping when inter-turn gaps cluster above the TTL.
@@ -657,7 +657,7 @@ a billed request; if idle gaps are rare the remedy costs more than the waste. (d
 Some of this is inherent to human-paced interactive use and is not removable without
 switching tier/provider — honest framing is metering + tier-recommendation, not a
 guaranteed saving. If a user's idle gaps turn out rare, the honest verdict for that
-user is "FLUX cannot help here."
+user is "MESH cannot help here."
 
 ### Candidate 2 — empty-response resend metering (gpt-researcher, generalises)
 **Mechanism.** gpt-researcher's `create_chat_completion` treats a 200-OK-but-empty
@@ -665,7 +665,7 @@ completion as a failure and resends the byte-identical prompt up to 9 more times
 (`utils/llm.py` L118-126). Providers bill the empty 200 (input processed). The
 existing byte-identical-retry lever is scoped to retries-after-*error*; this is a
 retry-after-*billed-success-with-empty-body*, which that lever's error predicate
-misses. FLUX detects `response_body_empty AND next_request_hash == prev_request_hash
+misses. MESH detects `response_body_empty AND next_request_hash == prev_request_hash
 AND prev_request_was_billed` and credits/surfaces the duplicate.
 **Pricing basis.** Per duplicate: `prompt_tokens × input_price` (+ any cache-write
 already paid). Worked case: 8,000 tok × $2/MTok = $0.016 per empty-retry event.
@@ -675,13 +675,13 @@ Some providers return empty bodies *without* billing input (safety stop, zero-ou
 stream); then there is no double-charge and the lever would over-credit. (c) When
 `stream=True` with a websocket (the default UI path), `max_attempts` collapses to 1,
 so this triggers only on non-streaming/no-websocket calls — narrow applicability.
-Bankable only if FLUX observes the provider's actual billing of empty responses;
+Bankable only if MESH observes the provider's actual billing of empty responses;
 otherwise UNKNOWN, not asserted.
 
 ### Candidate 3 — cross-agent relay cache-sharing (AutoGen/CrewAI/LangGraph teams) — REJECTED on current evidence
 **Mechanism.** In a multi-agent team the same conversation content is re-billed once
 per agent per turn because each agent sends it inside its own request. If all agents
-share one account, a FLUX proxy could position an ephemeral breakpoint on the shared
+share one account, a MESH proxy could position an ephemeral breakpoint on the shared
 relayed-conversation span so agent B reads what agent A wrote.
 **Pricing basis.** On a relayed span of R tokens shared by M agents: without
 sharing, (M−1) agents re-pay R × $2/MTok; with a shared cache, one write R ×

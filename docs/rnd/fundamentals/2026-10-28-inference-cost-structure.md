@@ -5,13 +5,13 @@
 **Author:** harryjpmanley@icloud.com (R&D lit-mine, inference-cost-structure axis)
 **Scope:** WHY tokens cost what they cost (prefill/decode, KV-cache, attention scaling,
 continuous batching, speculative decoding) and the PRICING STRUCTURE that falls out of
-it across Anthropic, OpenAI, Google Gemini, DeepSeek — hunting rate-arbitrage slack FLUX
+it across Anthropic, OpenAI, Google Gemini, DeepSeek — hunting rate-arbitrage slack MESH
 has NOT catalogued.
 
 > **Honesty labels on every number:** `measured` / `derived-from-data` /
 > `literature-claim` / `reasoned` / `estimate`. Provider list prices are read directly
 > off the vendor doc on the fetch date and labelled `provider-doc` (a literal reading,
-> not a FLUX measurement); ratios we compute from them are `derived-from-data`.
+> not a MESH measurement); ratios we compute from them are `derived-from-data`.
 > **Prices move.** Several providers show dated step-ups on the page itself (Gemini) and
 > the model line-up is the Oct-2026 live catalogue, not the Jan-2026 training snapshot.
 > Treat the **structural ratios** as the durable finding; re-fetch the absolute numbers
@@ -28,7 +28,7 @@ compute units — cheap per token, which is why *input* is the low number. Writi
 answer (**decode**) emits one token at a time, and each token must stream the *entire*
 model weights plus the whole KV-cache through memory — the GPU's math units sit mostly
 idle waiting on memory bandwidth, so *output* is the high number (4–8× input across every
-provider). Everything FLUX can arbitrage is a **discount the provider gives back when you
+provider). Everything MESH can arbitrage is a **discount the provider gives back when you
 relax the constraint that makes decode expensive**: let them batch you (batch/flex/
 off-peak ≈ 50% off, because continuous batching amortises the weight-streaming cost
 across many concurrent users), or let them skip prefill entirely (cache read ≈ 10% of
@@ -61,7 +61,7 @@ compute ceiling set by peak FLOPS, meeting at a "ridge").
   the ridge**; serving batches of 1–32 stay memory-bound. `literature-claim`
   (TDS "Prefill is compute-bound, decode is memory-bound", 2026).
 
-**FLUX consequence (reasoned):** the 4–8× output:input price multiple is not a margin
+**MESH consequence (reasoned):** the 4–8× output:input price multiple is not a margin
 choice, it is the compute-vs-bandwidth gap. This is the physical reason the backlog's
 output levers (A5) are structurally worth more *per token* than input levers — but also
 why providers soften output cost with speculative decoding (A.4) and why output volume on
@@ -76,7 +76,7 @@ footprint scales **O(n)** and must be held in VRAM for every concurrent request 
 life of the decode. `literature-claim` (standard transformer-serving result; PagedAttention/
 vLLM is the canonical mitigation — it pages KV blocks to cut fragmentation).
 
-**FLUX consequence (reasoned):** long context is expensive on *both* axes (quadratic
+**MESH consequence (reasoned):** long context is expensive on *both* axes (quadratic
 attention, linear memory that squeezes the batch size that makes decode efficient), which
 is exactly why providers put a **price cliff** at a context threshold rather than a smooth
 curve — see B.3. This is the mechanism that makes "threshold arbitrage" real money, not a
@@ -93,13 +93,13 @@ Sarathi-Serve adds **chunked prefill** (piggyback decodes onto prefill chunks) t
 the prefill-vs-decode latency tradeoff — now the standard paradigm in vLLM. `literature-claim`
 (Sarathi, arXiv:2308.16369 / arXiv:2403.02310).
 
-**FLUX consequence (reasoned, and this is the important one):** the **batch / flex /
+**MESH consequence (reasoned, and this is the important one):** the **batch / flex /
 off-peak ≈ 50% discount is the provider handing back continuous-batching throughput.**
 When you accept latency tolerance, the provider packs you into denser batches where the
 fixed cost of streaming weights is amortised across more concurrent tokens — decode moves
 *toward the ridge*. So every "latency-tolerant → 50% off" lever (Anthropic Batch, OpenAI
 Batch/flex, Gemini Batch, DeepSeek off-peak) is **the same physical trade** wearing four
-different interfaces (a queue, a flag, a queue, and a clock). FLUX should treat them as one
+different interfaces (a queue, a flag, a queue, and a clock). MESH should treat them as one
 lever class with one gate, parameterised by interface.
 
 ### A.4 Speculative decoding — why output cost is softening (provider-side, not ours)
@@ -110,8 +110,8 @@ forward pass**; accepted tokens are **distributionally identical** to plain samp
 70B Chinchilla 2–2.5×). `literature-claim` (arXiv:2211.17192, arXiv:2302.01318). Yield
 math: α=0.8, draft=5 → ~3.69× expected speedup. `literature-claim`.
 
-**FLUX consequence (reasoned):** this is **provider-side and white-box → REJECT as a FLUX
-lever** (needs a draft model + logits; FLUX bundles no on-machine model). We catalogue it
+**MESH consequence (reasoned):** this is **provider-side and white-box → REJECT as a MESH
+lever** (needs a draft model + logits; MESH bundles no on-machine model). We catalogue it
 only because it explains why output prices are not *even higher* given A.1, and why a
 provider can afford a flex tier. It is context for the rate map, not a lever.
 
@@ -156,7 +156,7 @@ mechanisms in Part A:
    Anthropic, OpenAI, Gemini all **−50%**; DeepSeek off-peak **−50%** by clock.
    `derived-from-data` / `provider-doc`.
 
-**This gives FLUX a provider-agnostic rate map:** a lever proven on Anthropic has a
+**This gives MESH a provider-agnostic rate map:** a lever proven on Anthropic has a
 pre-justified analogue on three other providers because the *mechanism* is identical.
 
 ### B.2 NEW SLACK #1 — the entire Google Gemini rate arm is uncatalogued
@@ -174,7 +174,7 @@ the full ladder and is absent from the backlog:**
 - **Lossless/billing:** batch routing is lossless (bytes identical, latency only) →
   billable like P1. **Caching interaction:** because implicit caching is *automatic*
   (like OpenAI), the counterfactual on Gemini is **auto-caching, not zero caching** — so
-  FLUX cache levers here bill only the **incremental** delta, same discipline the backlog
+  MESH cache levers here bill only the **incremental** delta, same discipline the backlog
   already imposes on the OpenAI arm (P3 §1). Carry that rule to Gemini verbatim.
 
 ### B.3 NEW SLACK #2 — long-context PRICE CLIFFS ("threshold arbitrage")
@@ -206,7 +206,7 @@ rounding error next to the band flip.
   against a 5× band flip sustained over a long session. Gate it: only cross-threshold-trim
   when `(band_flip_saving) > (prefix_rewrite_cost)` on the trailing ledger, and only once
   (don't oscillate around the boundary — hysteresis, like the P2 TTL sticky rule).
-- **Detector:** cheap and exact — FLUX already counts prompt tokens; fire when a request
+- **Detector:** cheap and exact — MESH already counts prompt tokens; fire when a request
   lands in a 1.0–1.3× window *above* a known provider threshold (the only zone where a
   feasible trim flips the band). Most long requests are far above and unflippable; the
   value is concentrated in the band-edge minority. `reasoned`.
@@ -223,11 +223,11 @@ weekends, Chinese holidays) is off-peak at exactly −50%.** `provider-doc`. ~35
   (just a scheduling delay up to the next window, worst case ~6h vs batch's 24h).
 - **Lossless:** bytes identical, timing only → billable like batch. ✅ Black-box. ✅
 - **Caching interaction:** none at the byte level; but note DeepSeek caching is automatic
-  (hit ~2% of miss — the cheapest cache in the market), so FLUX bills incremental only.
+  (hit ~2% of miss — the cheapest cache in the market), so MESH bills incremental only.
 - **Gate:** only defer when the route is tagged latency-tolerant AND the deferral lands
   before the client's deadline; peak→off-peak boundary crossing must not strand a request.
   Same consent/opt-in discipline as P1 batch.
-- **Honest caveat:** applies only to customers actually on DeepSeek; FLUX has no traced
+- **Honest caveat:** applies only to customers actually on DeepSeek; MESH has no traced
   DeepSeek traffic yet (`estimate` on fleet share = unknown, do not quote).
 
 ### B.5 NEW SLACK #4 — the OpenAI tier ladder is deeper than catalogued
@@ -245,22 +245,22 @@ Ultrafast ~3× · regional/FedRAMP +10%` and **cached input −90% (0.1×)**.
 
 ## PART C — what is REJECT (white-box / model-access), recorded not ranked
 
-| Mechanism | Why REJECT for FLUX |
+| Mechanism | Why REJECT for MESH |
 |---|---|
-| Speculative decoding (A.4) | Needs draft model + target logits; FLUX bundles no on-machine model. Provider-side only. |
-| Quantization / FP8 / weight compression | Touches weights — out of FLUX's bytes-only reach. |
-| PagedAttention / KV-cache paging (A.2) | Serving-engine internal; FLUX cannot schedule the provider's VRAM. |
-| Chunked prefill / continuous batching (A.3) | Provider scheduler; FLUX only *consumes* its price signal (the batch discount). |
+| Speculative decoding (A.4) | Needs draft model + target logits; MESH bundles no on-machine model. Provider-side only. |
+| Quantization / FP8 / weight compression | Touches weights — out of MESH's bytes-only reach. |
+| PagedAttention / KV-cache paging (A.2) | Serving-engine internal; MESH cannot schedule the provider's VRAM. |
+| Chunked prefill / continuous batching (A.3) | Provider scheduler; MESH only *consumes* its price signal (the batch discount). |
 | Fine-tuned draft/eagle heads, Medusa | Model-access; REJECT. |
 
-These are **context for the rate map**, not levers. The only thing FLUX extracts from them
+These are **context for the rate map**, not levers. The only thing MESH extracts from them
 is: *the discounts are real and physically grounded, so they are safe to arbitrage.*
 
 ---
 
 ## PART D — ship/research/reject for the backlog
 
-| Finding | FLUX fit | Why |
+| Finding | MESH fit | Why |
 |---|---|---|
 | Gemini Batch −50% + implicit-cache 10% (B.2) | **ship-candidate** | Drop-in P1 analogue; mechanism identical; incremental-only billing rule ported from OpenAI arm. |
 | Threshold arbitrage / price cliffs (B.3) | **ship-candidate** | New class; exact cheap detector; 2–5× band flip; needs the cross-threshold gate + hysteresis. |
@@ -272,7 +272,7 @@ is: *the discounts are real and physically grounded, so they are safe to arbitra
 card is not arbitrary — **cache-read ≈ 10%** falls out of *skip-prefill*, **batch/off-peak
 ≈ 50%** falls out of *continuous-batching throughput*, and **long-context cliffs** fall out
 of *quadratic attention + linear KV memory*. Because the mechanism is industry-wide, every
-lever FLUX proves on one provider has a pre-justified analogue on the other three. The
+lever MESH proves on one provider has a pre-justified analogue on the other three. The
 uncatalogued money is: **all of Gemini, the threshold cliffs on Haiku/Gemini, and DeepSeek's
 clock.**
 
