@@ -109,6 +109,27 @@ describe("mesh start — ~/.claude/settings.json merge + revert", () => {
     expect(existsSync(settingsPath(home))).toBe(false);
   });
 
+  // The shutdown handlers have to be armed before the settings are written. When
+  // they were registered afterwards, a signal in between took the default
+  // action and killed the process with the file still pointing at the proxy.
+  // Polling every millisecond lands the signal inside that window.
+  for (const signal of ["SIGINT", "SIGHUP"] as const) {
+    it(`${signal} the instant the settings file appears still puts Claude Code back`, { timeout: 30_000 }, async () => {
+      child = spawn(process.execPath, ["--import", "tsx", MAIN, "start", "--port", "0", "--no-theo"], {
+        env: { ...process.env, HOME: home },
+        stdio: "ignore",
+      });
+      expect(await waitFor(() => existsSync(settingsPath(home)), 15_000, 1)).toBe(true);
+      const exited = new Promise<NodeJS.Signals | null>((resolve) => child!.once("exit", (_code, sig) => resolve(sig)));
+      child.kill(signal);
+      // Null means the process ran its own handler and exited; a signal name
+      // means it was killed before any handler existed.
+      expect(await exited).toBeNull();
+      expect(existsSync(settingsPath(home))).toBe(false);
+      expect(existsSync(join(home, ".mesh", "claude-wiring.json"))).toBe(false);
+    });
+  }
+
   it("closing the terminal (SIGHUP) puts Claude Code back", { timeout: 30_000 }, async () => {
     mkdirSync(join(home, ".claude"), { recursive: true });
     writeFileSync(settingsPath(home), `${JSON.stringify({ theme: "dark" }, null, 2)}\n`);

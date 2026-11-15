@@ -6541,9 +6541,52 @@ async function runServe(argv) {
 async function runStart(argv) {
   const args = parseStart(argv);
   const { proxy, policy } = await startProxyWithPolicy(args.port, args.ledgerDir, args, args.capturePath ? { path: args.capturePath, ...args.captureMaxMb !== void 0 ? { maxBytes: Math.round(args.captureMaxMb * 1024 * 1024) } : {} } : void 0);
-  const restore = args.install ? wireClaudeCode({ settingsPath: CLAUDE_SETTINGS, statePath: WIRING_STATE }, proxy.url) : () => {
+  let restore = () => {
   };
-  process.on("exit", restore);
+  let monitor;
+  let stopTheo;
+  let closing = false;
+  const shutdown = async (quiet = false) => {
+    if (closing) return;
+    closing = true;
+    restore();
+    if (monitor) clearInterval(monitor);
+    stopTheo?.();
+    if (quiet) {
+      setTimeout(() => process.exit(0), 2e3).unref();
+      await proxy.close().catch(() => void 0);
+      process.exit(0);
+    }
+    const snap = snapshotLedger(args.ledgerDir);
+    await proxy.close();
+    console.log("");
+    if (snap.requests > 0) {
+      console.log(`  ${T} \u2014 session done: ${snap.requests} request${snap.requests === 1 ? "" : "s"}, $${snap.savedUsd.toFixed(4)} verified saved.`);
+      console.log(`  ${T}   Recompute it yourself any time: mesh verify`);
+      if (snap.chainOk && snap.verdict === "charge" && snap.savedUsd > 0) {
+        console.log("");
+        console.log(`  ${T} \u2014 keep these savings metered: ${MESH_SIGNUP_URL}`);
+        console.log(`  ${T}   show it off \u2014 paste this badge into your README:`);
+        console.log(`     ${savingsBadge(snap).markdown}`);
+      }
+    } else {
+      console.log(`  ${T} \u2014 no requests ran through MESH this session.`);
+    }
+    console.log(`  Claude Code restored. Bye.`);
+    process.exit(0);
+  };
+  process.on("SIGINT", () => {
+    void shutdown();
+  });
+  process.on("SIGTERM", () => {
+    void shutdown();
+  });
+  process.on("SIGHUP", () => {
+    void shutdown(true);
+  });
+  restore = args.install ? wireClaudeCode({ settingsPath: CLAUDE_SETTINGS, statePath: WIRING_STATE }, proxy.url) : () => {
+  };
+  process.on("exit", () => restore());
   const withheld = withheldLevers(policy);
   console.log("");
   console.log(`  MESH is running  \xB7  build ${BUILD_COMMIT}`);
@@ -6587,9 +6630,9 @@ async function runStart(argv) {
     const verdict = s.verdict === "charge" ? saved : `${saved} (nothing to bill yet \u2014 do not pay us)`;
     console.log(`  ${T} \u2014 ${s.events} request${s.events === 1 ? "" : "s"} seen \xB7 ${verdict} verified saved`);
   };
-  const monitor = setInterval(tick, 6e3);
+  monitor = setInterval(tick, 6e3);
   const announced = /* @__PURE__ */ new Set();
-  const stopTheo = args.noTheo ? void 0 : startBackgroundTheo(
+  stopTheo = args.noTheo ? void 0 : startBackgroundTheo(
     {
       ledgerDir: args.ledgerDir,
       customer: "local",
@@ -6618,45 +6661,6 @@ async function runStart(argv) {
       }
     }
   );
-  let closing = false;
-  const shutdown = async (quiet = false) => {
-    if (closing) return;
-    closing = true;
-    restore();
-    clearInterval(monitor);
-    stopTheo?.();
-    if (quiet) {
-      setTimeout(() => process.exit(0), 2e3).unref();
-      await proxy.close().catch(() => void 0);
-      process.exit(0);
-    }
-    const snap = snapshotLedger(args.ledgerDir);
-    await proxy.close();
-    console.log("");
-    if (snap.requests > 0) {
-      console.log(`  ${T} \u2014 session done: ${snap.requests} request${snap.requests === 1 ? "" : "s"}, $${snap.savedUsd.toFixed(4)} verified saved.`);
-      console.log(`  ${T}   Recompute it yourself any time: mesh verify`);
-      if (snap.chainOk && snap.verdict === "charge" && snap.savedUsd > 0) {
-        console.log("");
-        console.log(`  ${T} \u2014 keep these savings metered: ${MESH_SIGNUP_URL}`);
-        console.log(`  ${T}   show it off \u2014 paste this badge into your README:`);
-        console.log(`     ${savingsBadge(snap).markdown}`);
-      }
-    } else {
-      console.log(`  ${T} \u2014 no requests ran through MESH this session.`);
-    }
-    console.log(`  Claude Code restored. Bye.`);
-    process.exit(0);
-  };
-  process.on("SIGINT", () => {
-    void shutdown();
-  });
-  process.on("SIGTERM", () => {
-    void shutdown();
-  });
-  process.on("SIGHUP", () => {
-    void shutdown(true);
-  });
   await new Promise(() => {
   });
 }
@@ -6670,7 +6674,7 @@ var init_start = __esm({
     init_claude_wiring();
     init_cta();
     init_update();
-    BUILD_COMMIT = true ? "b5dff02" : process.env.MESH_BUILD_COMMIT ?? "dev";
+    BUILD_COMMIT = true ? "df70f3f" : process.env.MESH_BUILD_COMMIT ?? "dev";
     MESH_HOME = join5(homedir3(), ".mesh");
     CLAUDE_SETTINGS = join5(homedir3(), ".claude", "settings.json");
     WIRING_STATE = join5(MESH_HOME, "claude-wiring.json");

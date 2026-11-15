@@ -1,6 +1,7 @@
 # Release 0.2.0 runbook — the first public build with Theo
 
-Staged 2026-11-12 on `theo/autonomous-agent` (PR #31). **Nothing has been merged
+Staged 2026-11-12 on `theo/autonomous-agent`. It reaches `main` through
+**PR #40** (opened 2026-11-15), in one merge. **Nothing has been merged
 to `main`, deployed or published.** Every step below that changes what the
 public gets is the founder's to take.
 
@@ -9,9 +10,10 @@ public gets is the founder's to take.
 | Item | State |
 |---|---|
 | Version | `@harrym1707/mesh` 0.1.0 → **0.2.0**, `@harrym1707/sdk` 0.1.1 → **0.2.0** (commit `9a71697`). npm already holds 0.1.0 and 0.1.1, so neither could be published again without a bump. |
-| Website runtime | `docs/site/dist` rebuilt at `b5dff02` (commit `2060fbd`, 2026-11-15). Manifest: build `b5dff02`, sha256 `4d7eef18…f94d0e6f`. It replaces build `d92a92c`; the only code change between the two is the cache guard fix below. |
+| Website runtime | `docs/site/dist` rebuilt at `df70f3f` (commit `f1ed77a`, 2026-11-15). Manifest: build `df70f3f`, sha256 `764b0bc3…890b08b7`. It replaces builds `d92a92c` and `b5dff02`; the code changes since `d92a92c` are the two fixes below. |
+| Shutdown fix | `df70f3f`. `mesh start` registered its Ctrl+C, terminate and closed-terminal handlers only after it had written Claude Code's settings, so a signal in the first moments killed it with Claude Code still pointed at the proxy. The handlers are now registered first. Found by CI on PR #40, where one settings test failed on a slow runner. Signalled the instant the settings file appears, build `b5dff02` leaves the file behind 10 times in 10 and build `df70f3f` 0 in 10. |
 | Cache guard fix | `b5dff02`, brought over from PR #33 on 2026-11-15 at the founder's request. When a workload has the cache flag set, Mesh now decides the cache marker on tools + system and the one on the newest message separately, so a stable system prompt keeps its marker when the client rewrites its history. It only changes where cache markers go; a test checks the request is otherwise identical. Workloads without the cache flag are unaffected. |
-| Website pages | Two new pages, `terms.html` and `privacy.html`, which carry the registered office address since 2026-11-15 (a pages-only rebuild; the runtime stayed at `b5dff02`). Every other page changes in its footer only: the company line is gone and links to Terms and Privacy are added. No other copy changed. |
+| Website pages | Two new pages, `terms.html` and `privacy.html`, which carry the registered office address since 2026-11-15 (a pages-only rebuild that left the runtime as it was). Every other page changes in its footer only: the company line is gone and links to Terms and Privacy are added. No other copy changed. |
 | Merge into `main` | Dry-run clean (`git merge-tree`) at `main` `938cfbb`, repeated on 2026-11-15 at `2060fbd`. The merged tree differs from this branch only by traffic-snapshot files, so the staged runtime is the build `main` would produce. |
 
 Live today, for comparison: the website serves build `c8378ea` (2026-11-04);
@@ -28,9 +30,13 @@ npm `latest` is `mesh` 0.1.0 and `sdk` 0.1.1, both founder-published on
   with both smoke tests, and the install below. The Claude Code wiring and
   upgrade checks were not repeated; the fix touches two SDK source files and
   none of that code.
+- **Repeated at `df70f3f` on 2026-11-15:** `pnpm build`, `pnpm test` (888 tests,
+  66 files), the CLI package with both smoke tests, the install below, and
+  the signal check described under "Shutdown fix" for Ctrl+C, terminate and a
+  closed terminal. The upgrade and rollback check was not repeated.
 - `curl … | sh` from a local copy of the staged site into a clean home
-  directory, then `mesh version` (0.2.0, build `d92a92c`; `b5dff02` on
-  2026-11-15) and `mesh verify`.
+  directory, then `mesh version` (0.2.0, build `d92a92c`; `b5dff02` and then
+  `df70f3f` on 2026-11-15) and `mesh verify`.
 - **Claude Code wiring**, on the installed build: a new user who closes the
   terminal running `mesh start` is left with no settings file; after
   `kill -9`, `mesh doctor` fails and names the fix, and `mesh restore` repairs
@@ -63,7 +69,10 @@ against a real provider.
 
 ## Before you start
 
-- [ ] **CI is green on PR #31** at `2060fbd` or later (`ci`, `install-smoke`).
+- [ ] **CI is green on PR #40** at the branch head (`ci`, `install-smoke`).
+      At `1f6f233` the 9 checks on PR #31 passed, and on PR #40 one `test`
+      run failed on the shutdown race fixed in `df70f3f`. Read them again at
+      the current head.
 - [ ] **npm trusted publishing is set up for both packages.** On npmjs.com, for
       `@harrym1707/sdk` and `@harrym1707/mesh`: Settings → Trusted Publisher →
       GitHub Actions, repository `Harrym1707/Mesh`, workflow `release.yml`.
@@ -77,12 +86,15 @@ against a real provider.
          production for their own use.
       2. Liability is capped at the greater of fees paid in 12 months and £100.
       3. No fee is due unless billing was agreed in writing.
-- [ ] **The IP assignment is signed.** `LICENSE` now names Flux AI Technologies
+- [ ] **The IP assignment — deferred by the founder on 2026-11-15, not a
+      merge condition.** `LICENSE` and the Terms name Flux AI Technologies
       Limited as licensor and copyright holder (the founder's decision on
-      2026-11-12). That is true only once the founder has signed the deed
-      assigning the work to the company. A draft is in the founder's private
-      project folder, not in this repository. Do not merge before it is
-      signed.
+      2026-11-12). That becomes true only when the founder signs the deed
+      assigning the work to the company; until then he owns it personally. He
+      chose to release first and sign later, since there are no users yet. A
+      draft is in his private project folder, not in this repository. Sign it
+      before any investment, sale, paid contract or attempt to enforce the
+      licence.
 - [x] **Registered office address is on both pages** (added 2026-11-15, as
       supplied by the founder and matching the Companies House register read
       the same day). A UK company's website must show its registered name,
@@ -101,15 +113,18 @@ against a real provider.
 
 ### 1. Merge the code
 
-Use **"Create a merge commit"** for both. Do not squash: the hosted runtime is
-stamped with commit `b5dff02`, and squashing would remove that commit from
-`main`'s history.
+Merge **PR #40** (`theo/autonomous-agent` → `main`) with **"Create a merge
+commit"**. Do not squash or rebase: the hosted runtime is stamped with commit
+`df70f3f`, and either would remove that commit from `main`'s history.
 
-1. Merge **PR #31** (`theo/autonomous-agent` → `integration/trunk`).
-2. Merge **PR #27** (`integration/trunk` → `main`). It now carries Theo too.
+PR #40 carries everything in one merge: `integration/trunk` is an ancestor of
+the release branch, so the 73 commits are the same ones the older two-step
+route (PR #31 into trunk, then PR #27 into `main`) would have delivered. Use
+this route only. Afterwards PR #27 should show as merged on its own, because
+its commits are then on `main`; close PR #31 by hand.
 
-Merging #27 changes `docs/site/dist` on `main`, so `pages.yml` starts the
-website deploy by itself.
+Merging changes `docs/site/dist` on `main`, so `pages.yml` starts the website
+deploy by itself.
 
 ### 2. Confirm the website
 
@@ -119,14 +134,14 @@ Wait for the "Deploy site to GitHub Pages" run to finish, then:
 curl -fsS https://www.mesh-technology.com/mesh-version.json
 ```
 
-It should show `"version": "b5dff02"` and the sha256 above. Then install into a
+It should show `"version": "df70f3f"` and the sha256 above. Then install into a
 throwaway home directory and check it:
 
 ```bash
 export T=$(mktemp -d) && curl -fsSL https://www.mesh-technology.com/install.sh | HOME=$T sh && HOME=$T $T/.mesh/bin/mesh version && HOME=$T $T/.mesh/bin/mesh verify
 ```
 
-Expect `mesh 0.2.0 (build b5dff02)` and "All checks passed".
+Expect `mesh 0.2.0 (build df70f3f)` and "All checks passed".
 
 ### 3. Publish to npm
 
@@ -142,7 +157,7 @@ npm view @harrym1707/mesh version && npm view @harrym1707/sdk version
 
 Both should print `0.2.0`. The npm runtime is rebuilt at the tag, so
 `npx @harrym1707/mesh version` reports the tag's commit as its build, not
-`b5dff02`. That difference between the two channels is expected.
+`df70f3f`. That difference between the two channels is expected.
 
 If trusted publishing is not set up and you would rather not set it up now,
 the packages can be published by hand from a checkout of the tag, as 0.1.x
