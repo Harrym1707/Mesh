@@ -1589,7 +1589,7 @@ function reduceMessageContent(content, config, countTokens, changes) {
   }
   return content;
 }
-function stampAnthropicCacheTtl(next, ttl, systemVolatileTail, countTokens) {
+function stampAnthropicCacheTtl(next, ttl, systemVolatileTail, countTokens, allowMessageBreakpoint = true) {
   const model = typeof next.model === "string" ? next.model.toLowerCase() : "";
   if (!model.includes("claude")) return { stamped: false };
   if (!Array.isArray(next.messages) || next.messages.length === 0) return { stamped: false };
@@ -1658,7 +1658,7 @@ ${tailText}`))) {
       }
     }
   }
-  if (!volatileTailPresent && next.messages.length >= 2) {
+  if (allowMessageBreakpoint && !volatileTailPresent && next.messages.length >= 2) {
     const messages = [...next.messages];
     const lastIndex = messages.length - 1;
     const last = messages[lastIndex];
@@ -1695,6 +1695,20 @@ ${tailText}`))) {
     }
   }
   return stamped ? { stamped: true } : { stamped: false, belowMinimum };
+}
+function stampedSystemPrefix(stamped) {
+  if (!Array.isArray(stamped.system)) return void 0;
+  let last = -1;
+  stamped.system.forEach((block, index) => {
+    if (isPlainObject2(block) && block.cache_control !== void 0) last = index;
+  });
+  if (last < 0) return void 0;
+  const span = stamped.system.slice(0, last + 1).map((block) => {
+    if (!isPlainObject2(block)) return block;
+    const { cache_control: _marker, ...rest } = block;
+    return rest;
+  });
+  return [stamped.model ?? null, stamped.tools ?? null, span];
 }
 function reduceRequest(request, config = {}) {
   const countTokens = config.countTokens ?? approximateTokenCount;
@@ -1868,8 +1882,32 @@ function reduceRequest(request, config = {}) {
     }
     if (config.cacheTtl === "5m" || config.cacheTtl === "1h") {
       const ttl = config.cacheTtl;
-      const decision = config.cacheVolatilityGuard?.observe(request) ?? { stamp: true };
-      const result = decision.stamp ? stampAnthropicCacheTtl(next, ttl, systemVolatileTail, countTokens) : { stamped: false };
+      const trial = { ...next };
+      const trialResult = stampAnthropicCacheTtl(trial, ttl, systemVolatileTail, countTokens);
+      const decision = config.cacheVolatilityGuard?.observe(request, {
+        stampedPrefix: stampedSystemPrefix(trial)
+      }) ?? { stamp: true };
+      const messageBreakpointWithheld = decision.stamp && decision.messageBreakpoint === false && trial.messages !== next.messages;
+      let result = { stamped: false };
+      if (decision.stamp) {
+        const systemStamped = trial.system !== next.system;
+        if (systemStamped) next.system = trial.system;
+        if (decision.messageBreakpoint === false) {
+          result = systemStamped ? { stamped: true } : { stamped: false, belowMinimum: trialResult.belowMinimum };
+        } else {
+          if (trial.messages !== next.messages) next.messages = trial.messages;
+          result = trialResult;
+        }
+      }
+      if (messageBreakpointWithheld) {
+        changes.push({
+          lever: "cache-ttl-suppressed",
+          lossless: true,
+          // Nothing was changed; this records WHY one breakpoint was not placed.
+          estimatedTokensSaved: 0,
+          detail: `Cache breakpoint on the newest message withheld: ${decision.reason ?? "the conversation's history is not stable"}. The tools + system breakpoint is unaffected: it sits before the history and still reads.`
+        });
+      }
       if (!decision.stamp) {
         changes.push({
           lever: "cache-ttl-suppressed",
@@ -2281,12 +2319,20 @@ var init_replay_gate = __esm({
 
 // packages/sdk-js/src/cache-volatility-guard.ts
 import { createHash as createHash4 } from "node:crypto";
-var isPlainObject4, digest, CachePrefixVolatilityGuard;
+function advance(prior, churned) {
+  if (churned) return { track: { volatile: true, stableStreak: 0 }, ok: false, proving: false };
+  if (!prior.volatile) return { track: prior, ok: true, proving: false };
+  const stableStreak = prior.stableStreak + 1;
+  if (stableStreak >= 2) return { track: { volatile: false, stableStreak: 0 }, ok: true, proving: false };
+  return { track: { volatile: true, stableStreak }, ok: false, proving: true };
+}
+var isPlainObject4, digest, PROVING, CachePrefixVolatilityGuard;
 var init_cache_volatility_guard = __esm({
   "packages/sdk-js/src/cache-volatility-guard.ts"() {
     "use strict";
     isPlainObject4 = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
     digest = (value) => createHash4("sha256").update(JSON.stringify(value ?? null) ?? "null").digest("hex").slice(0, 32);
+    PROVING = "this conversation's prefix changed on an earlier turn; waiting for it to prove stable before stamping again";
     CachePrefixVolatilityGuard = class {
       constructor(maxConversations = 1e3) {
         this.maxConversations = maxConversations;
@@ -2298,48 +2344,49 @@ var init_cache_volatility_guard = __esm({
       /** Insertion-ordered; re-inserted on touch, so the first key is the LRU. */
       conversations = /* @__PURE__ */ new Map();
       /**
-       * Record this request and decide whether its conversation has earned a
-       * cache stamp. Call once per request, with the raw (unreduced) request.
+       * Record this request and decide which cache breakpoints its conversation
+       * has earned. Call once per request, with the raw (unreduced) request and,
+       * when known, the content the system breakpoint would cover.
        */
-      observe(request) {
+      observe(request, context = {}) {
         if (!isPlainObject4(request) || !Array.isArray(request.messages) || request.messages.length === 0) {
           return { stamp: true };
         }
         const key = digest([request.model ?? null, request.messages[0]]);
-        const prefixHash = digest([request.tools ?? null, request.system ?? null]);
+        const prefixHash = context.stampedPrefix !== void 0 ? `span:${digest(context.stampedPrefix)}` : `raw:${digest([request.tools ?? null, request.system ?? null])}`;
         const messageHashes = request.messages.map(digest);
         const prior = this.conversations.get(key);
         if (prior !== void 0) this.conversations.delete(key);
         if (prior === void 0) {
-          this.conversations.set(key, { prefixHash, messageHashes, volatile: false, stableStreak: 0 });
+          this.conversations.set(key, {
+            prefixHash,
+            messageHashes,
+            prefix: { volatile: false, stableStreak: 0 },
+            history: { volatile: false, stableStreak: 0 }
+          });
           this.evict();
           return { stamp: true };
         }
         const prefixChanged = prior.prefixHash !== prefixHash;
         const historyExtends = messageHashes.length >= prior.messageHashes.length && prior.messageHashes.every((hash, index) => messageHashes[index] === hash);
-        const entry3 = { prefixHash, messageHashes, volatile: prior.volatile, stableStreak: prior.stableStreak };
-        let decision = { stamp: true };
-        if (prefixChanged || !historyExtends) {
-          entry3.volatile = true;
-          entry3.stableStreak = 0;
-          decision = {
+        const prefix = advance(prior.prefix, prefixChanged);
+        const history = advance(prior.history, !historyExtends);
+        this.conversations.set(key, { prefixHash, messageHashes, prefix: prefix.track, history: history.track });
+        if (!prefix.ok) {
+          return {
             stamp: false,
-            reason: prefixChanged ? "tools/system changed between turns of this conversation, so a cached prefix could never be read back" : "the conversation history was rewritten between turns, so a cached prefix could never be read back"
+            messageBreakpoint: false,
+            reason: prefixChanged ? "tools/system changed between turns of this conversation, so a cached prefix could never be read back" : PROVING
           };
-        } else if (entry3.volatile) {
-          entry3.stableStreak += 1;
-          if (entry3.stableStreak >= 2) {
-            entry3.volatile = false;
-            entry3.stableStreak = 0;
-          } else {
-            decision = {
-              stamp: false,
-              reason: "this conversation's prefix changed on an earlier turn; waiting for it to prove stable before stamping again"
-            };
-          }
         }
-        this.conversations.set(key, entry3);
-        return decision;
+        if (!history.ok) {
+          return {
+            stamp: true,
+            messageBreakpoint: false,
+            reason: history.proving ? "this conversation's history was rewritten on an earlier turn; waiting for it to prove stable before stamping the newest message again" : "the conversation history was rewritten between turns, so a breakpoint on the newest message could never be read back"
+          };
+        }
+        return { stamp: true };
       }
       evict() {
         while (this.conversations.size > this.maxConversations) {
@@ -6623,7 +6670,7 @@ var init_start = __esm({
     init_claude_wiring();
     init_cta();
     init_update();
-    BUILD_COMMIT = true ? "d92a92c" : process.env.MESH_BUILD_COMMIT ?? "dev";
+    BUILD_COMMIT = true ? "b5dff02" : process.env.MESH_BUILD_COMMIT ?? "dev";
     MESH_HOME = join5(homedir3(), ".mesh");
     CLAUDE_SETTINGS = join5(homedir3(), ".claude", "settings.json");
     WIRING_STATE = join5(MESH_HOME, "claude-wiring.json");
