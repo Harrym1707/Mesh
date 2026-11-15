@@ -4,7 +4,7 @@ Mesh is built so that your prompts, completions and API keys stay on your machin
 
 ## Who is responsible
 
-Mesh is a trading name of **Flux AI Technologies Limited**, a company registered in England and Wales with company number 17543982. For the personal data described below, that company is the controller.
+Mesh is a trading name of **Flux AI Technologies Limited**, a company registered in England and Wales with company number 17543982, whose registered office is at 26 Bennett Drive, Orrell, Wigan, England, WN5 7AR. For the personal data described below, that company is the controller.
 
 ## What stays on your machine
 
@@ -57,4 +57,4 @@ The date at the top shows the latest version. Earlier versions remain in the pub
 
 ## Contact
 
-Write to Flux AI Technologies Limited at its registered office, shown on the Companies House register under company number 17543982.
+Write to Flux AI Technologies Limited, 26 Bennett Drive, Orrell, Wigan, England, WN5 7AR.

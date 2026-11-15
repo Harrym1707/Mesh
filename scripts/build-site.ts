@@ -52,6 +52,8 @@ const LEGAL_PAGES: Array<{ file: string; nav: string }> = [
 /** The registered company behind the Mesh trading name. One place, checked below. */
 const REGISTERED_NAME = "Flux AI Technologies Limited";
 const COMPANY_NUMBER = "17543982";
+/** As shown on the Companies House register, read 2026-11-15. A UK company website must show it. */
+const REGISTERED_OFFICE = "26 Bennett Drive, Orrell, Wigan, England, WN5 7AR";
 
 function escapeHtml(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -358,8 +360,8 @@ for (const name of built) {
 for (const legal of LEGAL_PAGES) {
   const name = legal.file.replace(/\.md$/, ".html");
   const html = readFileSync(path.join(outDir, name), "utf8");
-  if (!html.includes(REGISTERED_NAME) || !html.includes(COMPANY_NUMBER) || !html.includes("England and Wales")) {
-    failures.push(`${name}: registered company name, number or place of registration missing`);
+  if (!html.includes(REGISTERED_NAME) || !html.includes(COMPANY_NUMBER) || !html.includes("England and Wales") || !html.includes(REGISTERED_OFFICE)) {
+    failures.push(`${name}: registered company name, number, place of registration or registered office missing`);
   }
 }
 const landing = readFileSync(path.join(outDir, "index.html"), "utf8");

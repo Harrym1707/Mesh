@@ -4,7 +4,7 @@ These terms cover the Mesh website, the Mesh software you install from it or fro
 
 ## Who we are
 
-Mesh is a trading name of **Flux AI Technologies Limited**, a company registered in England and Wales with company number 17543982. "We" and "us" mean that company.
+Mesh is a trading name of **Flux AI Technologies Limited**, a company registered in England and Wales with company number 17543982, whose registered office is at 26 Bennett Drive, Orrell, Wigan, England, WN5 7AR. "We" and "us" mean that company.
 
 ## The short version
 
@@ -69,4 +69,4 @@ These terms are governed by the law of England and Wales, and its courts have ju
 
 ## Contact
 
-Write to Flux AI Technologies Limited at its registered office, shown on the Companies House register under company number 17543982. For security reports use the private reporting channel described in the repository's `SECURITY.md`.
+Write to Flux AI Technologies Limited, 26 Bennett Drive, Orrell, Wigan, England, WN5 7AR. For security reports use the private reporting channel described in the repository's `SECURITY.md`.

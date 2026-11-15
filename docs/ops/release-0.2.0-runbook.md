@@ -11,7 +11,7 @@ public gets is the founder's to take.
 | Version | `@harrym1707/mesh` 0.1.0 → **0.2.0**, `@harrym1707/sdk` 0.1.1 → **0.2.0** (commit `9a71697`). npm already holds 0.1.0 and 0.1.1, so neither could be published again without a bump. |
 | Website runtime | `docs/site/dist` rebuilt at `b5dff02` (commit `2060fbd`, 2026-11-15). Manifest: build `b5dff02`, sha256 `4d7eef18…f94d0e6f`. It replaces build `d92a92c`; the only code change between the two is the cache guard fix below. |
 | Cache guard fix | `b5dff02`, brought over from PR #33 on 2026-11-15 at the founder's request. When a workload has the cache flag set, Mesh now decides the cache marker on tools + system and the one on the newest message separately, so a stable system prompt keeps its marker when the client rewrites its history. It only changes where cache markers go; a test checks the request is otherwise identical. Workloads without the cache flag are unaffected. |
-| Website pages | Two new pages, `terms.html` and `privacy.html`. Every other page changes in its footer only: the company line is gone and links to Terms and Privacy are added. No other copy changed. |
+| Website pages | Two new pages, `terms.html` and `privacy.html`, which carry the registered office address since 2026-11-15 (a pages-only rebuild; the runtime stayed at `b5dff02`). Every other page changes in its footer only: the company line is gone and links to Terms and Privacy are added. No other copy changed. |
 | Merge into `main` | Dry-run clean (`git merge-tree`) at `main` `938cfbb`, repeated on 2026-11-15 at `2060fbd`. The merged tree differs from this branch only by traffic-snapshot files, so the staged runtime is the build `main` would produce. |
 
 Live today, for comparison: the website serves build `c8378ea` (2026-11-04);
@@ -83,11 +83,14 @@ against a real provider.
       assigning the work to the company. A draft is in the founder's private
       project folder, not in this repository. Do not merge before it is
       signed.
-- [ ] **Add the registered office address and a contact email to both pages.**
-      A UK company's website must show its registered name, number, place of
-      registration and registered office address. The first three are on the
-      legal pages; the address is not, and nor is any email. The pages point
-      to the Companies House register for now.
+- [x] **Registered office address is on both pages** (added 2026-11-15, as
+      supplied by the founder and matching the Companies House register read
+      the same day). A UK company's website must show its registered name,
+      number, place of registration and registered office address; all four
+      are now on the legal pages, and the site build fails if any is missing.
+- [ ] **Add a contact email to both pages.** The pages give the postal
+      address only. A business selling online is expected to publish an email
+      address, so add one before taking paying customers.
 - [ ] **You accept going public without a DPA.** The architecture keeps
       prompts off our systems, which answers most of what a DPA covers, but a
       business customer may still ask for one.
