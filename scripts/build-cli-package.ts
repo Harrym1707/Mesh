@@ -129,10 +129,18 @@ if (!smoke.includes("All checks passed")) {
   process.exit(1);
 }
 
+// The download must expose Theo's command: it is how a user answers a proposal.
+const theoHelp = execSync(`node ${JSON.stringify(runtimeFile)} theo --help`, { cwd: root }).toString();
+if (!theoHelp.includes("Usage: mesh theo") || !theoHelp.includes("--accept")) {
+  console.error("Smoke test FAILED — runtime has no working `theo` command:\n" + theoHelp);
+  process.exit(1);
+}
+
 const kb = (n: number): string => `${(n / 1024).toFixed(0)}KB`;
 console.log(`built CLI artifacts  (build ${commit}, v${version})`);
 console.log(`  mesh (bootstrap)   ${kb(readFileSync(bootstrapFile).length)}  → the download`);
 console.log(`  mesh-runtime       ${kb(runtimeBytes.length)}  sha256 ${runtimeSha.slice(0, 12)}…`);
 console.log(`  mesh-version.json  update manifest`);
 console.log(`  smoke test: mesh-runtime verify — All checks passed`);
+console.log(`  smoke test: mesh-runtime theo --help — command present`);
 console.log(`  publish npm with:  (cd ${path.relative(root, outDir)} && npm publish --access public)`);

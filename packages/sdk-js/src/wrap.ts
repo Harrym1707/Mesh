@@ -40,6 +40,14 @@ export type WrapMeshOptions = {
   tokenReduction?: MeshTokenReductionConfig;
   /** Opt into the Anthropic prompt-cache stamp on multi-turn traffic ("5m" | "1h"). */
   cacheTtl?: "5m" | "1h";
+  /**
+   * Mirror ledger events to a Mesh account. Set both to push each metered
+   * event to `${meshApiUrl}/v1/ledger/events`, authenticated by the Mesh
+   * account key from signup. Reads MESH_API_URL / MESH_ACCOUNT_KEY from the
+   * environment when omitted. The provider key is never sent to Mesh.
+   */
+  meshApiUrl?: string;
+  meshAccountKey?: string;
 };
 
 export type MeshSavingsSummary = {
@@ -83,10 +91,14 @@ export function wrapMesh<T extends object>(client: T, options: WrapMeshOptions =
     ...(options.cacheTtl ? { cacheTtl: options.cacheTtl } : {}),
   };
 
+  const meshApiUrl = options.meshApiUrl ?? process.env.MESH_API_URL;
+  const meshAccountKey = options.meshAccountKey ?? process.env.MESH_ACCOUNT_KEY;
+  const mirror = meshApiUrl && meshAccountKey ? { apiUrl: meshApiUrl, accountKey: meshAccountKey } : undefined;
+
   const wrapped = withMesh(client as never, {
     applicationId: app,
     tokenReduction,
-    ledger: { path: ledgerPath, provider },
+    ledger: { path: ledgerPath, provider, ...(mirror ? { mirror } : {}) },
   }) as T;
 
   const mesh: MeshHandle = {

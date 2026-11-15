@@ -11,7 +11,7 @@ importers:
 
   .:
     dependencies:
-      '@flux-ai/sdk':
+      '@harrym1707/sdk':
         specifier: workspace:*
         version: link:packages/sdk-js
       openai:
@@ -49,6 +49,8 @@ importers:
   packages/providers: {}
 
   packages/sdk-js: {}
+
+  packages/signal: {}
 
 packages:
 
