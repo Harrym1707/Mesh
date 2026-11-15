@@ -1,0 +1,3052 @@
+{
+ "url": "docs/site/dist/index.html",
+ "at": "2026-11-02T20:41:38.787Z",
+ "allow": [],
+ "viewports": [
+  {
+   "width": 1440,
+   "height": 900,
+   "load": "load",
+   "screens": 9,
+   "filled": [
+    0.2,
+    0.16,
+    0.34,
+    0.27,
+    0.47,
+    0.64,
+    0.68,
+    0.48,
+    0.5
+   ],
+   "motion": {
+    "elements": 40,
+    "css": 4,
+    "transitions": 36,
+    "scripted": 0,
+    "videos": 0,
+    "playingVideos": 0
+   },
+   "metrics": {
+    "viewport": {
+     "w": 1440,
+     "h": 900
+    },
+    "page": {
+     "height": 8011,
+     "screens": 8.9,
+     "words": 1026,
+     "img": 3,
+     "video": 0,
+     "canvas": 0,
+     "svg": 9,
+     "sections": 9,
+     "horizontalOverflow": 0,
+     "overflowCulprits": [],
+     "uiFragments": 4,
+     "uiAbuse": false,
+     "realPictures": 3,
+     "videoCount": 0,
+     "uiPictures": 2,
+     "pictureSamples": [
+      "720",
+      "720",
+      "720"
+     ],
+     "blendText": 0,
+     "sideScrollers": 0,
+     "brokenImages": [],
+     "emoji": [],
+     "videosNoPoster": 0
+    },
+    "hero": {
+     "text": "A smaller AI bill.",
+     "words": 4,
+     "chars": 18,
+     "lines": 2,
+     "size": 121,
+     "vw": 8.4,
+     "font": "Manrope",
+     "weight": 800,
+     "tracking": -0.045,
+     "leading": 0.92,
+     "upper": false,
+     "italic": false,
+     "mono": false,
+     "align": "left",
+     "position": "left",
+     "widthRatio": 0.51,
+     "top": 151,
+     "tag": "h1",
+     "kind": "heading"
+    },
+    "h1": {
+     "text": "A smaller AI bill.",
+     "words": 4,
+     "lines": 2,
+     "size": 121,
+     "font": "Manrope"
+    },
+    "headings": [
+     {
+      "text": "A smaller AI bill.",
+      "words": 4,
+      "chars": 18,
+      "lines": 2,
+      "size": 121,
+      "vw": 8.4,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.045,
+      "leading": 0.92,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "left",
+      "widthRatio": 0.51,
+      "top": 151,
+      "tag": "h1",
+      "kind": "heading"
+     },
+     {
+      "text": "22.0%",
+      "words": 1,
+      "chars": 5,
+      "lines": 1,
+      "size": 84,
+      "vw": 5.8,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.03,
+      "leading": 1,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "right",
+      "position": "right",
+      "widthRatio": 0.23,
+      "top": 344,
+      "tag": "span",
+      "kind": "statement"
+     },
+     {
+      "text": "Measured savings.",
+      "words": 2,
+      "chars": 17,
+      "lines": 1,
+      "size": 30,
+      "vw": 2.1,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.01,
+      "leading": 1.5,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "center",
+      "widthRatio": 0.96,
+      "top": 914,
+      "tag": "h2",
+      "kind": "heading"
+     },
+     {
+      "text": "45–73%",
+      "words": 1,
+      "chars": 6,
+      "lines": 1,
+      "size": 122.4,
+      "vw": 8.5,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.04,
+      "leading": 0.9,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "center",
+      "position": "left",
+      "widthRatio": 0.25,
+      "top": 1041,
+      "tag": "div",
+      "kind": "heading"
+     },
+     {
+      "text": "57.7%",
+      "words": 1,
+      "chars": 5,
+      "lines": 1,
+      "size": 122.4,
+      "vw": 8.5,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.04,
+      "leading": 0.9,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "center",
+      "position": "center",
+      "widthRatio": 0.25,
+      "top": 1041,
+      "tag": "div",
+      "kind": "heading"
+     },
+     {
+      "text": "37.6%",
+      "words": 1,
+      "chars": 5,
+      "lines": 1,
+      "size": 122.4,
+      "vw": 8.5,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.04,
+      "leading": 0.9,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "center",
+      "position": "right",
+      "widthRatio": 0.25,
+      "top": 1041,
+      "tag": "div",
+      "kind": "heading"
+     },
+     {
+      "text": "Works with what you already use.",
+      "words": 6,
+      "chars": 32,
+      "lines": 1,
+      "size": 30,
+      "vw": 2.1,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.01,
+      "leading": 1.5,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "center",
+      "widthRatio": 0.96,
+      "top": 1535,
+      "tag": "h2",
+      "kind": "heading"
+     },
+     {
+      "text": "Watch a request lose its waste.",
+      "words": 6,
+      "chars": 31,
+      "lines": 1,
+      "size": 30,
+      "vw": 2.1,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.01,
+      "leading": 1.5,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "center",
+      "position": "center",
+      "widthRatio": 0.67,
+      "top": 1986,
+      "tag": "h2",
+      "kind": "heading"
+     },
+     {
+      "text": "One URL. Three exchanges.",
+      "words": 4,
+      "chars": 25,
+      "lines": 1,
+      "size": 30,
+      "vw": 2.1,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.01,
+      "leading": 1.5,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "center",
+      "widthRatio": 0.5,
+      "top": 2769,
+      "tag": "h2",
+      "kind": "heading"
+     },
+     {
+      "text": "Proven, line by line.",
+      "words": 4,
+      "chars": 21,
+      "lines": 1,
+      "size": 30,
+      "vw": 2.1,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.01,
+      "leading": 1.5,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "left",
+      "widthRatio": 0.42,
+      "top": 4337,
+      "tag": "h2",
+      "kind": "heading"
+     },
+     {
+      "text": "37.9%",
+      "words": 1,
+      "chars": 5,
+      "lines": 1,
+      "size": 216,
+      "vw": 15,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.04,
+      "leading": 0.8,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "left",
+      "widthRatio": 0.42,
+      "top": 4576,
+      "tag": "div",
+      "kind": "heading"
+     },
+     {
+      "text": "Meet Theo, your token engineer.",
+      "words": 5,
+      "chars": 31,
+      "lines": 1,
+      "size": 30,
+      "vw": 2.1,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.01,
+      "leading": 1.5,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "center",
+      "position": "center",
+      "widthRatio": 0.51,
+      "top": 5297,
+      "tag": "h2",
+      "kind": "heading"
+     },
+     {
+      "text": "1%",
+      "words": 1,
+      "chars": 2,
+      "lines": 1,
+      "size": 230.4,
+      "vw": 16,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.04,
+      "leading": 0.85,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "right",
+      "widthRatio": 0.45,
+      "top": 5858,
+      "tag": "div",
+      "kind": "heading"
+     },
+     {
+      "text": "One price.",
+      "words": 2,
+      "chars": 10,
+      "lines": 1,
+      "size": 30,
+      "vw": 2.1,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.01,
+      "leading": 1.5,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "left",
+      "widthRatio": 0.26,
+      "top": 5858,
+      "tag": "h2",
+      "kind": "heading"
+     },
+     {
+      "text": "The catch, printed.",
+      "words": 3,
+      "chars": 19,
+      "lines": 1,
+      "size": 30,
+      "vw": 2.1,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.01,
+      "leading": 1.5,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "left",
+      "widthRatio": 0.22,
+      "top": 6518,
+      "tag": "h2",
+      "kind": "heading"
+     },
+     {
+      "text": "Start with one URL.",
+      "words": 4,
+      "chars": 19,
+      "lines": 1,
+      "size": 30,
+      "vw": 2.1,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.01,
+      "leading": 1.5,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "center",
+      "widthRatio": 0.76,
+      "top": 7421,
+      "tag": "h2",
+      "kind": "heading"
+     }
+    ],
+    "headingSummary": {
+     "count": 16,
+     "maxLines": 2,
+     "over2Lines": 0,
+     "statements": 1,
+     "centered": 5,
+     "medianWords": 2,
+     "mixedFontHeadings": 0
+    },
+    "type": {
+     "families": [
+      {
+       "family": "Manrope",
+       "share": 0.81,
+       "mono": false
+      },
+      {
+       "family": "ui-monospace",
+       "share": 0.15,
+       "mono": false
+      },
+      {
+       "family": "monospace",
+       "share": 0.04,
+       "mono": false
+      }
+     ],
+     "familyCount": 3,
+     "sizes": [
+      12,
+      13,
+      14,
+      15,
+      16,
+      18,
+      20,
+      22,
+      24,
+      25,
+      30,
+      55,
+      84,
+      115,
+      121,
+      122,
+      216,
+      230
+     ],
+     "sizeCount": 18,
+     "notLoaded": [],
+     "body": {
+      "font": "Manrope",
+      "size": 16,
+      "leading": 1.5,
+      "weight": 400,
+      "tracking": 0,
+      "contrast": 5.7
+     },
+     "measureChars": 63,
+     "max": {
+      "size": 230.4,
+      "vw": 16,
+      "font": "Manrope",
+      "text": "1"
+     },
+     "monoShare": 0.19,
+     "monoProseShare": 0,
+     "monoFamilies": [
+      "ui-monospace",
+      "monospace"
+     ],
+     "monoSamples": [
+      "$",
+      "copy",
+      "copy",
+      "copy"
+     ],
+     "microLabels": 0,
+     "microLabelShare": 0,
+     "microSamples": [],
+     "upperShare": 0.01,
+     "centerShare": 0.22,
+     "smallText": 1
+    },
+    "eyebrows": [],
+    "numbered": [],
+    "color": {
+     "bodyBg": "#fafaf9",
+     "bodyBgHsl": {
+      "h": 60,
+      "s": 0.09,
+      "l": 0.98
+     },
+     "dark": false,
+     "sectionBgs": [
+      {
+       "color": "#0b0f14",
+       "top": 4241,
+       "hsl": {
+        "h": 213,
+        "s": 0.29,
+        "l": 0.06
+       }
+      },
+      {
+       "color": "#1d4ed8",
+       "top": 5762,
+       "hsl": {
+        "h": 224,
+        "s": 0.76,
+        "l": 0.48
+       }
+      },
+      {
+       "color": "#2563eb",
+       "top": 7368,
+       "hsl": {
+        "h": 221,
+        "s": 0.83,
+        "l": 0.53
+       }
+      }
+     ],
+     "textColors": [
+      {
+       "color": "#0b0f14",
+       "share": 0.5
+      },
+      {
+       "color": "#5b6472",
+       "share": 0.19
+      },
+      {
+       "color": "#ffffff",
+       "share": 0.08
+      },
+      {
+       "color": "#9aa3b2",
+       "share": 0.06
+      },
+      {
+       "color": "#57534e",
+       "share": 0.05
+      }
+     ],
+     "button": {
+      "bg": "#f1f7fb",
+      "hsl": {
+       "h": 204,
+       "s": 0.56,
+       "l": 0.96
+      },
+      "fg": "#1d4ed8"
+     },
+     "lowContrast": [
+      {
+       "text": "evidence",
+       "ratio": 3.7,
+       "need": 4.5,
+       "size": 16,
+       "fg": "#2563eb",
+       "bg": "#0b0f14"
+      },
+      {
+       "text": "\"claude-sonnet-5-5\"",
+       "ratio": 4.1,
+       "need": 4.5,
+       "size": 13,
+       "fg": "#2563eb",
+       "bg": "#e7e5e4"
+      },
+      {
+       "text": "[ 12 tools, schemas minified ]",
+       "ratio": 4.1,
+       "need": 4.5,
+       "size": 13,
+       "fg": "#2563eb",
+       "bg": "#e7e5e4"
+      },
+      {
+       "text": "[ digest kept: errors + file paths; rest",
+       "ratio": 4.1,
+       "need": 4.5,
+       "size": 13,
+       "fg": "#2563eb",
+       "bg": "#e7e5e4"
+      },
+      {
+       "text": "the answer cannot change — only safe mov",
+       "ratio": 4.1,
+       "need": 4.5,
+       "size": 13,
+       "fg": "#2563eb",
+       "bg": "#e7e5e4"
+      },
+      {
+       "text": "\"basis\":\"estimated-baseline\"",
+       "ratio": 4.1,
+       "need": 4.5,
+       "size": 13,
+       "fg": "#2563eb",
+       "bg": "#e7e5e4"
+      }
+     ]
+    },
+    "buttons": {
+     "count": 2,
+     "inHero": 0,
+     "radius": 4,
+     "height": 48,
+     "withShadow": 0,
+     "withGradient": 0,
+     "mono": 0,
+     "upper": 0,
+     "heroLabels": []
+    },
+    "surfaces": {
+     "shadowStatic": 0,
+     "shadowOverlay": 0,
+     "shadowSamples": [],
+     "gradients": 0,
+     "scrims": 0,
+     "gradientSamples": [],
+     "gradientText": 0,
+     "hairlines": 0,
+     "hairlineSamples": [],
+     "outlinedBoxes": 0,
+     "dashed": 0,
+     "blurred": 0,
+     "roundedBoxes": 5,
+     "boxRadius": 8,
+     "squareMedia": 2,
+     "roundedMedia": 0,
+     "mediaRadius": 0,
+     "textShadow": 0,
+     "cardRows": []
+    },
+    "heroMedia": [
+     {
+      "type": "bg-image",
+      "ratio": 1
+     },
+     {
+      "type": "bg-image",
+      "ratio": 1
+     }
+    ],
+    "nav": {
+     "links": 4,
+     "fixed": false,
+     "height": 62,
+     "floatingPill": false,
+     "blur": false
+    },
+    "fontsLoaded": [
+     "manrope"
+    ]
+   },
+   "layout": {
+    "viewport": {
+     "w": 1440,
+     "h": 900
+    },
+    "pageH": 8011,
+    "margins": {
+     "left": 32,
+     "right": 105
+    },
+    "sections": [
+     {
+      "sel": "div.hero-wrap",
+      "tag": "div",
+      "top": 62,
+      "height": 756,
+      "words": 81,
+      "media": 0,
+      "middle": 305,
+      "heading": {
+       "text": "A smaller AI bill",
+       "size": 121,
+       "tag": "h1"
+      },
+      "left": 32,
+      "right": 32,
+      "textLeft": 32,
+      "textRight": 32,
+      "fullBleed": false,
+      "footer": false,
+      "hero": true,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "section.bands",
+      "tag": "section",
+      "top": 818,
+      "height": 653,
+      "words": 87,
+      "media": 0,
+      "middle": 0,
+      "heading": {
+       "text": "45",
+       "size": 122,
+       "tag": "div"
+      },
+      "left": 32,
+      "right": 187,
+      "textLeft": 32,
+      "textRight": 187,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "section.works",
+      "tag": "section",
+      "top": 1471,
+      "height": 419,
+      "words": 13,
+      "media": 0,
+      "middle": 123,
+      "heading": {
+       "text": "Works with what you already use.",
+       "size": 30,
+       "tag": "h2"
+      },
+      "left": 32,
+      "right": 144,
+      "textLeft": 32,
+      "textRight": 144,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "section.demo-sect",
+      "tag": "section",
+      "top": 1890,
+      "height": 784,
+      "words": 163,
+      "media": 0,
+      "middle": 0,
+      "heading": {
+       "text": "Watch a request lose its waste.",
+       "size": 30,
+       "tag": "h2"
+      },
+      "left": 257,
+      "right": 173,
+      "textLeft": 257,
+      "textRight": 173,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "section",
+      "tag": "section",
+      "top": 2673,
+      "height": 1568,
+      "words": 178,
+      "media": 0,
+      "middle": 0,
+      "heading": {
+       "text": "One URL. Three exchanges.",
+       "size": 30,
+       "tag": "h2"
+      },
+      "left": 360,
+      "right": 288,
+      "textLeft": 360,
+      "textRight": 288,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "section.field-deep",
+      "tag": "section",
+      "top": 4241,
+      "height": 788,
+      "words": 157,
+      "media": 0,
+      "middle": 72,
+      "heading": {
+       "text": "37.9%",
+       "size": 216,
+       "tag": "div"
+      },
+      "left": 180,
+      "right": 196,
+      "textLeft": 180,
+      "textRight": 196,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "section#theo.theo-sect",
+      "tag": "section",
+      "top": 5029,
+      "height": 733,
+      "words": 83,
+      "media": 0,
+      "middle": 0,
+      "heading": {
+       "text": "Meet Theo, your token engineer.",
+       "size": 30,
+       "tag": "h2"
+      },
+      "left": 405,
+      "right": 405,
+      "textLeft": 405,
+      "textRight": 405,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "section.field-ocean",
+      "tag": "section",
+      "top": 5762,
+      "height": 660,
+      "words": 79,
+      "media": 0,
+      "middle": 66,
+      "heading": {
+       "text": "One price.",
+       "size": 30,
+       "tag": "h2"
+      },
+      "left": 180,
+      "right": 206,
+      "textLeft": 180,
+      "textRight": 329,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "section",
+      "tag": "section",
+      "top": 6422,
+      "height": 850,
+      "words": 233,
+      "media": 0,
+      "middle": 119,
+      "heading": {
+       "text": "The catch, printed.",
+       "size": 30,
+       "tag": "h2"
+      },
+      "left": 180,
+      "right": 410,
+      "textLeft": 180,
+      "textRight": 410,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": false,
+      "pinned": true
+     },
+     {
+      "sel": "section",
+      "tag": "section",
+      "top": 7272,
+      "height": 552,
+      "words": 42,
+      "media": 1,
+      "middle": 680,
+      "heading": {
+       "text": "Start with one URL.",
+       "size": 30,
+       "tag": "h2"
+      },
+      "left": 172,
+      "right": 0,
+      "textLeft": 172,
+      "textRight": 800,
+      "fullBleed": false,
+      "footer": true,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     }
+    ],
+    "gaps": [
+     {
+      "top": 1696,
+      "height": 288
+     },
+     {
+      "top": 4048,
+      "height": 288
+     }
+    ],
+    "h1s": [
+     {
+      "text": "A smaller AI bill.",
+      "size": 121,
+      "top": 151,
+      "firstScreen": true
+     }
+    ],
+    "edgeText": [],
+    "edges": [
+     {
+      "x": 172,
+      "n": 8
+     },
+     {
+      "x": 32,
+      "n": 4
+     },
+     {
+      "x": 360,
+      "n": 1
+     },
+     {
+      "x": 852,
+      "n": 1
+     }
+    ],
+    "leftBlocks": 14,
+    "bodySize": 16,
+    "stage": true,
+    "explains": true,
+    "slivers": [],
+    "voidShare": 0,
+    "voidBox": null
+   },
+   "app": null,
+   "consoleErrors": []
+  },
+  {
+   "width": 768,
+   "height": 1024,
+   "load": "load",
+   "screens": 10,
+   "filled": [
+    0.33,
+    0.23,
+    0.48,
+    0.64,
+    0.78,
+    0.76,
+    0.68,
+    0.69,
+    0.57,
+    0.6
+   ],
+   "motion": {
+    "elements": 40,
+    "css": 4,
+    "transitions": 36,
+    "scripted": 0,
+    "videos": 0,
+    "playingVideos": 0
+   },
+   "metrics": {
+    "viewport": {
+     "w": 768,
+     "h": 1024
+    },
+    "page": {
+     "height": 9536,
+     "screens": 9.3,
+     "words": 1026,
+     "img": 3,
+     "video": 0,
+     "canvas": 0,
+     "svg": 9,
+     "sections": 9,
+     "horizontalOverflow": 0,
+     "overflowCulprits": [],
+     "uiFragments": 4,
+     "uiAbuse": false,
+     "realPictures": 3,
+     "videoCount": 0,
+     "uiPictures": 2,
+     "pictureSamples": [
+      "720",
+      "720",
+      "720"
+     ],
+     "blendText": 0,
+     "sideScrollers": 0,
+     "brokenImages": [],
+     "emoji": [],
+     "videosNoPoster": 0
+    },
+    "hero": {
+     "text": "A smaller AI bill.",
+     "words": 4,
+     "chars": 18,
+     "lines": 2,
+     "size": 64.5,
+     "vw": 8.4,
+     "font": "Manrope",
+     "weight": 800,
+     "tracking": -0.045,
+     "leading": 0.92,
+     "upper": false,
+     "italic": false,
+     "mono": false,
+     "align": "left",
+     "position": "left",
+     "widthRatio": 0.51,
+     "top": 110,
+     "tag": "h1",
+     "kind": "heading"
+    },
+    "h1": {
+     "text": "A smaller AI bill.",
+     "words": 4,
+     "lines": 2,
+     "size": 64.5,
+     "font": "Manrope"
+    },
+    "headings": [
+     {
+      "text": "A smaller AI bill.",
+      "words": 4,
+      "chars": 18,
+      "lines": 2,
+      "size": 64.5,
+      "vw": 8.4,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.045,
+      "leading": 0.92,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "left",
+      "widthRatio": 0.51,
+      "top": 110,
+      "tag": "h1",
+      "kind": "heading"
+     },
+     {
+      "text": "22.0%",
+      "words": 1,
+      "chars": 5,
+      "lines": 1,
+      "size": 52,
+      "vw": 6.8,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.03,
+      "leading": 1,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "center",
+      "widthRatio": 0.92,
+      "top": 719,
+      "tag": "span",
+      "kind": "statement"
+     },
+     {
+      "text": "Measured savings.",
+      "words": 2,
+      "chars": 17,
+      "lines": 1,
+      "size": 30,
+      "vw": 3.9,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.01,
+      "leading": 1.5,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "center",
+      "widthRatio": 0.92,
+      "top": 1018,
+      "tag": "h2",
+      "kind": "heading"
+     },
+     {
+      "text": "45–73%",
+      "words": 1,
+      "chars": 6,
+      "lines": 1,
+      "size": 72,
+      "vw": 9.4,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.04,
+      "leading": 0.9,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "center",
+      "position": "left",
+      "widthRatio": 0.44,
+      "top": 1145,
+      "tag": "div",
+      "kind": "heading"
+     },
+     {
+      "text": "57.7%",
+      "words": 1,
+      "chars": 5,
+      "lines": 1,
+      "size": 72,
+      "vw": 9.4,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.04,
+      "leading": 0.9,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "center",
+      "position": "right",
+      "widthRatio": 0.44,
+      "top": 1145,
+      "tag": "div",
+      "kind": "heading"
+     },
+     {
+      "text": "37.6%",
+      "words": 1,
+      "chars": 5,
+      "lines": 1,
+      "size": 72,
+      "vw": 9.4,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.04,
+      "leading": 0.9,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "center",
+      "position": "left",
+      "widthRatio": 0.44,
+      "top": 1330,
+      "tag": "div",
+      "kind": "heading"
+     },
+     {
+      "text": "Works with what you already use.",
+      "words": 6,
+      "chars": 32,
+      "lines": 1,
+      "size": 30,
+      "vw": 3.9,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.01,
+      "leading": 1.5,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "center",
+      "widthRatio": 0.92,
+      "top": 1755,
+      "tag": "h2",
+      "kind": "heading"
+     },
+     {
+      "text": "Watch a request lose its waste.",
+      "words": 6,
+      "chars": 31,
+      "lines": 1,
+      "size": 30,
+      "vw": 3.9,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.01,
+      "leading": 1.5,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "center",
+      "position": "center",
+      "widthRatio": 0.92,
+      "top": 2256,
+      "tag": "h2",
+      "kind": "heading"
+     },
+     {
+      "text": "One URL. Three exchanges.",
+      "words": 4,
+      "chars": 25,
+      "lines": 1,
+      "size": 30,
+      "vw": 3.9,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.01,
+      "leading": 1.5,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "center",
+      "widthRatio": 0.92,
+      "top": 3040,
+      "tag": "h2",
+      "kind": "heading"
+     },
+     {
+      "text": "Proven, line by line.",
+      "words": 4,
+      "chars": 21,
+      "lines": 1,
+      "size": 30,
+      "vw": 3.9,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.01,
+      "leading": 1.5,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "center",
+      "widthRatio": 0.92,
+      "top": 4608,
+      "tag": "h2",
+      "kind": "heading"
+     },
+     {
+      "text": "37.9%",
+      "words": 1,
+      "chars": 5,
+      "lines": 1,
+      "size": 120,
+      "vw": 15.6,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.04,
+      "leading": 0.8,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "center",
+      "widthRatio": 0.92,
+      "top": 4888,
+      "tag": "div",
+      "kind": "heading"
+     },
+     {
+      "text": "Meet Theo, your token engineer.",
+      "words": 5,
+      "chars": 31,
+      "lines": 1,
+      "size": 30,
+      "vw": 3.9,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.01,
+      "leading": 1.5,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "center",
+      "position": "center",
+      "widthRatio": 0.92,
+      "top": 6157,
+      "tag": "h2",
+      "kind": "heading"
+     },
+     {
+      "text": "One price.",
+      "words": 2,
+      "chars": 10,
+      "lines": 1,
+      "size": 30,
+      "vw": 3.9,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.01,
+      "leading": 1.5,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "center",
+      "widthRatio": 0.92,
+      "top": 6695,
+      "tag": "h2",
+      "kind": "heading"
+     },
+     {
+      "text": "1%",
+      "words": 1,
+      "chars": 2,
+      "lines": 1,
+      "size": 122.9,
+      "vw": 16,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.04,
+      "leading": 0.85,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "center",
+      "widthRatio": 0.92,
+      "top": 6989,
+      "tag": "div",
+      "kind": "heading"
+     },
+     {
+      "text": "The catch, printed.",
+      "words": 3,
+      "chars": 19,
+      "lines": 1,
+      "size": 30,
+      "vw": 3.9,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.01,
+      "leading": 1.5,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "center",
+      "widthRatio": 0.92,
+      "top": 7557,
+      "tag": "h2",
+      "kind": "heading"
+     },
+     {
+      "text": "Start with one URL.",
+      "words": 4,
+      "chars": 19,
+      "lines": 1,
+      "size": 30,
+      "vw": 3.9,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.01,
+      "leading": 1.5,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "center",
+      "widthRatio": 0.81,
+      "top": 8754,
+      "tag": "h2",
+      "kind": "heading"
+     }
+    ],
+    "headingSummary": {
+     "count": 16,
+     "maxLines": 2,
+     "over2Lines": 0,
+     "statements": 1,
+     "centered": 5,
+     "medianWords": 2,
+     "mixedFontHeadings": 0
+    },
+    "type": {
+     "families": [
+      {
+       "family": "Manrope",
+       "share": 0.81,
+       "mono": false
+      },
+      {
+       "family": "ui-monospace",
+       "share": 0.15,
+       "mono": false
+      },
+      {
+       "family": "monospace",
+       "share": 0.04,
+       "mono": false
+      }
+     ],
+     "familyCount": 3,
+     "sizes": [
+      12,
+      13,
+      14,
+      15,
+      16,
+      18,
+      20,
+      22,
+      24,
+      30,
+      32,
+      52,
+      61,
+      65,
+      72,
+      120,
+      123
+     ],
+     "sizeCount": 17,
+     "notLoaded": [],
+     "body": {
+      "font": "Manrope",
+      "size": 16,
+      "leading": 1.5,
+      "weight": 400,
+      "tracking": 0,
+      "contrast": 5.7
+     },
+     "measureChars": 63,
+     "max": {
+      "size": 122.9,
+      "vw": 16,
+      "font": "Manrope",
+      "text": "1"
+     },
+     "monoShare": 0.19,
+     "monoProseShare": 0,
+     "monoFamilies": [
+      "ui-monospace",
+      "monospace"
+     ],
+     "monoSamples": [
+      "$",
+      "copy",
+      "copy",
+      "copy"
+     ],
+     "microLabels": 0,
+     "microLabelShare": 0,
+     "microSamples": [],
+     "upperShare": 0.01,
+     "centerShare": 0.22,
+     "smallText": 1
+    },
+    "eyebrows": [],
+    "numbered": [],
+    "color": {
+     "bodyBg": "#fafaf9",
+     "bodyBgHsl": {
+      "h": 60,
+      "s": 0.09,
+      "l": 0.98
+     },
+     "dark": false,
+     "sectionBgs": [
+      {
+       "color": "#e7e5e4",
+       "top": 2383,
+       "hsl": {
+        "h": 20,
+        "s": 0.06,
+        "l": 0.9
+       }
+      },
+      {
+       "color": "#0b0f14",
+       "top": 4512,
+       "hsl": {
+        "h": 213,
+        "s": 0.29,
+        "l": 0.06
+       }
+      },
+      {
+       "color": "#ffffff",
+       "top": 5216,
+       "hsl": {
+        "h": 0,
+        "s": 0,
+        "l": 1
+       }
+      },
+      {
+       "color": "#1d4ed8",
+       "top": 6599,
+       "hsl": {
+        "h": 224,
+        "s": 0.76,
+        "l": 0.48
+       }
+      }
+     ],
+     "textColors": [
+      {
+       "color": "#0b0f14",
+       "share": 0.5
+      },
+      {
+       "color": "#5b6472",
+       "share": 0.19
+      },
+      {
+       "color": "#ffffff",
+       "share": 0.08
+      },
+      {
+       "color": "#9aa3b2",
+       "share": 0.06
+      },
+      {
+       "color": "#57534e",
+       "share": 0.05
+      }
+     ],
+     "button": {
+      "bg": "#f1f7fb",
+      "hsl": {
+       "h": 204,
+       "s": 0.56,
+       "l": 0.96
+      },
+      "fg": "#1d4ed8"
+     },
+     "lowContrast": [
+      {
+       "text": "evidence",
+       "ratio": 3.7,
+       "need": 4.5,
+       "size": 16,
+       "fg": "#2563eb",
+       "bg": "#0b0f14"
+      },
+      {
+       "text": "\"claude-sonnet-5-5\"",
+       "ratio": 4.1,
+       "need": 4.5,
+       "size": 13,
+       "fg": "#2563eb",
+       "bg": "#e7e5e4"
+      },
+      {
+       "text": "[ 12 tools, schemas minified ]",
+       "ratio": 4.1,
+       "need": 4.5,
+       "size": 13,
+       "fg": "#2563eb",
+       "bg": "#e7e5e4"
+      },
+      {
+       "text": "[ digest kept: errors + file paths; rest",
+       "ratio": 4.1,
+       "need": 4.5,
+       "size": 13,
+       "fg": "#2563eb",
+       "bg": "#e7e5e4"
+      },
+      {
+       "text": "the answer cannot change — only safe mov",
+       "ratio": 4.1,
+       "need": 4.5,
+       "size": 13,
+       "fg": "#2563eb",
+       "bg": "#e7e5e4"
+      },
+      {
+       "text": "\"basis\":\"estimated-baseline\"",
+       "ratio": 4.1,
+       "need": 4.5,
+       "size": 13,
+       "fg": "#2563eb",
+       "bg": "#e7e5e4"
+      }
+     ]
+    },
+    "buttons": {
+     "count": 2,
+     "inHero": 0,
+     "radius": 4,
+     "height": 48,
+     "withShadow": 0,
+     "withGradient": 0,
+     "mono": 0,
+     "upper": 0,
+     "heroLabels": []
+    },
+    "surfaces": {
+     "shadowStatic": 0,
+     "shadowOverlay": 0,
+     "shadowSamples": [],
+     "gradients": 0,
+     "scrims": 0,
+     "gradientSamples": [],
+     "gradientText": 0,
+     "hairlines": 0,
+     "hairlineSamples": [],
+     "outlinedBoxes": 0,
+     "dashed": 0,
+     "blurred": 0,
+     "roundedBoxes": 5,
+     "boxRadius": 8,
+     "squareMedia": 2,
+     "roundedMedia": 0,
+     "mediaRadius": 0,
+     "textShadow": 0,
+     "cardRows": []
+    },
+    "heroMedia": [
+     {
+      "type": "bg-image",
+      "ratio": 1
+     },
+     {
+      "type": "bg-image",
+      "ratio": 1
+     }
+    ],
+    "nav": {
+     "links": 4,
+     "fixed": false,
+     "height": 62,
+     "floatingPill": false,
+     "blur": false
+    },
+    "fontsLoaded": [
+     "manrope"
+    ]
+   },
+   "layout": {
+    "viewport": {
+     "w": 768,
+     "h": 1024
+    },
+    "pageH": 9536,
+    "margins": {
+     "left": 32,
+     "right": 32
+    },
+    "sections": [
+     {
+      "sel": "div.hero-wrap",
+      "tag": "div",
+      "top": 62,
+      "height": 860,
+      "words": 81,
+      "media": 0,
+      "middle": 0,
+      "heading": {
+       "text": "A smaller AI bill",
+       "size": 65,
+       "tag": "h1"
+      },
+      "left": 32,
+      "right": 34,
+      "textLeft": 32,
+      "textRight": 34,
+      "fullBleed": false,
+      "footer": false,
+      "hero": true,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "section.bands",
+      "tag": "section",
+      "top": 922,
+      "height": 769,
+      "words": 87,
+      "media": 0,
+      "middle": 0,
+      "heading": {
+       "text": "45",
+       "size": 72,
+       "tag": "div"
+      },
+      "left": 32,
+      "right": 37,
+      "textLeft": 32,
+      "textRight": 37,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "section.works",
+      "tag": "section",
+      "top": 1691,
+      "height": 470,
+      "words": 13,
+      "media": 0,
+      "middle": 75,
+      "heading": {
+       "text": "Works with what you already use.",
+       "size": 30,
+       "tag": "h2"
+      },
+      "left": 32,
+      "right": 32,
+      "textLeft": 32,
+      "textRight": 32,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "section.demo-sect",
+      "tag": "section",
+      "top": 2160,
+      "height": 784,
+      "words": 166,
+      "media": 0,
+      "middle": 0,
+      "heading": {
+       "text": "Watch a request lose its waste.",
+       "size": 30,
+       "tag": "h2"
+      },
+      "left": 39,
+      "right": 38,
+      "textLeft": 39,
+      "textRight": -291,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "section",
+      "tag": "section",
+      "top": 2944,
+      "height": 1568,
+      "words": 178,
+      "media": 0,
+      "middle": 0,
+      "heading": {
+       "text": "One URL. Three exchanges.",
+       "size": 30,
+       "tag": "h2"
+      },
+      "left": 32,
+      "right": 0,
+      "textLeft": 32,
+      "textRight": -56,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "section.field-deep",
+      "tag": "section",
+      "top": 4512,
+      "height": 1377,
+      "words": 157,
+      "media": 0,
+      "middle": 0,
+      "heading": {
+       "text": "37.9%",
+       "size": 120,
+       "tag": "div"
+      },
+      "left": 32,
+      "right": 316,
+      "textLeft": 32,
+      "textRight": 316,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "section#theo.theo-sect",
+      "tag": "section",
+      "top": 5889,
+      "height": 711,
+      "words": 83,
+      "media": 0,
+      "middle": 0,
+      "heading": {
+       "text": "Meet Theo, your token engineer.",
+       "size": 30,
+       "tag": "h2"
+      },
+      "left": 69,
+      "right": 69,
+      "textLeft": 69,
+      "textRight": 69,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "section.field-ocean",
+      "tag": "section",
+      "top": 6599,
+      "height": 862,
+      "words": 79,
+      "media": 0,
+      "middle": 53,
+      "heading": {
+       "text": "One price.",
+       "size": 30,
+       "tag": "h2"
+      },
+      "left": 32,
+      "right": 60,
+      "textLeft": 32,
+      "textRight": 233,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "section",
+      "tag": "section",
+      "top": 7461,
+      "height": 1025,
+      "words": 233,
+      "media": 0,
+      "middle": 0,
+      "heading": {
+       "text": "The catch, printed.",
+       "size": 30,
+       "tag": "h2"
+      },
+      "left": 32,
+      "right": 254,
+      "textLeft": 32,
+      "textRight": 254,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "section",
+      "tag": "section",
+      "top": 8486,
+      "height": 789,
+      "words": 42,
+      "media": 1,
+      "middle": 0,
+      "heading": {
+       "text": "Start with one URL.",
+       "size": 30,
+       "tag": "h2"
+      },
+      "left": 32,
+      "right": 32,
+      "textLeft": 72,
+      "textRight": 228,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "footer.quiet-foot",
+      "tag": "footer",
+      "top": 9398,
+      "height": 138,
+      "words": 33,
+      "media": 0,
+      "middle": 32,
+      "heading": null,
+      "left": 32,
+      "right": 32,
+      "textLeft": 32,
+      "textRight": 32,
+      "fullBleed": false,
+      "footer": true,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     }
+    ],
+    "gaps": [],
+    "h1s": [
+     {
+      "text": "A smaller AI bill.",
+      "size": 65,
+      "top": 110,
+      "firstScreen": true
+     }
+    ],
+    "edgeText": [],
+    "edges": [
+     {
+      "x": 32,
+      "n": 12
+     },
+     {
+      "x": 72,
+      "n": 2
+     },
+     {
+      "x": 56,
+      "n": 1
+     }
+    ],
+    "leftBlocks": 15,
+    "bodySize": 16,
+    "stage": true,
+    "explains": true,
+    "slivers": [],
+    "voidShare": 0,
+    "voidBox": null
+   },
+   "app": null,
+   "consoleErrors": []
+  },
+  {
+   "width": 390,
+   "height": 844,
+   "load": "load",
+   "screens": 12,
+   "filled": [
+    0.3,
+    0.32,
+    0.33,
+    0.43,
+    0.42,
+    0.53,
+    0.83,
+    0.7,
+    0.53,
+    0.62,
+    0.6,
+    0.6
+   ],
+   "motion": {
+    "elements": 44,
+    "css": 4,
+    "transitions": 40,
+    "scripted": 0,
+    "videos": 0,
+    "playingVideos": 0
+   },
+   "metrics": {
+    "viewport": {
+     "w": 481,
+     "h": 1039
+    },
+    "page": {
+     "height": 10584,
+     "screens": 10.2,
+     "words": 1035,
+     "img": 3,
+     "video": 0,
+     "canvas": 0,
+     "svg": 9,
+     "sections": 9,
+     "horizontalOverflow": 0,
+     "overflowCulprits": [],
+     "uiFragments": 4,
+     "uiAbuse": false,
+     "realPictures": 3,
+     "videoCount": 0,
+     "uiPictures": 2,
+     "pictureSamples": [
+      "720",
+      "720",
+      "720"
+     ],
+     "blendText": 0,
+     "sideScrollers": 0,
+     "brokenImages": [],
+     "emoji": [],
+     "videosNoPoster": 0
+    },
+    "hero": {
+     "text": "A smaller AI bill.",
+     "words": 4,
+     "chars": 18,
+     "lines": 2,
+     "size": 56,
+     "vw": 11.6,
+     "font": "Manrope",
+     "weight": 800,
+     "tracking": -0.045,
+     "leading": 0.92,
+     "upper": false,
+     "italic": false,
+     "mono": false,
+     "align": "left",
+     "position": "left",
+     "widthRatio": 0.68,
+     "top": 180,
+     "tag": "h1",
+     "kind": "heading"
+    },
+    "h1": {
+     "text": "A smaller AI bill.",
+     "words": 4,
+     "lines": 2,
+     "size": 56,
+     "font": "Manrope"
+    },
+    "headings": [
+     {
+      "text": "flux",
+      "words": 1,
+      "chars": 4,
+      "lines": 1,
+      "size": 24,
+      "vw": 5,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.03,
+      "leading": 1.5,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "left",
+      "widthRatio": 0.18,
+      "top": 26,
+      "tag": "a",
+      "kind": "heading"
+     },
+     {
+      "text": "A smaller AI bill.",
+      "words": 4,
+      "chars": 18,
+      "lines": 2,
+      "size": 56,
+      "vw": 11.6,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.045,
+      "leading": 0.92,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "left",
+      "widthRatio": 0.68,
+      "top": 180,
+      "tag": "h1",
+      "kind": "heading"
+     },
+     {
+      "text": "Measured savings.",
+      "words": 2,
+      "chars": 17,
+      "lines": 1,
+      "size": 30,
+      "vw": 6.2,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.01,
+      "leading": 1.5,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "left",
+      "widthRatio": 0.68,
+      "top": 994,
+      "tag": "h2",
+      "kind": "heading"
+     },
+     {
+      "text": "45–73%",
+      "words": 1,
+      "chars": 6,
+      "lines": 1,
+      "size": 72,
+      "vw": 15,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.04,
+      "leading": 0.9,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "center",
+      "position": "left",
+      "widthRatio": 0.68,
+      "top": 1121,
+      "tag": "div",
+      "kind": "heading"
+     },
+     {
+      "text": "57.7%",
+      "words": 1,
+      "chars": 5,
+      "lines": 1,
+      "size": 72,
+      "vw": 15,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.04,
+      "leading": 0.9,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "center",
+      "position": "left",
+      "widthRatio": 0.68,
+      "top": 1305,
+      "tag": "div",
+      "kind": "heading"
+     },
+     {
+      "text": "37.6%",
+      "words": 1,
+      "chars": 5,
+      "lines": 1,
+      "size": 72,
+      "vw": 15,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.04,
+      "leading": 0.9,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "center",
+      "position": "left",
+      "widthRatio": 0.68,
+      "top": 1466,
+      "tag": "div",
+      "kind": "heading"
+     },
+     {
+      "text": "Works with what you already use.",
+      "words": 6,
+      "chars": 32,
+      "lines": 2,
+      "size": 30,
+      "vw": 6.2,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.01,
+      "leading": 1.5,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "left",
+      "widthRatio": 0.68,
+      "top": 1963,
+      "tag": "h2",
+      "kind": "heading"
+     },
+     {
+      "text": "Watch a request lose its waste.",
+      "words": 6,
+      "chars": 31,
+      "lines": 2,
+      "size": 30,
+      "vw": 6.2,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.01,
+      "leading": 1.5,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "center",
+      "position": "left",
+      "widthRatio": 0.68,
+      "top": 2692,
+      "tag": "h2",
+      "kind": "heading"
+     },
+     {
+      "text": "One URL. Three exchanges.",
+      "words": 4,
+      "chars": 25,
+      "lines": 2,
+      "size": 30,
+      "vw": 6.2,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.01,
+      "leading": 1.5,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "left",
+      "widthRatio": 0.71,
+      "top": 3613,
+      "tag": "h2",
+      "kind": "heading"
+     },
+     {
+      "text": "Proven, line by line.",
+      "words": 4,
+      "chars": 21,
+      "lines": 1,
+      "size": 30,
+      "vw": 6.2,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.01,
+      "leading": 1.5,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "center",
+      "widthRatio": 0.95,
+      "top": 5316,
+      "tag": "h2",
+      "kind": "heading"
+     },
+     {
+      "text": "37.9%",
+      "words": 1,
+      "chars": 5,
+      "lines": 1,
+      "size": 120,
+      "vw": 24.9,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.04,
+      "leading": 0.8,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "center",
+      "widthRatio": 0.95,
+      "top": 5596,
+      "tag": "div",
+      "kind": "heading"
+     },
+     {
+      "text": "Meet Theo, your token engineer.",
+      "words": 5,
+      "chars": 31,
+      "lines": 2,
+      "size": 30,
+      "vw": 6.2,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.01,
+      "leading": 1.5,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "center",
+      "position": "left",
+      "widthRatio": 0.68,
+      "top": 6833,
+      "tag": "h2",
+      "kind": "heading"
+     },
+     {
+      "text": "One price.",
+      "words": 2,
+      "chars": 10,
+      "lines": 1,
+      "size": 30,
+      "vw": 6.2,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.01,
+      "leading": 1.5,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "left",
+      "widthRatio": 0.71,
+      "top": 7524,
+      "tag": "h2",
+      "kind": "heading"
+     },
+     {
+      "text": "1%",
+      "words": 1,
+      "chars": 2,
+      "lines": 1,
+      "size": 120,
+      "vw": 24.9,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.04,
+      "leading": 0.85,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "left",
+      "widthRatio": 0.71,
+      "top": 7817,
+      "tag": "div",
+      "kind": "heading"
+     },
+     {
+      "text": "The catch, printed.",
+      "words": 3,
+      "chars": 19,
+      "lines": 1,
+      "size": 30,
+      "vw": 6.2,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.01,
+      "leading": 1.5,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "left",
+      "widthRatio": 0.71,
+      "top": 8415,
+      "tag": "h2",
+      "kind": "heading"
+     },
+     {
+      "text": "Start with one URL.",
+      "words": 4,
+      "chars": 19,
+      "lines": 2,
+      "size": 30,
+      "vw": 6.2,
+      "font": "Manrope",
+      "weight": 800,
+      "tracking": -0.01,
+      "leading": 1.5,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "left",
+      "widthRatio": 0.54,
+      "top": 9650,
+      "tag": "h2",
+      "kind": "heading"
+     }
+    ],
+    "headingSummary": {
+     "count": 16,
+     "maxLines": 2,
+     "over2Lines": 0,
+     "statements": 0,
+     "centered": 5,
+     "medianWords": 2,
+     "mixedFontHeadings": 0
+    },
+    "type": {
+     "families": [
+      {
+       "family": "Manrope",
+       "share": 0.81,
+       "mono": false
+      },
+      {
+       "family": "ui-monospace",
+       "share": 0.15,
+       "mono": false
+      },
+      {
+       "family": "monospace",
+       "share": 0.04,
+       "mono": false
+      }
+     ],
+     "familyCount": 3,
+     "sizes": [
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      20,
+      24,
+      30,
+      32,
+      56,
+      60,
+      72,
+      120
+     ],
+     "sizeCount": 14,
+     "notLoaded": [],
+     "body": {
+      "font": "Manrope",
+      "size": 16,
+      "leading": 1.5,
+      "weight": 400,
+      "tracking": 0,
+      "contrast": 5.7
+     },
+     "measureChars": 43,
+     "max": {
+      "size": 120,
+      "vw": 24.9,
+      "font": "Manrope",
+      "text": "37.9%"
+     },
+     "monoShare": 0.19,
+     "monoProseShare": 0,
+     "monoFamilies": [
+      "ui-monospace",
+      "monospace"
+     ],
+     "monoSamples": [
+      "$",
+      "copy",
+      "copy",
+      "copy"
+     ],
+     "microLabels": 0,
+     "microLabelShare": 0,
+     "microSamples": [],
+     "upperShare": 0.01,
+     "centerShare": 0.2,
+     "smallText": 1
+    },
+    "eyebrows": [],
+    "numbered": [],
+    "color": {
+     "bodyBg": "#fafaf9",
+     "bodyBgHsl": {
+      "h": 60,
+      "s": 0.09,
+      "l": 0.98
+     },
+     "dark": false,
+     "sectionBgs": [
+      {
+       "color": "#0b0f14",
+       "top": 5252,
+       "hsl": {
+        "h": 213,
+        "s": 0.29,
+        "l": 0.06
+       }
+      },
+      {
+       "color": "#ffffff",
+       "top": 5924,
+       "hsl": {
+        "h": 0,
+        "s": 0,
+        "l": 1
+       }
+      },
+      {
+       "color": "#1d4ed8",
+       "top": 7460,
+       "hsl": {
+        "h": 224,
+        "s": 0.76,
+        "l": 0.48
+       }
+      }
+     ],
+     "textColors": [
+      {
+       "color": "#0b0f14",
+       "share": 0.5
+      },
+      {
+       "color": "#5b6472",
+       "share": 0.19
+      },
+      {
+       "color": "#ffffff",
+       "share": 0.09
+      },
+      {
+       "color": "#9aa3b2",
+       "share": 0.06
+      },
+      {
+       "color": "#57534e",
+       "share": 0.05
+      }
+     ],
+     "button": {
+      "bg": "#f1f7fb",
+      "hsl": {
+       "h": 204,
+       "s": 0.56,
+       "l": 0.96
+      },
+      "fg": "#1d4ed8"
+     },
+     "lowContrast": [
+      {
+       "text": "evidence",
+       "ratio": 3.7,
+       "need": 4.5,
+       "size": 16,
+       "fg": "#2563eb",
+       "bg": "#0b0f14"
+      },
+      {
+       "text": "\"claude-sonnet-5-5\"",
+       "ratio": 4.1,
+       "need": 4.5,
+       "size": 13,
+       "fg": "#2563eb",
+       "bg": "#e7e5e4"
+      },
+      {
+       "text": "[ 12 tools, schemas minified ]",
+       "ratio": 4.1,
+       "need": 4.5,
+       "size": 13,
+       "fg": "#2563eb",
+       "bg": "#e7e5e4"
+      },
+      {
+       "text": "[ digest kept: errors + file paths; rest",
+       "ratio": 4.1,
+       "need": 4.5,
+       "size": 13,
+       "fg": "#2563eb",
+       "bg": "#e7e5e4"
+      },
+      {
+       "text": "the answer cannot change — only safe mov",
+       "ratio": 4.1,
+       "need": 4.5,
+       "size": 13,
+       "fg": "#2563eb",
+       "bg": "#e7e5e4"
+      },
+      {
+       "text": "\"basis\":\"estimated-baseline\"",
+       "ratio": 4.1,
+       "need": 4.5,
+       "size": 13,
+       "fg": "#2563eb",
+       "bg": "#e7e5e4"
+      }
+     ]
+    },
+    "buttons": {
+     "count": 2,
+     "inHero": 0,
+     "radius": 4,
+     "height": 48,
+     "withShadow": 0,
+     "withGradient": 0,
+     "mono": 0,
+     "upper": 0,
+     "heroLabels": []
+    },
+    "surfaces": {
+     "shadowStatic": 0,
+     "shadowOverlay": 0,
+     "shadowSamples": [],
+     "gradients": 0,
+     "scrims": 0,
+     "gradientSamples": [],
+     "gradientText": 0,
+     "hairlines": 0,
+     "hairlineSamples": [],
+     "outlinedBoxes": 0,
+     "dashed": 0,
+     "blurred": 0,
+     "roundedBoxes": 5,
+     "boxRadius": 8,
+     "squareMedia": 2,
+     "roundedMedia": 0,
+     "mediaRadius": 0,
+     "textShadow": 0,
+     "cardRows": []
+    },
+    "heroMedia": [
+     {
+      "type": "bg-image",
+      "ratio": 1
+     },
+     {
+      "type": "bg-image",
+      "ratio": 1
+     }
+    ],
+    "nav": {
+     "links": 2,
+     "fixed": false,
+     "height": 62,
+     "floatingPill": false,
+     "blur": false
+    },
+    "fontsLoaded": [
+     "manrope"
+    ]
+   },
+   "layout": {
+    "viewport": {
+     "w": 481,
+     "h": 1039
+    },
+    "pageH": 10584,
+    "margins": {
+     "left": 24,
+     "right": 25
+    },
+    "sections": [
+     {
+      "sel": "div.hero-wrap",
+      "tag": "div",
+      "top": 62,
+      "height": 836,
+      "words": 81,
+      "media": 0,
+      "middle": 0,
+      "heading": {
+       "text": "A smaller AI bill",
+       "size": 56,
+       "tag": "h1"
+      },
+      "left": 32,
+      "right": 0,
+      "textLeft": 32,
+      "textRight": -48,
+      "fullBleed": false,
+      "footer": false,
+      "hero": true,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "section.bands",
+      "tag": "section",
+      "top": 898,
+      "height": 1001,
+      "words": 87,
+      "media": 0,
+      "middle": 0,
+      "heading": {
+       "text": "45",
+       "size": 72,
+       "tag": "div"
+      },
+      "left": 32,
+      "right": 128,
+      "textLeft": 32,
+      "textRight": 128,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "section.works",
+      "tag": "section",
+      "top": 1899,
+      "height": 697,
+      "words": 68,
+      "media": 0,
+      "middle": 0,
+      "heading": {
+       "text": "Works with what you already use.",
+       "size": 30,
+       "tag": "h2"
+      },
+      "left": 32,
+      "right": 124,
+      "textLeft": 32,
+      "textRight": 124,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "section.demo-sect",
+      "tag": "section",
+      "top": 2596,
+      "height": 953,
+      "words": 169,
+      "media": 0,
+      "middle": 0,
+      "heading": {
+       "text": "Watch a request lose its waste.",
+       "size": 30,
+       "tag": "h2"
+      },
+      "left": 37,
+      "right": 0,
+      "textLeft": 37,
+      "textRight": -578,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "section",
+      "tag": "section",
+      "top": 3549,
+      "height": 1703,
+      "words": 178,
+      "media": 0,
+      "middle": 84,
+      "heading": {
+       "text": "One URL. Three exchanges.",
+       "size": 30,
+       "tag": "h2"
+      },
+      "left": 24,
+      "right": 0,
+      "textLeft": 24,
+      "textRight": -335,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "section.field-deep",
+      "tag": "section",
+      "top": 5252,
+      "height": 1313,
+      "words": 157,
+      "media": 0,
+      "middle": 0,
+      "heading": {
+       "text": "37.9%",
+       "size": 120,
+       "tag": "div"
+      },
+      "left": 24,
+      "right": 25,
+      "textLeft": 24,
+      "textRight": 25,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "section#theo.theo-sect",
+      "tag": "section",
+      "top": 6565,
+      "height": 895,
+      "words": 83,
+      "media": 0,
+      "middle": 0,
+      "heading": {
+       "text": "Meet Theo, your token engineer.",
+       "size": 30,
+       "tag": "h2"
+      },
+      "left": 33,
+      "right": 124,
+      "textLeft": 33,
+      "textRight": 124,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "section.field-ocean",
+      "tag": "section",
+      "top": 7460,
+      "height": 891,
+      "words": 79,
+      "media": 0,
+      "middle": 0,
+      "heading": {
+       "text": "One price.",
+       "size": 30,
+       "tag": "h2"
+      },
+      "left": 24,
+      "right": 128,
+      "textLeft": 24,
+      "textRight": 128,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "section",
+      "tag": "section",
+      "top": 8351,
+      "height": 1063,
+      "words": 230,
+      "media": 0,
+      "middle": 0,
+      "heading": {
+       "text": "The catch, printed.",
+       "size": 30,
+       "tag": "h2"
+      },
+      "left": 24,
+      "right": 142,
+      "textLeft": 24,
+      "textRight": 142,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "section",
+      "tag": "section",
+      "top": 9414,
+      "height": 822,
+      "words": 42,
+      "media": 2,
+      "middle": 0,
+      "heading": {
+       "text": "Start with one URL.",
+       "size": 30,
+       "tag": "h2"
+      },
+      "left": 24,
+      "right": 115,
+      "textLeft": 64,
+      "textRight": 157,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "footer.quiet-foot",
+      "tag": "footer",
+      "top": 10337,
+      "height": 248,
+      "words": 33,
+      "media": 0,
+      "middle": 0,
+      "heading": null,
+      "left": 32,
+      "right": 141,
+      "textLeft": 32,
+      "textRight": 141,
+      "fullBleed": false,
+      "footer": true,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     }
+    ],
+    "gaps": [],
+    "h1s": [
+     {
+      "text": "A smaller AI bill.",
+      "size": 56,
+      "top": 180,
+      "firstScreen": true
+     }
+    ],
+    "edgeText": [],
+    "edges": [
+     {
+      "x": 24,
+      "n": 12
+     },
+     {
+      "x": 64,
+      "n": 2
+     },
+     {
+      "x": 48,
+      "n": 1
+     }
+    ],
+    "leftBlocks": 15,
+    "bodySize": 16,
+    "stage": true,
+    "explains": false,
+    "slivers": [],
+    "voidShare": 0,
+    "voidBox": null
+   },
+   "app": null,
+   "consoleErrors": []
+  }
+ ],
+ "findings": [
+  {
+   "level": "WARN",
+   "id": "contrast",
+   "width": 1440,
+   "message": "Low-contrast text: \"evidence\" 3.7:1 needs 4.5:1; \"\"claude-sonnet-5-5\"\" 4.1:1 needs 4.5:1; \"[ 12 tools, schemas minified ]\" 4.1:1 needs 4.5:1; \"[ digest kept: errors + file paths; rest\" 4.1:1 needs 4.5:1",
+   "fix": "Darken or lighten the text colour.",
+   "alsoAt": [
+    768,
+    390
+   ]
+  },
+  {
+   "level": "WARN",
+   "id": "font-count",
+   "width": 1440,
+   "message": "3 typefaces in use (Manrope, ui-monospace, monospace).",
+   "fix": "Two at most.",
+   "alsoAt": [
+    768,
+    390
+   ]
+  },
+  {
+   "level": "WARN",
+   "id": "size-count",
+   "width": 1440,
+   "message": "18 different font sizes (12, 13, 14, 15, 16, 18, 20, 22, 24, 25, 30, 55, 84, 115, 121, 122, 216, 230).",
+   "fix": "A page needs about five: display, heading, lead, body, small.",
+   "alsoAt": [
+    768,
+    390
+   ]
+  },
+  {
+   "level": "WARN",
+   "id": "grey-body",
+   "width": 1440,
+   "message": "The running text is a soft grey on its ground (5.7:1).",
+   "fix": "Set body copy in the full ink (7:1 or more). Keep the muted ink for secondary notes; pages read thin and unfinished when everything is grey.",
+   "alsoAt": [
+    768,
+    390
+   ]
+  },
+  {
+   "level": "WARN",
+   "id": "first-action",
+   "width": 1440,
+   "message": "No visible button in the first screen.",
+   "fix": "Give the one primary action a real button in the first screen (a filled or solid-bordered control, 44px or taller), not only a link in the navigation.",
+   "alsoAt": [
+    768,
+    390
+   ]
+  },
+  {
+   "level": "WARN",
+   "id": "no-footage",
+   "width": 1440,
+   "message": "No video anywhere on the page.",
+   "fix": "Look for one honest clip with scripts/assets.mjs --video (the place, the material, the process) and use it as a muted loop with a poster frame. Defend its absence only if no clip fits the subject."
+  },
+  {
+   "level": "WARN",
+   "id": "small-text",
+   "width": 1440,
+   "message": "1 text block(s) under 13px.",
+   "fix": "Nothing meant to be read goes below 13px.",
+   "alsoAt": [
+    768,
+    390
+   ]
+  },
+  {
+   "level": "FAIL",
+   "id": "off-centre",
+   "width": 1440,
+   "message": "The page sits off-centre: its content comes to 32px from the left edge but only to 105px from the right, at 1440px.",
+   "fix": "Give the page one pair of equal margins. Check the wrapper for a max-width without margin-inline: auto, a grid with an empty last column, or padding on one side only. If one side is meant to hold air, it must still be closed by something that reaches the margin (a picture, the navigation's last item, a figure)."
+  }
+ ],
+ "images": [
+  {
+   "viewport": "desktop",
+   "width": 1440,
+   "fold": "/Users/harrymanley/Documents/Codex/flux/.taste-skill/inspect/redesign/desktop-fold.jpg",
+   "pages": [
+    "/Users/harrymanley/Documents/Codex/flux/.taste-skill/inspect/redesign/desktop-page-01.jpg",
+    "/Users/harrymanley/Documents/Codex/flux/.taste-skill/inspect/redesign/desktop-page-02.jpg",
+    "/Users/harrymanley/Documents/Codex/flux/.taste-skill/inspect/redesign/desktop-page-03.jpg"
+   ],
+   "film": []
+  },
+  {
+   "viewport": "tablet",
+   "width": 768,
+   "fold": "/Users/harrymanley/Documents/Codex/flux/.taste-skill/inspect/redesign/tablet-fold.jpg",
+   "pages": [
+    "/Users/harrymanley/Documents/Codex/flux/.taste-skill/inspect/redesign/tablet-page-01.jpg",
+    "/Users/harrymanley/Documents/Codex/flux/.taste-skill/inspect/redesign/tablet-page-02.jpg"
+   ],
+   "film": []
+  },
+  {
+   "viewport": "mobile",
+   "width": 390,
+   "fold": "/Users/harrymanley/Documents/Codex/flux/.taste-skill/inspect/redesign/mobile-fold.jpg",
+   "pages": [
+    "/Users/harrymanley/Documents/Codex/flux/.taste-skill/inspect/redesign/mobile-page-01.jpg",
+    "/Users/harrymanley/Documents/Codex/flux/.taste-skill/inspect/redesign/mobile-page-02.jpg"
+   ],
+   "film": []
+  }
+ ]
+}

@@ -9,21 +9,21 @@ scope by dispatch.
 
 **Output reduction is NOT a free lossless lever for a request-rewrite proxy. Every
 technique in the literature works by changing what the model emits, so every one is
-LOSSY and must clear a replay/task quality gate before FLUX can bill it. The only
-output levers FLUX can pull black-box are (a) provider-native effort/verbosity dials
+LOSSY and must clear a replay/task quality gate before MESH can bill it. The only
+output levers MESH can pull black-box are (a) provider-native effort/verbosity dials
 that are already first-class request-body fields, and (b) a *stable* concise-style
 instruction set in the cached prefix. Everything else in the literature either needs a
 second model, needs fine-tuning, or needs per-turn prompt edits that bust the cache —
 and the biggest published numbers (84%, 80%, 68%) come from exactly those rejected
-methods, measured on math/reasoning benchmarks that do not resemble FLUX's agent
+methods, measured on math/reasoning benchmarks that do not resemble MESH's agent
 traffic.** This is consistent with the existing lever-backlog verdict that output is a
 measured 29.3% of a well-cached agent's bill, gate-determined, estimated-baseline forever.
 
 ---
 
-## FLUX frame (why most of the literature is off-target for us)
+## MESH frame (why most of the literature is off-target for us)
 
-FLUX can only (1) rewrite the outgoing request body and (2) read provider-reported usage
+MESH can only (1) rewrite the outgoing request body and (2) read provider-reported usage
 after. It cannot touch decoding, logits, or run a second model. So an output-reduction
 lever is really an **input-side instruction or parameter that steers generation shorter**.
 That filter kills most of the field:
@@ -40,7 +40,7 @@ That filter kills most of the field:
   **one-time stable concise instruction** that lives in the cached prefix and is never
   re-edited.
 
-Economic anchor (FLUX measured, `docs/rnd/knowledge/2026-10-26-output-token-ground-truth.md`):
+Economic anchor (MESH measured, `docs/rnd/knowledge/2026-10-26-output-token-ground-truth.md`):
 output = **29.3%** of a well-cached agent's bill; each output token is re-read ~27× and
 carries ~**1.5× echo leverage** (saving one output token also saves ~0.5× its price in
 later cache reads); the **top 10% of turns hold 47–64% of output** and those fat turns are
@@ -57,7 +57,7 @@ line — this is the single largest honest target inside A5.
 **Mechanism.** Set a request-body field that tells the model to spend fewer output tokens:
 Anthropic `output_config.effort` (low/medium/high/xhigh/max), OpenAI `reasoning_effort`
 (minimal/low/medium/high) and GPT-5 `verbosity` (low/medium/high). These are first-class
-fields FLUX already forwards — the cleanest possible black-box rewrite.
+fields MESH already forwards — the cleanest possible black-box rewrite.
 
 - Anthropic effort "affects **all tokens** in the response, including text, tool calls and
   thinking… lower effort also means fewer and terser tool calls" and `low` = "Most
@@ -80,13 +80,13 @@ would have emitted at default effort) is never observable per request.
   the exact failure the volatility guard exists to prevent.
 - The escape hatch is the **per-message effort beta** (`mid-conversation-output-config-2026-07-01`,
   Opus 5/5.5, Sonnet 5.5, Haiku 5.5, Fable/Mythos 5.x): an effort-only system message
-  "preserves the prompt cache." A FLUX effort lever on Anthropic MUST use this path, not
+  "preserves the prompt cache." A MESH effort lever on Anthropic MUST use this path, not
   top-level, or it nets negative on cached traffic.
 - Further caveat (Opus 5 doc): "changing effort does not reliably shorten *responses*…
   prompt for length instead" — effort steers *thinking* volume, not necessarily visible
   output length. So effort ≠ a verbosity control on every model; verify per model.
 
-**FLUX verdict:** SHIP-CANDIDATE, and it is already lever **P4** in `lever-backlog.md`
+**MESH verdict:** SHIP-CANDIDATE, and it is already lever **P4** in `lever-backlog.md`
 (effort governor). This mine adds two hard constraints P4 must encode: (1) use the
 per-message effort beta on Anthropic so the dial doesn't bust the cache; (2) don't assume
 effort shortens visible output on Opus-class models — gate on measured output delta, not
@@ -111,18 +111,18 @@ reasoning step", a fixed token budget. Pure request-byte rewrite.
   (**measured**, paper Table.) Headline "7.6% of CoT tokens / −80%" is the best case
   (Claude sports), not the average; GSM8K costs several accuracy points.
 
-**Stated limitations (from the CoD paper, load-bearing for FLUX):** needs **manually
+**Stated limitations (from the CoD paper, load-bearing for MESH):** needs **manually
 crafted few-shot draft examples**; **no zero-shot evaluation**; tested only on two flagship
 models (no small models); the word limit is "just a general guideline" the model may
 ignore.
 
 **Lossless?** LOSSY. **Black-box?** Partially — the *instruction* is a byte rewrite, but
-CoD's few-shot exemplars mean FLUX would have to **inject input tokens** (adding to the
+CoD's few-shot exemplars mean MESH would have to **inject input tokens** (adding to the
 input bill and busting the cache) to get the published numbers; zero-shot "be concise" is
 the only truly cheap form and it is the under-tested form.
 **Caching interaction:** a *stable* concise instruction placed once in the system prefix is
 cache-safe (never re-edited). Few-shot exemplar injection or per-turn budget text is not.
-**FLUX verdict:** RESEARCH, leaning REJECT-as-proxy-lever. Injecting a brevity instruction
+**MESH verdict:** RESEARCH, leaning REJECT-as-proxy-lever. Injecting a brevity instruction
 into a customer's system prompt is dangerous (the −27.69% math cliff, the "may ignore it"
 non-determinism) and is really the customer's prompt-engineering choice, not a transparent
 proxy's. If pursued, only as (a) a stable prefix instruction, (b) opt-in per route, (c)
@@ -132,13 +132,13 @@ behind the same trajectory gate as P4.
 
 ### 3. Reasoning / CoT compression frameworks (TALE, Sketch-of-Thought, overthinking fixes)
 
-Big published numbers live here, and almost all of it is REJECT for FLUX.
+Big published numbers live here, and almost all of it is REJECT for MESH.
 
 - **TALE (Token-Budget-Aware Reasoning)**, Han et al., arXiv:2412.18547 /
   ACL-Findings 2025. TALE-EP (prompt a budget): **−67% tokens, <3% accuracy drop**.
   TALE-PT (post-training): **−~50%**. (**literature-claim**.)
   - TALE-EP needs a **budget-estimation LLM call** per problem → second-model cost →
-    **REJECT** for FLUX as specified. The *insight* (an explicit token budget in the
+    **REJECT** for MESH as specified. The *insight* (an explicit token budget in the
     prompt compresses reasoning) is reusable only through the native effort dial (§1).
   - TALE-PT is fine-tuning → **REJECT** (white-box).
 - **Sketch-of-Thought (SoT)**, Aytes et al., arXiv:2503.05179: across 18 datasets, token
@@ -158,7 +158,7 @@ Big published numbers live here, and almost all of it is REJECT for FLUX.
   stable prefix nudge — but it only helps on easy queries, so it needs trusted difficulty
   context to route (don't apply it to hard turns).
 
-**FLUX verdict:** the frameworks are REJECT (second model / fine-tuning). The *finding*
+**MESH verdict:** the frameworks are REJECT (second model / fine-tuning). The *finding*
 that reasoning models massively overspend on easy inputs is real and measured, and it
 routes straight into the §1 effort dial conditioned on trusted difficulty — not into a new
 compression lever.
@@ -189,7 +189,7 @@ Switching a customer away from JSON entirely is deeply lossy and often breaks th
 but it rewrites the customer's own output contract — high blast radius.
 **Caching interaction:** the format instruction is a stable prefix element → cache-safe if
 set once.
-**FLUX verdict:** RESEARCH, low priority. The direction (terser output schema = fewer output
+**MESH verdict:** RESEARCH, low priority. The direction (terser output schema = fewer output
 tokens) is real but (a) it rewrites the customer's output contract, which a transparent
 proxy should not do silently, and (b) the quality cliff on reasoning tasks is large. Meter
 it / surface it to the customer before ever mutating it. Note this is the OUTPUT-side mirror
@@ -208,7 +208,7 @@ confirm `max_tokens`/`max_completion_tokens` cap *reasoning + visible output tog
 tight cap can starve reasoning and silently wreck answer quality. This matches the existing
 backlog verdict: **max_tokens right-sizing is demoted to an unbilled runaway-cost circuit
 breaker at ≥p99.9**, never a savings lever (its only savings mechanism is its failure mode).
-**Lossless?** n/a (truncation = failure). **Black-box?** YES. **FLUX verdict:** REJECT as
+**Lossless?** n/a (truncation = failure). **Black-box?** YES. **MESH verdict:** REJECT as
 billable; keep as a safety cap only. Stop-sequence steering is the same story unless the
 customer's own grammar guarantees a clean early stop (rare, customer-specific).
 
@@ -221,7 +221,7 @@ tool-call emission. "Saves an average of **14%** output tokens, up to 70%." (pro
 **literature-claim**.) **But** it is Claude-3.7-only as a beta and **on by default for all
 Claude 4+ models**. So for any customer already on Claude 4/5 the NET saving over what they
 already have is **~0** — billing it would charge for a saving the provider gives free. Only
-a Claude-3.7 holdout route has headroom. **FLUX verdict:** mostly already-captured; a
+a Claude-3.7 holdout route has headroom. **MESH verdict:** mostly already-captured; a
 do-not-double-count flag, not a lever.
 
 ---
@@ -235,14 +235,14 @@ do-not-double-count flag, not a lever.
    not visible length.
 2. **Confirms the "estimated-baseline forever" honesty flag** — no paper offers an observable
    per-request counterfactual; every number here is a benchmark average on math/reasoning
-   data, not FLUX agent traffic.
+   data, not MESH agent traffic.
 3. **Supplies the missing motivation data for routing the dial by difficulty:** reasoning
    models overspend ~20× on trivial inputs (measured, 2412.21187) and >92% of the answer is
    in round one — so the effort dial pays most on *low-difficulty* routes, and almost
    nothing (at high quality risk) on the fat top-decile turns.
 4. **Rejects, with citations, the headline compression methods** (TALE, SoT, CoD few-shot,
    all post-training efficient-reasoning) as white-box / second-model / cache-busting — so
-   the research team doesn't chase an 84% number that FLUX structurally cannot bill.
+   the research team doesn't chase an 84% number that MESH structurally cannot bill.
 5. **Flags the JSON-output tax (§4) and token-efficient-tool-use default (§6)** as
    do-not-double-count boundaries against the input-side A2 encoding work and the provider's
    own built-in savings.

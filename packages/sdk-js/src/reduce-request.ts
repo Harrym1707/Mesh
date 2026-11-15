@@ -203,9 +203,17 @@ export type MeshTokenReductionConfig = {
    * guard can, and a churning prefix turns the stamp into pure write premium
    * (the second live export measured exactly that loss). The proxy and
    * withMesh install one automatically whenever cacheTtl is set; it is
-   * consulted with the RAW request before any stamp is placed.
+   * consulted before any stamp is placed, with the RAW request (for the
+   * history check) and the content the system breakpoint would cover (for the
+   * prefix check). It may withhold everything (`stamp: false`) or only the
+   * breakpoint on the newest message (`messageBreakpoint: false`).
    */
-  cacheVolatilityGuard?: { observe(request: unknown): { stamp: boolean; reason?: string } };
+  cacheVolatilityGuard?: {
+    observe(
+      request: unknown,
+      context?: { stampedPrefix?: unknown },
+    ): { stamp: boolean; messageBreakpoint?: boolean; reason?: string };
+  };
   countTokens?: TokenCounter;
   onReduction?: (summary: MeshReductionSummary) => void;
 };
@@ -763,6 +771,7 @@ function stampAnthropicCacheTtl(
   ttl: "5m" | "1h",
   systemVolatileTail: string[],
   countTokens: TokenCounter,
+  allowMessageBreakpoint = true,
 ): { stamped: boolean; belowMinimum?: { measuredTokens: number; minimumTokens: number } } {
   const model = typeof next.model === "string" ? next.model.toLowerCase() : "";
   if (!model.includes("claude")) return { stamped: false };
@@ -868,7 +877,7 @@ function stampAnthropicCacheTtl(
   // message verbatim on the next turn, so only they get a message breakpoint —
   // and never when a volatile tail sits in the system, because this
   // breakpoint's prefix would include that tail and could never match.
-  if (!volatileTailPresent && next.messages.length >= 2) {
+  if (allowMessageBreakpoint && !volatileTailPresent && next.messages.length >= 2) {
     const messages = [...next.messages];
     const lastIndex = messages.length - 1;
     const last = messages[lastIndex];
@@ -910,6 +919,28 @@ function stampAnthropicCacheTtl(
   }
 
   return stamped ? { stamped: true } : { stamped: false, belowMinimum };
+}
+
+/**
+ * The content a stamped request's SYSTEM breakpoint covers — model, tools, and
+ * every system block up to and including the last one carrying cache_control,
+ * with the markers themselves removed. This is what the provider matches on,
+ * so it is what the volatility guard compares turn over turn. Undefined when
+ * the request carries no system breakpoint.
+ */
+function stampedSystemPrefix(stamped: AnyObject): unknown {
+  if (!Array.isArray(stamped.system)) return undefined;
+  let last = -1;
+  stamped.system.forEach((block, index) => {
+    if (isPlainObject(block) && block.cache_control !== undefined) last = index;
+  });
+  if (last < 0) return undefined;
+  const span = stamped.system.slice(0, last + 1).map((block) => {
+    if (!isPlainObject(block)) return block;
+    const { cache_control: _marker, ...rest } = block;
+    return rest;
+  });
+  return [stamped.model ?? null, stamped.tools ?? null, span];
 }
 
 /**
@@ -1114,12 +1145,43 @@ export function reduceRequest(
     // prompt: the same bytes are cached for an hour at a 2x write premium.
     if (config.cacheTtl === "5m" || config.cacheTtl === "1h") {
       const ttl = config.cacheTtl;
-      // The guard sees the RAW request: MESH's own deterministic levers must
-      // never be mistaken for client-side churn.
-      const decision = config.cacheVolatilityGuard?.observe(request) ?? { stamp: true };
-      const result = decision.stamp
-        ? stampAnthropicCacheTtl(next, ttl, systemVolatileTail, countTokens)
-        : { stamped: false as const };
+      // Work out where the breakpoints WOULD go on a scratch copy first, so
+      // the guard can compare the bytes the system breakpoint would actually
+      // cover (what the provider matches on) rather than the client's raw
+      // system prompt: a clock that prefix repair has already moved behind
+      // the breakpoint is not churn. The guard still reads the RAW messages
+      // for its history check, so MESH's own deterministic levers are never
+      // mistaken for a client rewriting its history.
+      const trial: AnyObject = { ...next };
+      const trialResult = stampAnthropicCacheTtl(trial, ttl, systemVolatileTail, countTokens);
+      const decision = config.cacheVolatilityGuard?.observe(request, {
+        stampedPrefix: stampedSystemPrefix(trial),
+      }) ?? { stamp: true };
+      // A rewritten history only spoils the breakpoint on the newest message;
+      // the tools + system breakpoint sits before the history and still reads.
+      const messageBreakpointWithheld = decision.stamp && decision.messageBreakpoint === false &&
+        trial.messages !== next.messages;
+      let result: ReturnType<typeof stampAnthropicCacheTtl> = { stamped: false };
+      if (decision.stamp) {
+        const systemStamped = trial.system !== next.system;
+        if (systemStamped) next.system = trial.system;
+        if (decision.messageBreakpoint === false) {
+          result = systemStamped ? { stamped: true } : { stamped: false, belowMinimum: trialResult.belowMinimum };
+        } else {
+          if (trial.messages !== next.messages) next.messages = trial.messages;
+          result = trialResult;
+        }
+      }
+      if (messageBreakpointWithheld) {
+        changes.push({
+          lever: "cache-ttl-suppressed",
+          lossless: true,
+          // Nothing was changed; this records WHY one breakpoint was not placed.
+          estimatedTokensSaved: 0,
+          detail: `Cache breakpoint on the newest message withheld: ${decision.reason ?? "the conversation's history is not stable"}. ` +
+            "The tools + system breakpoint is unaffected: it sits before the history and still reads.",
+        });
+      }
       if (!decision.stamp) {
         changes.push({
           lever: "cache-ttl-suppressed",

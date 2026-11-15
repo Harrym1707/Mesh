@@ -13,7 +13,7 @@ tested against a deterministic stub. NOT shippable — see "What's left" below.
 ## What it is
 
 A pluggable lever that compresses **stale tool-result bodies in old turns** by
-handing their text to a compactor the **customer supplies**. FLUX bundles no
+handing their text to a compactor the **customer supplies**. MESH bundles no
 model. The adapter interface is deliberately tiny:
 
 ```ts
@@ -42,7 +42,7 @@ own prior output is exactly the kind of compounding drift we refuse to risk.
 ## The sync-vs-async decision: a PRE-PASS, not an async reducer
 
 `reduceRequest` (`reduce-request.ts`) is a pure, synchronous, hot-path function.
-The proxy, `withFlux`, the savings ledger, and — critically — the replay gate's
+The proxy, `withMesh`, the savings ledger, and — critically — the replay gate's
 tight per-request loop all call it synchronously, and its purity (same request
 in, same bytes out) is what lets consecutive requests re-emit byte-identical
 history so a provider's exact-prefix cache keeps matching. Local model inference
@@ -68,15 +68,15 @@ composition: `await` the pre-pass, then call the untouched synchronous
 `reduceRequest`, merging the compaction change into the summary so before/after
 spans the whole pipeline. Callers that do not use semantic compaction keep
 calling `reduceRequest` directly and never take on a promise. The async lever is
-intentionally NOT a field on the synchronous `FluxTokenReductionConfig`, because
+intentionally NOT a field on the synchronous `MeshTokenReductionConfig`, because
 the sync reducer cannot await — making that explicit is the point of the design.
 
 ## On-machine / no-egress guarantee
 
 The inviolable honesty rule is that prompts never leave the customer's machine.
-FLUX's code here adds **zero** network egress: `compact` is a function the
-customer passes, and FLUX does nothing but `await` it. FLUX bundles, downloads,
-and calls no cloud model. The only compactor FLUX will ever invoke is the local,
+MESH's code here adds **zero** network egress: `compact` is a function the
+customer passes, and MESH does nothing but `await` it. MESH bundles, downloads,
+and calls no cloud model. The only compactor MESH will ever invoke is the local,
 on-machine one the customer wired in. There is no default compactor; absent one,
 the lever is a no-op. This is a property of the code (no `fetch`, no import of a
 model), not a promise — reviewers can confirm the module imports only the token

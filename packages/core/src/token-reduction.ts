@@ -189,6 +189,46 @@ export function collapseWhitespace(): Reducer {
   };
 }
 
+/**
+ * Minifies pretty-printed JSON inside fenced ```json blocks. Agent tool results
+ * are frequently indented JSON, and JSON whitespace carries no meaning the model
+ * depends on, so re-serializing compactly removes indentation while preserving
+ * every key and value. Only blocks that parse as JSON are touched; anything else
+ * is left byte-identical. Values are preserved; numeric *formatting* is
+ * normalized (e.g. 1.0 -> 1), which is why this is a reduction of the serialized
+ * form, not a byte-identity transform — it is applied where the JSON's values,
+ * not its layout, are what the model needs.
+ */
+export function minifyJsonBlocks(
+  countTokens: TokenCounter = approximateTokenCount,
+): Reducer {
+  return {
+    id: "minify-json-blocks",
+    version: "1",
+    risk: "lossless",
+    reduce: (text) => {
+      const notes: string[] = [];
+      let tokensSaved = 0;
+      const out = text.replace(/```json[ \t]*\n([\s\S]*?)\n?```/g, (match, body: string) => {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(body);
+        } catch {
+          return match; // not valid JSON — never touch it
+        }
+        const minified = JSON.stringify(parsed);
+        const rebuilt = `\`\`\`json\n${minified}\n\`\`\``;
+        if (rebuilt.length >= match.length) return match;
+        tokensSaved += Math.max(0, countTokens(body) - countTokens(minified));
+        return rebuilt;
+      });
+      if (out === text || tokensSaved <= 0) return { text, notes: [] };
+      notes.push(`Minified JSON in fenced blocks, saving about ${tokensSaved} tokens.`);
+      return { text: out, notes };
+    },
+  };
+}
+
 /** Run reducers in order, reporting what each one saved. */
 export function applyReducers(
   text: string,

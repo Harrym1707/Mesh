@@ -23,16 +23,32 @@ import { createHash } from "node:crypto";
  *   of current messages). A client-side framework that rewrites history also
  *   invalidates the provider cache every turn.
  *
- * On observed churn the stamp is suppressed for that conversation. Suppression
- * is not permanent: after two consecutive stable observations (e.g. a one-off
- * history compaction followed by normal growth) stamping resumes, so a single
- * disturbance does not forfeit a long conversation's cache earnings. A prefix
- * that churns every turn — the per-turn clock — never produces two stable
- * observations and stays suppressed.
+ * The two breakpoints MESH places fail independently, so they are decided
+ * independently (the 2026-10-26 live coding-agent spool measured the cost of
+ * treating them as one: three turns billed a 2,267-token prefix at full price
+ * that the provider had read from cache one turn earlier):
  *
- * The guard observes the RAW incoming request (the client's own bytes),
- * never MESH's reduced copy, so MESH's own deterministic levers cannot be
- * mistaken for client-side churn.
+ * - The SYSTEM breakpoint covers tools + the stamped part of the system
+ *   prompt. It is withheld only while that span itself changes between turns.
+ *   A rewritten history cannot hurt it: the history comes after it.
+ * - The MESSAGE breakpoint covers everything up to the newest message. It is
+ *   withheld while either the span or the history churns.
+ *
+ * Suppression is not permanent: after two consecutive stable observations
+ * (e.g. a one-off history compaction followed by normal growth) the withheld
+ * breakpoint resumes, so a single disturbance does not forfeit a long
+ * conversation's cache earnings. A prefix that churns every turn — the
+ * per-turn clock — never produces two stable observations and stays
+ * suppressed.
+ *
+ * WHAT is compared for the system span: the bytes the breakpoint would
+ * actually cover, after MESH's deterministic levers, when the reducer supplies
+ * them (`context.stampedPrefix`). The provider matches on those bytes, not on
+ * what the client sent — so a clock that prefix repair has already moved
+ * behind the breakpoint is not churn. Without that context the guard falls
+ * back to the client's raw {tools, system}, which is strictly more cautious.
+ * The history check always uses the RAW incoming messages, so MESH's own
+ * levers are never mistaken for a client rewriting its history.
  */
 
 type AnyObject = Record<string, unknown>;
@@ -44,17 +60,44 @@ const digest = (value: unknown): string =>
   createHash("sha256").update(JSON.stringify(value ?? null) ?? "null").digest("hex").slice(0, 32);
 
 export type CacheStampDecision = {
+  /** False withholds every breakpoint. */
   stamp: boolean;
-  /** Present when stamp is false: why this conversation is not being stamped. */
+  /**
+   * False withholds only the breakpoint on the newest message; the system
+   * breakpoint may still be placed. Absent means the same as `stamp`.
+   */
+  messageBreakpoint?: boolean;
+  /** Present when anything is withheld: why. */
   reason?: string;
 };
+
+export type CacheStampContext = {
+  /**
+   * The content the system breakpoint would cover on this request, after
+   * MESH's levers and without any cache_control markers. Only hashed.
+   */
+  stampedPrefix?: unknown;
+};
+
+type Track = { volatile: boolean; stableStreak: number };
 
 type ConversationEntry = {
   prefixHash: string;
   messageHashes: string[];
-  volatile: boolean;
-  stableStreak: number;
+  prefix: Track;
+  history: Track;
 };
+
+/** Advance one track; returns whether its breakpoint may be placed this turn. */
+function advance(prior: Track, churned: boolean): { track: Track; ok: boolean; proving: boolean } {
+  if (churned) return { track: { volatile: true, stableStreak: 0 }, ok: false, proving: false };
+  if (!prior.volatile) return { track: prior, ok: true, proving: false };
+  const stableStreak = prior.stableStreak + 1;
+  if (stableStreak >= 2) return { track: { volatile: false, stableStreak: 0 }, ok: true, proving: false };
+  return { track: { volatile: true, stableStreak }, ok: false, proving: true };
+}
+
+const PROVING = "this conversation's prefix changed on an earlier turn; waiting for it to prove stable before stamping again";
 
 export class CachePrefixVolatilityGuard {
   /** Insertion-ordered; re-inserted on touch, so the first key is the LRU. */
@@ -67,22 +110,30 @@ export class CachePrefixVolatilityGuard {
   }
 
   /**
-   * Record this request and decide whether its conversation has earned a
-   * cache stamp. Call once per request, with the raw (unreduced) request.
+   * Record this request and decide which cache breakpoints its conversation
+   * has earned. Call once per request, with the raw (unreduced) request and,
+   * when known, the content the system breakpoint would cover.
    */
-  observe(request: unknown): CacheStampDecision {
+  observe(request: unknown, context: CacheStampContext = {}): CacheStampDecision {
     if (!isPlainObject(request) || !Array.isArray(request.messages) || request.messages.length === 0) {
       return { stamp: true };
     }
     const key = digest([request.model ?? null, request.messages[0]]);
-    const prefixHash = digest([request.tools ?? null, request.system ?? null]);
+    const prefixHash = context.stampedPrefix !== undefined
+      ? `span:${digest(context.stampedPrefix)}`
+      : `raw:${digest([request.tools ?? null, request.system ?? null])}`;
     const messageHashes = (request.messages as unknown[]).map(digest);
 
     const prior = this.conversations.get(key);
     if (prior !== undefined) this.conversations.delete(key);
 
     if (prior === undefined) {
-      this.conversations.set(key, { prefixHash, messageHashes, volatile: false, stableStreak: 0 });
+      this.conversations.set(key, {
+        prefixHash,
+        messageHashes,
+        prefix: { volatile: false, stableStreak: 0 },
+        history: { volatile: false, stableStreak: 0 },
+      });
       this.evict();
       return { stamp: true };
     }
@@ -92,33 +143,29 @@ export class CachePrefixVolatilityGuard {
       messageHashes.length >= prior.messageHashes.length &&
       prior.messageHashes.every((hash, index) => messageHashes[index] === hash);
 
-    const entry: ConversationEntry = { prefixHash, messageHashes, volatile: prior.volatile, stableStreak: prior.stableStreak };
-    let decision: CacheStampDecision = { stamp: true };
+    const prefix = advance(prior.prefix, prefixChanged);
+    const history = advance(prior.history, !historyExtends);
+    this.conversations.set(key, { prefixHash, messageHashes, prefix: prefix.track, history: history.track });
 
-    if (prefixChanged || !historyExtends) {
-      entry.volatile = true;
-      entry.stableStreak = 0;
-      decision = {
+    if (!prefix.ok) {
+      return {
         stamp: false,
+        messageBreakpoint: false,
         reason: prefixChanged
           ? "tools/system changed between turns of this conversation, so a cached prefix could never be read back"
-          : "the conversation history was rewritten between turns, so a cached prefix could never be read back",
+          : PROVING,
       };
-    } else if (entry.volatile) {
-      entry.stableStreak += 1;
-      if (entry.stableStreak >= 2) {
-        entry.volatile = false;
-        entry.stableStreak = 0;
-      } else {
-        decision = {
-          stamp: false,
-          reason: "this conversation's prefix changed on an earlier turn; waiting for it to prove stable before stamping again",
-        };
-      }
     }
-
-    this.conversations.set(key, entry);
-    return decision;
+    if (!history.ok) {
+      return {
+        stamp: true,
+        messageBreakpoint: false,
+        reason: history.proving
+          ? "this conversation's history was rewritten on an earlier turn; waiting for it to prove stable before stamping the newest message again"
+          : "the conversation history was rewritten between turns, so a breakpoint on the newest message could never be read back",
+      };
+    }
+    return { stamp: true };
   }
 
   private evict(): void {

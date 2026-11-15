@@ -89,7 +89,7 @@ entirely gated.
   trajectories, measure the raw observation distribution, apply head+tail
   truncation at a 2K cap on arrival, and run the replay gate. One decision: does
   task-completion hold? Yes + fat raw obs → A4 is real and large there. No → A4
-  is gated-and-small everywhere and FLUX ships only the near-lossless normalizer.
+  is gated-and-small everywhere and MESH ships only the near-lossless normalizer.
 
 ### A2 — encoding — **DEAD END (as a lossless billable lever) + HONESTY LIABILITY**
 - **Recoverable:** ~0% billable beyond the free canonicalization the proxy does
@@ -128,7 +128,7 @@ their proofs are the cheapest and most decisive.**
    is the most defensible incremental lever we have on agent traffic, it is
    cache-safe, it reuses existing machinery, and its proof costs **zero API
    dollars**. It is the natural complement to A5: A5 pays on chat, A3 pays on
-   agents, and together they give FLUX a defensible line on both customer
+   agents, and together they give MESH a defensible line on both customer
    shapes while A1/A6 carry the transport savings.
 
 The logic: A5 is the biggest clear prize, A3 is the cheapest clear proof. Fund

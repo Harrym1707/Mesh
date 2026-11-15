@@ -1,22 +1,22 @@
 # RAG context rightsizing — input-token waste in retrieval-augmented requests
 
 **Axis:** rag-context-rightsizing (A3 redundancy, A4 irrelevance; touches A2 encoding)
-**Author:** FLUX R&D literature mine, 2026-10-28
-**Scope rule:** FLUX is a transparent proxy. It can only (a) rewrite the outgoing
+**Author:** MESH R&D literature mine, 2026-10-28
+**Scope rule:** MESH is a transparent proxy. It can only (a) rewrite the outgoing
 request body before forwarding and (b) read provider-reported usage after. No model
 weights, no logits/hidden states, no second LLM unless bundled on-machine (none bundled
 today). Interactive latency budget ~tens of ms.
 
 ---
 
-## TL;DR for FLUX
+## TL;DR for MESH
 
 A RAG request ships a block of retrieved chunks inside `messages` (usually one user turn
 or an appended system block). The literature is unambiguous that **a large fraction of
 that block is not used by the model** — but almost every published method that exploits
-this needs something FLUX does not have (a scorer model, or the generator's logits).
+this needs something MESH does not have (a scorer model, or the generator's logits).
 
-Where that leaves FLUX on this axis:
+Where that leaves MESH on this axis:
 
 - **Two black-box, no-model levers survive** and are worth shipping behind the replay
   quality gate:
@@ -28,17 +28,17 @@ Where that leaves FLUX on this axis:
      retrieved chunks the client's retriever already ordered. Pure byte rewrite, no
      model needed, because the client supplies the ranking.
 - **Everything with a strong compression ratio is model-gated** (LLMLingua family,
-  rerankers) → `research`, only viable if FLUX bundles a small model and the latency
+  rerankers) → `research`, only viable if MESH bundles a small model and the latency
   fits. **Or logit-gated** (Information Gain Pruning) → `reject`, white-box.
-- **Chunk-size tuning is upstream of FLUX** (an index-build decision) → `reject` for a
+- **Chunk-size tuning is upstream of MESH** (an index-build decision) → `reject` for a
   request-time proxy.
 
 **Caching interaction (favorable, with one trap):** retrieved context is the *volatile*
 part of a RAG prompt — it changes every query — so it is normally **not** part of a
 stable cached prefix. Editing it therefore does **not** bust a cached prefix, which is
-the opposite of the usual FLUX volatility problem. The trap: some clients place retrieved
+the opposite of the usual MESH volatility problem. The trap: some clients place retrieved
 docs *above* stable instructions/system text; editing there would invalidate the cached
-suffix. FLUX must confine edits to the volatile region and leave any stable prefix byte-
+suffix. MESH must confine edits to the volatile region and leave any stable prefix byte-
 identical.
 
 ---
@@ -62,7 +62,7 @@ chunk size 512, stride 256 (≈50% overlap); FAISS + text-embedding-3-large.*
   **49.5% @64k**; DBRX instruction-following failures 5.2% @8k → **50.4% @32k**.
   *(measured.)*
 
-**FLUX read:** when a client over-fetches (ships 20–50 chunks "to be safe"), the tail past
+**MESH read:** when a client over-fetches (ships 20–50 chunks "to be safe"), the tail past
 the saturation count is removable with no quality loss on that query. The saving is
 workload-specific and must be gated.
 
@@ -76,7 +76,7 @@ distractors, gold position swept.*
   drop** from position alone. *(measured.)* Confirmed to persist on 1M-token models in
   follow-up work (2026).
 
-**FLUX read:** does not reduce tokens directly, but establishes that middle chunks in a
+**MESH read:** does not reduce tokens directly, but establishes that middle chunks in a
 long retrieved block are weakly used → trimming/reordering the middle is low-risk.
 Reordering is token-neutral (not a saving lever) and *changes what the model sees* (lossy,
 gate) — note, don't ship as a "saving".
@@ -102,12 +102,12 @@ Claude-3.5-Sonnet, Gemma-27B.*
   knowledge), "indicating retrieved context often proves unnecessary for correct answers."
   *(measured.)*
 
-**FLUX read:** a large, measured share of retrieved tokens is noise — but §4 also warns
+**MESH read:** a large, measured share of retrieved tokens is noise — but §4 also warns
 the gate must catch cases where trimming tips a *sufficient* context into *insufficient*.
 
 ---
 
-## Techniques, ranked by FLUX applicability
+## Techniques, ranked by MESH applicability
 
 ### SHIP-CANDIDATES (black-box, no model, gate-required)
 
@@ -115,7 +115,7 @@ the gate must catch cases where trimming tips a *sufficient* context into *insuf
 **Mechanism:** RAG indexers chunk with overlap (stride < chunk size: Databricks used
 512/256 = 50% overlap; 10–20% is the common default). When adjacent chunks of one
 document are both retrieved, the overlap region is **byte-for-byte duplicated** in the
-prompt. Near-duplicate source docs also yield whole repeated chunks. FLUX can detect
+prompt. Near-duplicate source docs also yield whole repeated chunks. MESH can detect
 repeated spans / near-identical chunks by hashing + string match and emit each span once.
 **Saving:** at 50% stride with adjacent chunks retrieved, up to ~50% of *those* chunks'
 tokens are redundant; at the common 15% overlap, ~15% of overlapping-pair tokens.
@@ -129,7 +129,7 @@ needs the gate because join boundaries change bytes.
 Safe.
 
 #### T2. Top-k tail truncation — A4, lossy
-**Mechanism:** the client's retriever already ranks chunks; FLUX drops the lowest-ranked
+**Mechanism:** the client's retriever already ranks chunks; MESH drops the lowest-ranked
 tail (e.g. 20→N) that sits past the measured saturation count. Pure body rewrite.
 **Saving basis:** §1 — NQ saturates at ≈13 chunks; a client shipping 30 wastes ~17.
 Reranking studies report **matching the quality of all chunks at ≈1/3 the token cost**
@@ -137,7 +137,7 @@ when only the top-ranked subset is kept *(literature-claim; blog-level, treat as
 bound, verify on gate)*.
 **Lossless?** Lossy — changes what the model sees. Mandatory replay quality gate;
 §4 is the risk (dropping a chunk that carried sufficiency).
-**Black-box?** Yes — relies on the client's existing ranking, no FLUX scorer.
+**Black-box?** Yes — relies on the client's existing ranking, no MESH scorer.
 **Caching:** volatile region, safe. One trap: if chunks are reordered/renumbered,
 downstream citation indices can shift — keep stable chunk IDs if present.
 
@@ -148,7 +148,7 @@ downstream citation indices can shift — keep stable chunk IDs if present.
 low-information tokens. **2–5× compression**, **1.6–2.9× faster** than LLMLingua-1,
 "task-agnostic" (no question needed → stable, cache-friendlier than question-aware).
 *(literature-claim, measured in paper.)*
-**FLUX fit:** needs a bundled ~0.1–0.5B classifier; adds inference latency per request —
+**MESH fit:** needs a bundled ~0.1–0.5B classifier; adds inference latency per request —
 tight against the tens-of-ms budget. Viable only if bundled and latency-profiled.
 Lossy → gate.
 
@@ -158,7 +158,7 @@ coarse/fine selection + doc reorder. On **NaturalQuestions: +21.4% accuracy at ~
 tokens** (GPT-3.5-Turbo); **94.0% cost reduction on LooGLE**; $28.5/$27.4 saved per 1k
 samples on LongBench/ZeroScrolls; end-to-end **1.4–2.6× latency speedup** at 2–6×
 compression on ~10k-token prompts. *(measured in paper.)*
-**FLUX fit:** needs a bundled ~7B LM for perplexity → a 7B forward pass per request
+**MESH fit:** needs a bundled ~7B LM for perplexity → a 7B forward pass per request
 blows the interactive latency budget. **Research only**; borderline `reject` for
 interactive. Question-aware → busts cache if the retrieved block were cached (usually it
 isn't). Strongest *numbers* on this axis, weakest *fit*.
@@ -167,9 +167,9 @@ isn't). Strongest *numbers* on this axis, weakest *fit*.
 *e.g. Cohere Rerank; RankRAG arXiv:2407.02485.* Over-fetch, cross-encoder rescores, keep
 top-N. Reported **~1/3 token cost at matched quality**, **~49% TTFT reduction** with
 <0.02 ROUGE delta *(literature-claim / vendor-blog level).*
-**FLUX fit:** needs a bundled cross-encoder reranker; same latency/bundling caveat as T3.
+**MESH fit:** needs a bundled cross-encoder reranker; same latency/bundling caveat as T3.
 Research. (Distinct from T2: T2 trusts the client's ranking and needs no model; T5
-re-ranks with FLUX's own model.)
+re-ranks with MESH's own model.)
 
 ### REJECT
 
@@ -179,13 +179,13 @@ generator's own information gain. **76–79% final-stage token reduction** (TopM
 tokens) with **+12–20% relative F1** and 4.6–6.0× token efficiency on NQ/TriviaQA/PopQA
 (Qwen2.5, Llama-3.x). *(measured.)*
 **Why reject:** "requires only step-wise logits (or TopK log-probabilities)" from the
-generator — **logit access FLUX does not have**. Cited here only as a measured *upper
+generator — **logit access MESH does not have**. Cited here only as a measured *upper
 bound*: ~75–80% of a retrieved block can be redundant/low-gain.
 
-#### R2. Chunk-size / overlap tuning — upstream of FLUX
+#### R2. Chunk-size / overlap tuning — upstream of MESH
 *machinelearningplus / PreMAI / CARROT (arXiv:2411.00744).* Optimal chunk size 128–512
 tokens, task-dependent (256 single-hop, 512 multi-hop in CARROT). **Index-build decision**
-made before the request exists; a request-time proxy cannot re-chunk. Reject for FLUX,
+made before the request exists; a request-time proxy cannot re-chunk. Reject for MESH,
 but the overlap it creates is exactly what **T1** harvests.
 
 ---
@@ -194,7 +194,7 @@ but the overlap it creates is exactly what **T1** harvests.
 *Prompt Compression in the Wild (arXiv:2604.02985)* reports that compression's own compute
 can offset the latency saved by shorter prompts, especially when KV/prefix caching already
 amortizes the long prompt. *(literature-claim — PDF numbers not extracted; flagged for
-follow-up.)* For FLUX this is decisive: any bundled-model lever must show net latency ≥0
+follow-up.)* For MESH this is decisive: any bundled-model lever must show net latency ≥0
 *after* its own inference cost, inside the tens-of-ms budget. T1/T2 (no model) avoid this
 entirely.
 

@@ -2,7 +2,7 @@
 
 **Result: APPROVED.** The `outputEffort` lever (`output_config.effort`) is proven real on
 live model behaviour: a lower effort setting cuts output tokens while holding task
-completion. This is the first non-caching lever FLUX has validated against the real model,
+completion. This is the first non-caching lever MESH has validated against the real model,
 not a simulator.
 
 ## What was run
@@ -35,6 +35,6 @@ identity), baseline (default effort) vs candidates effort=low and effort=medium,
 ## To ship as billable
 
 Wire a gate verdict `output-effort-low: approved` (per customer, per workload) into the
-ledger (`FluxSavingsLedgerConfig.gateVerdicts`) so the lever's savings bill only after the
+ledger (`MeshSavingsLedgerConfig.gateVerdicts`) so the lever's savings bill only after the
 customer's own gate pass — the lossy-lever contract already enforced for every other lossy
 lever. Until a customer runs their own gate, the lever stays record-only.
