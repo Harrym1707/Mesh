@@ -21,6 +21,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
@@ -32,7 +33,13 @@ import { join } from "node:path";
 // client surface: proxy + reducer + ledger + Theo policy.
 import { recomputeInvoice, verifyLedgerChain, type LedgerRecord } from "../../core/src/savings-ledger.js";
 import { startMeshProxy } from "../../sdk-js/src/proxy.js";
-import { defaultPolicy, policyToReductionConfig, withheldLevers, type TheoPolicy } from "../../sdk-js/src/theo-policy.js";
+import { asBundle, bundleGateVerdicts, bundleToReductionConfig, defaultPolicy, policyToReductionConfig, withheldLevers, type TheoPolicy, type TheoPolicyBundle } from "../../sdk-js/src/theo-policy.js";
+import type { TheoAutonomyLevel } from "../../sdk-js/src/theo-agent.js";
+import { parseDuration, startBackgroundTheo } from "./theo.js";
+import { wireClaudeCode } from "./claude-wiring.js";
+// Pure formatter module (no core imports) — reused so the signup URL and the
+// README badge have one source of truth across the proxy, SDK and this CLI.
+import { MESH_SIGNUP_URL, savingsBadge, type SavingsSnapshot } from "../../sdk-js/src/cta.js";
 import { pullNewerRuntime } from "./update.js";
 
 declare const __MESH_BUILD_COMMIT__: string | undefined;
@@ -41,6 +48,8 @@ export const BUILD_COMMIT =
 
 export const MESH_HOME = join(homedir(), ".mesh");
 export const CLAUDE_SETTINGS = join(homedir(), ".claude", "settings.json");
+/** What Claude Code's settings held before `mesh start` changed them (see claude-wiring.ts). */
+export const WIRING_STATE = join(MESH_HOME, "claude-wiring.json");
 export const DEFAULT_PORT = 8787;
 
 /**
@@ -50,12 +59,22 @@ export const DEFAULT_PORT = 8787;
  * startProxyWithPolicy is separate because it writes the default on first run.
  */
 export function readPolicy(): TheoPolicy {
+  return readPolicyBundle().default;
+}
+
+/**
+ * Read the user's full policy bundle (default + per-route overrides), normalising
+ * a legacy single-policy file into a bundle. The DEFAULT (STRICT, lossless-only)
+ * when none exists yet or the file is unreadable.
+ */
+export function readPolicyBundle(): TheoPolicyBundle {
   const path = join(MESH_HOME, "theo-policy.json");
-  if (!existsSync(path)) return defaultPolicy("local", new Date().toISOString());
+  const fallback = (): TheoPolicyBundle => asBundle(defaultPolicy("local", new Date().toISOString()));
+  if (!existsSync(path)) return fallback();
   try {
-    return JSON.parse(readFileSync(path, "utf8")) as TheoPolicy;
+    return asBundle(JSON.parse(readFileSync(path, "utf8")) as TheoPolicy | TheoPolicyBundle);
   } catch {
-    return defaultPolicy("local", new Date().toISOString());
+    return fallback();
   }
 }
 
@@ -65,6 +84,14 @@ type StartArgs = {
   install: boolean;
   anthropicUpstream?: string;
   openaiUpstream?: string;
+  capturePath?: string;
+  captureMaxMb?: number;
+  autonomy?: TheoAutonomyLevel;
+  theoIntervalMs?: number;
+  theoProviderUrl?: string;
+  /** Path to the provider-key file the unattended gate reads (launchd has no shell env). */
+  gateKeyFile?: string;
+  noTheo?: boolean;
 };
 
 function parseStart(argv: string[]): StartArgs {
@@ -87,12 +114,22 @@ function parseStart(argv: string[]): StartArgs {
           `  --openai-base <url>     Send OpenAI-style traffic to this host instead of api.openai.com —\n` +
           `                          any OpenAI-compatible provider (Grok, DeepSeek, Mistral, Llama, …).\n` +
           `  --anthropic-base <url>  Send Anthropic traffic to this host instead of api.anthropic.com.\n` +
+          `  --capture <file>        Opt-in: record your own requests to <file> (local, owner-only) so\n` +
+          `                          Theo can prove lossy levers on real traffic.\n` +
+          `  --capture-max-mb <n>    Cap the capture file at n MB of prompt content (default 5).\n` +
+          `  --gate-key-file <path>  Provider key for the unattended gate, read from this file (chmod\n` +
+          `                          600) — the daemon has no shell env. Only the path is stored.\n` +
+          `  --autonomy <level>      Theo's autonomy while running alongside: observe | recommend |\n` +
+          `                          test | optimise (default recommend).\n` +
+          `  --theo-interval <dur>   How often Theo runs a cycle (e.g. 15m, 1h; default 15m).\n` +
+          `  --no-theo               Don't run Theo alongside the proxy; just serve.\n` +
           `  --no-install            Don't touch ~/.claude/settings.json; just run the proxy.\n` +
           `  --help                  Show this message.`,
       );
       process.exit(0);
     }
     if (key === "--no-install") { args.install = false; continue; }
+    if (key === "--no-theo") { args.noTheo = true; continue; }
     const value = argv[i + 1];
     if (value === undefined || value.startsWith("--")) throw new Error(`${key} needs a value.`);
     i += 1;
@@ -100,6 +137,21 @@ function parseStart(argv: string[]): StartArgs {
     else if (key === "--ledger") args.ledgerDir = value;
     else if (key === "--openai-base") args.openaiUpstream = value;
     else if (key === "--anthropic-base") args.anthropicUpstream = value;
+    else if (key === "--capture") args.capturePath = value;
+    else if (key === "--capture-max-mb") {
+      const n = Number(value);
+      if (!Number.isFinite(n) || n <= 0) throw new Error("--capture-max-mb must be a positive number.");
+      args.captureMaxMb = n;
+    }
+    else if (key === "--autonomy") {
+      if (!["observe", "recommend", "test", "optimise"].includes(value)) {
+        throw new Error("--autonomy must be observe | recommend | test | optimise.");
+      }
+      args.autonomy = value as TheoAutonomyLevel;
+    }
+    else if (key === "--theo-interval") args.theoIntervalMs = parseDuration(value);
+    else if (key === "--theo-provider-url") args.theoProviderUrl = value;
+    else if (key === "--gate-key-file") args.gateKeyFile = value;
     else throw new Error(`Unknown option: ${key}. See mesh start --help.`);
   }
   if (!Number.isInteger(args.port) || args.port < 0 || args.port > 65535) throw new Error("--port must be 0-65535.");
@@ -116,40 +168,6 @@ function blindKey(): string {
   const key = randomBytes(32).toString("hex");
   writeFileSync(path, key, { mode: 0o600 });
   return key;
-}
-
-/** Point Claude Code at the proxy; return a function that restores the prior state. */
-function configureClaudeCode(baseUrl: string): () => void {
-  mkdirSync(join(homedir(), ".claude"), { recursive: true });
-  let settings: Record<string, unknown> = {};
-  let hadFile = false;
-  if (existsSync(CLAUDE_SETTINGS)) {
-    hadFile = true;
-    try {
-      settings = JSON.parse(readFileSync(CLAUDE_SETTINGS, "utf8")) as Record<string, unknown>;
-    } catch {
-      throw new Error(`~/.claude/settings.json isn't valid JSON — fix or move it, then re-run. MESH won't overwrite it.`);
-    }
-  }
-  const env = { ...((settings.env as Record<string, string>) ?? {}) };
-  const priorBaseUrl = env.ANTHROPIC_BASE_URL;
-  env.ANTHROPIC_BASE_URL = baseUrl;
-  writeFileSync(CLAUDE_SETTINGS, `${JSON.stringify({ ...settings, env }, null, 2)}\n`);
-
-  return function restore(): void {
-    try {
-      const now = JSON.parse(readFileSync(CLAUDE_SETTINGS, "utf8")) as Record<string, unknown>;
-      const nowEnv = { ...((now.env as Record<string, string>) ?? {}) };
-      if (priorBaseUrl === undefined) delete nowEnv.ANTHROPIC_BASE_URL;
-      else nowEnv.ANTHROPIC_BASE_URL = priorBaseUrl;
-      const next: Record<string, unknown> = { ...now, env: nowEnv };
-      if (Object.keys(nowEnv).length === 0) delete next.env;
-      if (!hadFile && Object.keys(next).length === 0) return; // we created nothing worth keeping
-      writeFileSync(CLAUDE_SETTINGS, `${JSON.stringify(next, null, 2)}\n`);
-    } catch {
-      /* best-effort restore; never crash on shutdown */
-    }
-  };
 }
 
 type LedgerSummary = { events: number; savedUsd: number; verdict: string; chainOk: boolean; brokenAt?: string };
@@ -191,13 +209,39 @@ export function summariseLedger(ledgerDir: string): LedgerSummary {
   };
 }
 
+/** Build the snapshot the CTA/badge read, from the same verified ledger. */
+export function snapshotLedger(ledgerDir: string): SavingsSnapshot {
+  const { records, chainOk } = readLedger(ledgerDir);
+  if (records.length === 0) {
+    return { requests: 0, savedUsd: 0, spendUsd: 0, verdict: "do_not_charge", chainOk };
+  }
+  const events = records.map((r) => r.event);
+  const invoice = recomputeInvoice(events);
+  const spendUsd = events.reduce((sum, e) => sum + (e.actualUsd ?? 0), 0);
+  return {
+    requests: records.length,
+    savedUsd: invoice.netVerifiedSavingsUsd,
+    spendUsd,
+    verdict: invoice.verdict,
+    chainOk,
+  };
+}
+
 const T = "⬢ theo"; // the hex mark, Theo's sign-off
+
+/** "15m", "90s", "2h" — a Theo interval as a person would say it. */
+function formatInterval(ms: number): string {
+  if (ms % 3_600_000 === 0) return `${ms / 3_600_000}h`;
+  if (ms % 60_000 === 0) return `${ms / 60_000}m`;
+  return `${Math.round(ms / 1000)}s`;
+}
 
 /** Start the proxy with Theo's current policy + blind stream. Shared by start/serve. */
 export async function startProxyWithPolicy(
   port: number,
   ledgerDir: string,
   upstreams: { anthropicUpstream?: string; openaiUpstream?: string } = {},
+  capture?: { path: string; limit?: number },
 ): Promise<{ proxy: Awaited<ReturnType<typeof startMeshProxy>>; policy: ReturnType<typeof defaultPolicy> }> {
   mkdirSync(MESH_HOME, { recursive: true });
   mkdirSync(ledgerDir, { recursive: true });
@@ -206,11 +250,38 @@ export async function startProxyWithPolicy(
     ? (JSON.parse(readFileSync(policyPath, "utf8")) as ReturnType<typeof defaultPolicy>)
     : defaultPolicy("local", new Date().toISOString());
   if (!existsSync(policyPath)) writeFileSync(policyPath, `${JSON.stringify(policy, null, 2)}\n`);
+  // Hot-reload: re-read the policy file when it changes (Theo publishes to it),
+  // so proven levers take effect without restarting the proxy. mtime-cached so a
+  // request never re-parses the file needlessly; the last good config is kept on
+  // any read/parse error, so a mid-write or bad file can't break the request path.
+  // mtime-cache the parsed BUNDLE (default + per-route overrides); the per-route
+  // config for a given model id is resolved per request from the cached bundle, so
+  // routing costs nothing beyond a map lookup once the file is parsed.
+  let cached = { mtimeMs: -1, bundle: asBundle(policy) };
+  const liveReduction = (modelId?: string): ReturnType<typeof policyToReductionConfig> => {
+    try {
+      const mtimeMs = statSync(policyPath).mtimeMs;
+      if (mtimeMs !== cached.mtimeMs) {
+        const current = JSON.parse(readFileSync(policyPath, "utf8")) as TheoPolicy | TheoPolicyBundle;
+        cached = { mtimeMs, bundle: asBundle(current) };
+      }
+    } catch {
+      // keep the last good bundle
+    }
+    return bundleToReductionConfig(cached.bundle, modelId ?? "");
+  };
+  // The proofs behind the lossy levers that same bundle enforces, for the ledger.
+  // Reads the bundle `liveReduction` just cached for this request, so the verdict
+  // on an event always matches the policy that reduced it.
+  const liveVerdicts = (modelId?: string): ReturnType<typeof bundleGateVerdicts> =>
+    bundleGateVerdicts(cached.bundle, modelId ?? "");
   const proxy = await startMeshProxy({
     port,
     ledgerDirectory: ledgerDir,
-    tokenReduction: policyToReductionConfig(policy),
+    tokenReduction: liveReduction,
+    gateVerdicts: liveVerdicts,
     blindFeaturesKey: blindKey(),
+    ...(capture ? { requestCapture: capture } : {}),
     ...(upstreams.anthropicUpstream ? { anthropicUpstream: upstreams.anthropicUpstream } : {}),
     ...(upstreams.openaiUpstream ? { openaiUpstream: upstreams.openaiUpstream } : {}),
   });
@@ -225,11 +296,33 @@ export async function startProxyWithPolicy(
  */
 export async function runServe(argv: string[]): Promise<void> {
   const args = parseStart(argv);
-  const { proxy } = await startProxyWithPolicy(args.port, args.ledgerDir, args);
+  const { proxy } = await startProxyWithPolicy(args.port, args.ledgerDir, args, args.capturePath ? { path: args.capturePath, ...(args.captureMaxMb !== undefined ? { maxBytes: Math.round(args.captureMaxMb * 1024 * 1024) } : {}) } : undefined);
   const stamp = (): string => new Date().toISOString();
   console.log(`[${stamp()}] mesh serve · build ${BUILD_COMMIT} · proxy ${proxy.url} · ledger ${args.ledgerDir}`);
   if (args.openaiUpstream) console.log(`[${stamp()}] openai-style upstream → ${args.openaiUpstream}`);
   if (args.anthropicUpstream) console.log(`[${stamp()}] anthropic upstream → ${args.anthropicUpstream}`);
+
+  // Run Theo alongside the proxy: every interval he observes this ledger, decides
+  // within his autonomy level, and (apply) writes the policy the proxy hot-reloads
+  // — so the always-on service keeps optimising with nothing to run by hand.
+  const theoIntervalMs = args.theoIntervalMs ?? 15 * 60_000;
+  const stopTheo = args.noTheo ? undefined : startBackgroundTheo(
+    {
+      ledgerDir: args.ledgerDir,
+      customer: "local",
+      autonomy: args.autonomy ?? "recommend",
+      maxSamples: 20,
+      apply: true,
+      ...(args.capturePath ? { gate: args.capturePath } : {}),
+      ...(args.theoProviderUrl ? { providerUrl: args.theoProviderUrl } : {}),
+      ...(args.gateKeyFile ? { gateKeyFile: args.gateKeyFile } : {}),
+    },
+    theoIntervalMs,
+  );
+  if (stopTheo) {
+    console.log(`[${stamp()}] ${T} running every ${Math.round(theoIntervalMs / 1000)}s · autonomy ${args.autonomy ?? "recommend"}${args.capturePath ? " · proving on capture" : ""}`);
+  }
+
   let lastEvents = -1;
   const monitor = setInterval(() => {
     const s = summariseLedger(args.ledgerDir);
@@ -263,6 +356,7 @@ export async function runServe(argv: string[]): Promise<void> {
   const shutdown = async (): Promise<void> => {
     clearInterval(monitor);
     if (updateTimer) clearInterval(updateTimer);
+    stopTheo?.();
     await proxy.close();
     process.exit(0);
   };
@@ -273,8 +367,65 @@ export async function runServe(argv: string[]): Promise<void> {
 
 export async function runStart(argv: string[]): Promise<void> {
   const args = parseStart(argv);
-  const { proxy, policy } = await startProxyWithPolicy(args.port, args.ledgerDir, args);
-  const restore = args.install ? configureClaudeCode(proxy.url) : () => {};
+  const { proxy, policy } = await startProxyWithPolicy(args.port, args.ledgerDir, args, args.capturePath ? { path: args.capturePath, ...(args.captureMaxMb !== undefined ? { maxBytes: Math.round(args.captureMaxMb * 1024 * 1024) } : {}) } : undefined);
+
+  // ---- clean shutdown, armed BEFORE Claude Code's settings are touched ----
+  // A signal with no handler takes the default action: the process dies at once
+  // and nothing runs, not even the "exit" hook. So these handlers must exist
+  // before wireClaudeCode writes. Registered any later, a Ctrl+C in the first
+  // moments of `mesh start` left Claude Code pointed at a dead proxy.
+  let restore: () => void = () => {};
+  let monitor: ReturnType<typeof setInterval> | undefined;
+  let stopTheo: (() => void) | undefined;
+  let closing = false;
+  const shutdown = async (quiet = false): Promise<void> => {
+    if (closing) return;
+    closing = true;
+    // First, before anything that could fail or hang: a dead proxy must never be
+    // left as Claude Code's address.
+    restore();
+    if (monitor) clearInterval(monitor);
+    stopTheo?.();
+    if (quiet) {
+      // The terminal is gone (SIGHUP): nothing to print to, and nothing may hold
+      // the exit up.
+      setTimeout(() => process.exit(0), 2000).unref();
+      await proxy.close().catch(() => undefined);
+      process.exit(0);
+    }
+    const snap = snapshotLedger(args.ledgerDir);
+    await proxy.close();
+    console.log("");
+    if (snap.requests > 0) {
+      console.log(`  ${T} — session done: ${snap.requests} request${snap.requests === 1 ? "" : "s"}, $${snap.savedUsd.toFixed(4)} verified saved.`);
+      console.log(`  ${T}   Recompute it yourself any time: mesh verify`);
+      // The signup ask — only when there's a real, verified saving to claim.
+      if (snap.chainOk && snap.verdict === "charge" && snap.savedUsd > 0) {
+        console.log("");
+        console.log(`  ${T} — keep these savings metered: ${MESH_SIGNUP_URL}`);
+        console.log(`  ${T}   show it off — paste this badge into your README:`);
+        console.log(`     ${savingsBadge(snap).markdown}`);
+      }
+    } else {
+      console.log(`  ${T} — no requests ran through MESH this session.`);
+    }
+    console.log(`  Claude Code restored. Bye.`);
+    process.exit(0);
+  };
+  process.on("SIGINT", () => { void shutdown(); });
+  process.on("SIGTERM", () => { void shutdown(); });
+  // Closing the terminal window or tab sends SIGHUP. Unhandled, it kills the
+  // process with Claude Code still pointed at the proxy.
+  process.on("SIGHUP", () => { void shutdown(true); });
+
+  restore = args.install
+    ? wireClaudeCode({ settingsPath: CLAUDE_SETTINGS, statePath: WIRING_STATE }, proxy.url)
+    : () => {};
+  // However this process ends — a signal handled above, an uncaught error, a
+  // plain exit — Claude Code is pointed back first. `restore` is synchronous and
+  // idempotent, so it is safe here as the last line of defence. (A hard kill
+  // runs nothing; the wiring record covers that case on the next run.)
+  process.on("exit", () => restore());
   const withheld = withheldLevers(policy);
 
   // ---- banner ----
@@ -298,6 +449,14 @@ export async function runStart(argv: string[]): Promise<void> {
     console.log(`  ${T}   Holding ${withheld.length} lossy lever${withheld.length === 1 ? "" : "s"} back until a replay`);
     console.log(`  ${T}   proves ${withheld.length === 1 ? "it is" : "they are"} safe on your own traffic.`);
   }
+  const theoIntervalMs = args.theoIntervalMs ?? 15 * 60_000;
+  const theoAutonomy = args.autonomy ?? "recommend";
+  if (args.noTheo) {
+    console.log(`  ${T}   Not optimising this session (--no-theo): the current policy stays as it is.`);
+  } else {
+    console.log(`  ${T}   I re-check every ${formatInterval(theoIntervalMs)} (autonomy: ${theoAutonomy}). Anything I prove but`);
+    console.log(`  ${T}   may not apply myself, I'll put to you here.`);
+  }
   console.log("");
   console.log(`  Just use Claude Code as normal. Press Ctrl+C to stop (Claude Code reverts cleanly).`);
   console.log("");
@@ -317,30 +476,42 @@ export async function runStart(argv: string[]): Promise<void> {
     const verdict = s.verdict === "charge" ? saved : `${saved} (nothing to bill yet — do not pay us)`;
     console.log(`  ${T} — ${s.events} request${s.events === 1 ? "" : "s"} seen · ${verdict} verified saved`);
   };
-  const monitor = setInterval(tick, 6000);
+  monitor = setInterval(tick, 6000);
 
-  // ---- clean shutdown ----
-  let closing = false;
-  const shutdown = async (): Promise<void> => {
-    if (closing) return;
-    closing = true;
-    clearInterval(monitor);
-    const s = summariseLedger(args.ledgerDir);
-    restore();
-    await proxy.close();
-    console.log("");
-    if (s.events > 0) {
-      console.log(`  ${T} — session done: ${s.events} request${s.events === 1 ? "" : "s"}, $${s.savedUsd.toFixed(4)} verified saved.`);
-      console.log(`  ${T}   Recompute it yourself any time: mesh verify`);
-    } else {
-      console.log(`  ${T} — no requests ran through MESH this session.`);
-    }
-    console.log(`  Claude Code restored. Bye.`);
-    process.exit(0);
-  };
-  process.on("SIGINT", () => { void shutdown(); });
-  process.on("SIGTERM", () => { void shutdown(); });
+  // ---- Theo alongside: the same cycle the always-on service runs ----
+  // Quiet: the full report belongs to `mesh theo`; here only what changed or
+  // needs an answer is printed, once.
+  const announced = new Set<string>();
+  stopTheo = args.noTheo ? undefined : startBackgroundTheo(
+    {
+      ledgerDir: args.ledgerDir,
+      customer: "local",
+      autonomy: theoAutonomy,
+      maxSamples: 20,
+      apply: true,
+      quiet: true,
+      ...(args.capturePath ? { gate: args.capturePath } : {}),
+      ...(args.theoProviderUrl ? { providerUrl: args.theoProviderUrl } : {}),
+      ...(args.gateKeyFile ? { gateKeyFile: args.gateKeyFile } : {}),
+    },
+    theoIntervalMs,
+    (result) => {
+      for (const action of result.actions) {
+        if (action.kind === "rolled-back") {
+          console.log(`  ${T} — rolled back ${action.lever}: ${action.reason}.`);
+        } else if (action.kind === "policy-published") {
+          console.log(`  ${T} — applied ${action.lever} (proven on your traffic; policy v${action.version}).`);
+        }
+      }
+      for (const proposal of result.memory.proposals) {
+        if (announced.has(proposal.lever)) continue;
+        announced.add(proposal.lever);
+        console.log(`  ${T} — proposal: ${proposal.message}`);
+        console.log(`  ${T}   yes: mesh theo --accept ${proposal.lever}   ·   no: mesh theo --reject ${proposal.lever}`);
+      }
+    },
+  );
 
-  // Keep the process alive.
+  // Keep the process alive. (Shutdown is armed above, before the wiring.)
   await new Promise<void>(() => {});
 }

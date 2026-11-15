@@ -17,6 +17,7 @@ import { dirname, join, resolve } from "node:path";
 
 import { BUILD_COMMIT, CLAUDE_SETTINGS, DEFAULT_PORT, MESH_HOME, readPolicy, summariseLedger } from "./start.js";
 import { policyCoverage } from "../../sdk-js/src/theo-policy.js";
+import { MESH_SIGNUP_URL } from "../../sdk-js/src/cta.js";
 
 const LABEL = "dev.meshtoken.mesh";
 const PLIST = join(homedir(), "Library", "LaunchAgents", `${LABEL}.plist`);
@@ -85,8 +86,30 @@ function clearClaudeBaseUrl(): void {
   } catch { /* leave it */ }
 }
 
-function writePlist(port: number): void {
-  const argv = [process.execPath, STABLE_BIN, "serve", "--port", String(port), "--ledger", DEFAULT_LEDGER];
+/** Forward Theo-related flags from `mesh install` into the daemon's `mesh serve`
+ * command, so the always-on service runs Theo as the user asked. A --capture path
+ * is resolved to absolute (the daemon runs from a different working directory). */
+function theoServeArgs(argv: string[]): string[] {
+  const out: string[] = [];
+  const takePath = (flag: string): void => {
+    const i = argv.indexOf(flag);
+    if (i >= 0 && argv[i + 1]) out.push(flag, resolve(argv[i + 1]!));
+  };
+  const takeValue = (flag: string): void => {
+    const i = argv.indexOf(flag);
+    if (i >= 0 && argv[i + 1]) out.push(flag, argv[i + 1]!);
+  };
+  takePath("--capture");
+  takePath("--gate-key-file"); // the PATH only — never the key value
+  takeValue("--autonomy");
+  takeValue("--theo-interval");
+  takeValue("--theo-provider-url");
+  if (argv.includes("--no-theo")) out.push("--no-theo");
+  return out;
+}
+
+function writePlist(port: number, extraServeArgs: string[] = []): void {
+  const argv = [process.execPath, STABLE_BIN, "serve", "--port", String(port), "--ledger", DEFAULT_LEDGER, ...extraServeArgs];
   const esc = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const argXml = argv.map((a) => `      <string>${esc(a)}</string>`).join("\n");
   const plist = `<?xml version="1.0" encoding="UTF-8"?>
@@ -123,7 +146,7 @@ export async function runInstall(argv: string[]): Promise<void> {
   chmodSync(STABLE_BIN, 0o755);
 
   if (isLoaded()) launchctl("unload", PLIST);
-  writePlist(port);
+  writePlist(port, theoServeArgs(argv));
   launchctl("load", "-w", PLIST);
   setClaudeBaseUrl(`http://127.0.0.1:${port}`);
 
@@ -193,6 +216,9 @@ export async function runStatus(_argv: string[]): Promise<void> {
     console.log(`  ⬢ theo    ${s.events} requests seen · $${s.savedUsd.toFixed(4)} verified saved (${s.verdict})`);
   } else {
     console.log(`  ⬢ theo    no traffic yet — use Claude Code and check back`);
+  }
+  if (s.chainOk && s.verdict === "charge" && s.savedUsd > 0) {
+    console.log(`  claim     keep these savings metered → ${MESH_SIGNUP_URL}`);
   }
   const cov = policyCoverage(readPolicy());
   console.log(

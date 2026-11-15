@@ -752,3 +752,62 @@ describe("output effort governor", () => {
     expect((reduced as Record<string, unknown>).output_config).toBeUndefined();
   });
 });
+
+describe("reduceRequest — unused-tool removal (dropTools)", () => {
+  // Anthropic-shaped catalogue: tools are {name, description, input_schema}.
+  const anthropicTools = (): unknown[] => [
+    { name: "search_docs", description: LONG_DESCRIPTION, input_schema: { type: "object", properties: { q: { type: "string" } } } },
+    { name: "delete_record", description: LONG_DESCRIPTION, input_schema: { type: "object", properties: { id: { type: "string" } } } },
+    { name: "send_email", description: LONG_DESCRIPTION, input_schema: { type: "object", properties: { to: { type: "string" } } } },
+  ];
+  const anthropicRequest = (): Record<string, unknown> => ({
+    model: "claude-sonnet-5-5",
+    system: "You are a support agent.",
+    tools: anthropicTools(),
+    messages: [{ role: "user", content: "Look up the refund policy." }],
+  });
+
+  it("removes named tools (Anthropic shape) and reports it as a lossy change with real savings", () => {
+    const { request: reduced, summary } = reduceRequest(anthropicRequest(), { dropTools: ["delete_record", "send_email"] });
+    const names = ((reduced as Record<string, unknown>).tools as Array<{ name: string }>).map((t) => t.name);
+    expect(names).toEqual(["search_docs"]); // the two unused tools are gone
+    const change = summary.changes.find((c) => c.lever === "unused-tool-removal")!;
+    expect(change.lossless).toBe(false);
+    expect(change.estimatedTokensSaved).toBeGreaterThan(0);
+    expect(summary.estimatedTokensSaved).toBeGreaterThan(0);
+  });
+
+  it("removes named tools (OpenAI {type:function} shape)", () => {
+    // toolCatalogue() names are lookup_0, lookup_1.
+    const { request: reduced } = reduceRequest(request({ tools: toolCatalogue(3) }), { dropTools: ["lookup_1"] });
+    const names = ((reduced as Record<string, unknown>).tools as Array<{ function: { name: string } }>).map((t) => t.function.name);
+    expect(names).toEqual(["lookup_0", "lookup_2"]);
+  });
+
+  it("is a no-op for an empty list, and for names not in the catalogue", () => {
+    const empty = reduceRequest(anthropicRequest(), { dropTools: [] });
+    expect(empty.summary.changes.some((c) => c.lever === "unused-tool-removal")).toBe(false);
+    const unknown = reduceRequest(anthropicRequest(), { dropTools: ["no_such_tool"] });
+    expect((unknown.request as Record<string, unknown>).tools).toHaveLength(3); // nothing removed
+    expect(unknown.summary.changes.some((c) => c.lever === "unused-tool-removal")).toBe(false);
+  });
+
+  it("is idempotent: re-reducing a trimmed request removes nothing more", () => {
+    const first = reduceRequest(anthropicRequest(), { dropTools: ["delete_record"] });
+    const second = reduceRequest(first.request, { dropTools: ["delete_record"] });
+    expect(JSON.stringify(second.request)).toBe(JSON.stringify(first.request));
+    expect(second.summary.changes.some((c) => c.lever === "unused-tool-removal")).toBe(false);
+  });
+
+  it("composes with schema minification: drop first, then compact the survivors", () => {
+    const { request: reduced, summary } = reduceRequest(
+      request({ tools: toolCatalogue(3) }),
+      { dropTools: ["lookup_2"], toolSchemas: true },
+    );
+    const tools = (reduced as Record<string, unknown>).tools as unknown[];
+    expect(tools).toHaveLength(2); // one dropped
+    expect(JSON.stringify(reduced)).not.toContain("$schema"); // survivors minified
+    expect(summary.changes.some((c) => c.lever === "unused-tool-removal")).toBe(true);
+    expect(summary.changes.some((c) => c.lever === "tool-schema-compaction")).toBe(true);
+  });
+});
