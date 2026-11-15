@@ -181,9 +181,34 @@ export type MeshEvaluationCaptureConfig = {
  * into the request path. The spool is the billing source of truth a customer
  * recomputes themselves with `recomputeInvoice`.
  */
+/**
+ * Mirror appended ledger records to a Mesh metering API. When present, each
+ * record is pushed fire-and-forget (with retry) to `${apiUrl}/v1/ledger/events`
+ * AFTER the local append, authenticated by the Mesh account key. The push never
+ * blocks or throws into the request path, and the local spool is always kept so
+ * the customer can still recompute every figure themselves.
+ *
+ * The account key is NOT the provider API key — it only identifies the Mesh
+ * account. The provider key never reaches the Mesh API.
+ */
+export type MeshLedgerMirrorConfig = {
+  /** Mesh API base URL, e.g. https://www.mesh-technology.com. */
+  apiUrl: string;
+  /** Mesh account key (mesh_sk_…). */
+  accountKey: string;
+  /** Injectable fetch for tests; defaults to the global fetch. */
+  fetch?: typeof fetch;
+  /** Retry attempts per flush before the batch waits for the next append. Default 3. */
+  maxRetries?: number;
+  /** Max unconfirmed records buffered before the mirror quietly stops (local spool is unaffected). Default 5000. */
+  maxPending?: number;
+};
+
 export type MeshSavingsLedgerConfig = {
   /** Append-only JSONL file; parent directories are created on first write. */
   path: string;
+  /** Optional mirror of each appended record to the Mesh metering API. */
+  mirror?: MeshLedgerMirrorConfig;
   /** Provider key used to resolve rates in the catalogue. Default "openai". */
   provider?: string;
   /** Rates to pin event pricing against. Default: the published catalogue. */

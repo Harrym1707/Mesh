@@ -17,6 +17,7 @@ import { dirname, join, resolve } from "node:path";
 
 import { BUILD_COMMIT, CLAUDE_SETTINGS, DEFAULT_PORT, MESH_HOME, readPolicy, summariseLedger } from "./start.js";
 import { policyCoverage } from "../../sdk-js/src/theo-policy.js";
+import { MESH_SIGNUP_URL } from "../../sdk-js/src/cta.js";
 
 const LABEL = "dev.meshtoken.mesh";
 const PLIST = join(homedir(), "Library", "LaunchAgents", `${LABEL}.plist`);
@@ -193,6 +194,9 @@ export async function runStatus(_argv: string[]): Promise<void> {
     console.log(`  ⬢ theo    ${s.events} requests seen · $${s.savedUsd.toFixed(4)} verified saved (${s.verdict})`);
   } else {
     console.log(`  ⬢ theo    no traffic yet — use Claude Code and check back`);
+  }
+  if (s.chainOk && s.verdict === "charge" && s.savedUsd > 0) {
+    console.log(`  claim     keep these savings metered → ${MESH_SIGNUP_URL}`);
   }
   const cov = policyCoverage(readPolicy());
   console.log(

@@ -17,6 +17,7 @@ import { connect } from "node:net";
 import { platform } from "node:os";
 import { join } from "node:path";
 import { recomputeInvoice } from "../../core/src/savings-ledger.js";
+import { groupWorkflowSessions } from "../../core/src/workflow-sessions.js";
 import { policyCoverage, withheldLevers } from "../../sdk-js/src/theo-policy.js";
 import { BUILD_COMMIT, DEFAULT_PORT, MESH_HOME, readLedger, readPolicy } from "./start.js";
 
@@ -79,6 +80,9 @@ async function buildData(args: DashArgs): Promise<unknown> {
       : { netUsd: 0, verdict: "do_not_charge", eventsConsidered: 0, eventsBilled: 0, unpricedEvents: 0 },
     lineItems: invoice?.lineItems ?? [],
     recordedUnbilled: invoice?.recordedUnbilled ?? [],
+    // Theo's activity broken out per working session (grouped by app + activity
+    // gaps; see groupWorkflowSessions). Capped so the page stays light.
+    workflows: records.length ? groupWorkflowSessions(records.map((r) => r.event), { limit: 12 }) : [],
     theo: {
       qualityCeilingPercent: policy.qualityCeilingPercent,
       active,
@@ -189,6 +193,15 @@ const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8">
   .foot{margin-top:18px;font-size:13px;color:var(--muted);display:flex;gap:18px;flex-wrap:wrap}
   .ind{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:7px;vertical-align:1px;background:var(--stone-line)}
   .ind.ok{background:var(--accent)} .ind.bad{background:var(--bad)}
+  .wfpanel{margin-top:16px}
+  .wf{padding:12px 0;border-bottom:1px solid var(--line)}
+  .wf:last-child{border-bottom:0}
+  .wf-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+  .wf-when{font-weight:700;font-size:14.5px}
+  .wf-saved{font-variant-numeric:tabular-nums;color:var(--ocean);font-weight:700}
+  .wf-saved.zero{color:var(--muted);font-weight:500}
+  .wf-meta{font-size:13px;color:var(--muted);margin:3px 0 8px}
+  .wf-levers .chip{font-size:12px;padding:3px 9px;margin:0 5px 5px 0}
 </style></head><body>
 <div class="dotpaper" id="dp"><div class="base"></div><div class="glow"></div></div>
 <div class="wrap">
@@ -222,6 +235,11 @@ const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8">
       <div class="unbilled" id="unbilled"></div>
     </div>
   </div>
+  <div class="panel wfpanel">
+    <h2>Workflows — Theo per working session</h2>
+    <p class="sub">Grouped by activity gaps and app. A working session, not a semantic task — the APIs carry no task id, so these are your runs of activity.</p>
+    <div id="workflows"><span class="empty">No sessions yet — run Claude Code through MESH and this fills in.</span></div>
+  </div>
   <div class="foot">
     <span id="proxy"><span class="ind bad"></span>proxy</span>
     <span id="chain"><span class="ind ok"></span>ledger</span>
@@ -233,6 +251,15 @@ const $=(id)=>document.getElementById(id);
 const usd=(n)=>Number(n||0).toFixed(4);
 const dp=$('dp');
 addEventListener('pointermove',(e)=>{dp.classList.add('lit');dp.style.setProperty('--mx',e.clientX+'px');dp.style.setProperty('--my',e.clientY+'px');});
+function fmtRange(a,b){const o={month:'short',day:'numeric',hour:'numeric',minute:'2-digit'};const sd=new Date(a).toLocaleString([],o);if(a===b)return sd;const et=new Date(b).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});return sd+' – '+et;}
+function renderWf(w){
+  const saved=Number(w.netVerifiedSavingsUsd||0);
+  const status=w.failed?(w.succeeded+' ok, '+w.failed+' failed'):(w.requests+' request'+(w.requests===1?'':'s'));
+  const app=(w.applicationId&&w.applicationId!=='proxy')?(' · '+w.applicationId):'';
+  const models=(w.models||[]).join(', ');
+  const levers=(w.levers&&w.levers.length)?w.levers.map(l=>'<span class="chip on">'+l.leverId+'<span class="k"> · $'+usd(l.savedUsd)+'</span></span>').join(''):'<span class="empty">no billable levers this session</span>';
+  return '<div class="wf"><div class="wf-head"><span class="wf-when">'+fmtRange(w.startedAt,w.endedAt)+'</span><span class="wf-saved'+(saved>0?'':' zero')+'">$'+usd(saved)+' saved</span></div><div class="wf-meta">'+status+(models?' · '+models:'')+app+'</div><div class="wf-levers">'+levers+'</div></div>';
+}
 async function tick(){
   try{
     const d=await (await fetch('/data',{cache:'no-store'})).json();
@@ -251,6 +278,7 @@ async function tick(){
     const rows=d.lineItems;
     $('levers').innerHTML=rows.length?rows.map(li=>'<tr><td>'+li.leverId+'</td><td class="k">'+li.kind+(li.basis?' · '+li.basis:'')+'</td><td class="num">'+li.events+'</td><td class="num">$'+usd(li.savedUsd)+'</td></tr>').join(''):'<tr><td colspan="4" class="empty">No billable savings yet — run Claude Code through MESH and this fills in.</td></tr>';
     $('unbilled').textContent=d.recordedUnbilled.length?('Also recorded (applied, never billed): '+d.recordedUnbilled.map(u=>u.leverId+' ×'+u.events).join(', ')):'';
+    $('workflows').innerHTML=(d.workflows&&d.workflows.length)?d.workflows.map(renderWf).join(''):'<span class="empty">No sessions yet — run Claude Code through MESH and this fills in.</span>';
     $('proxy').innerHTML='<span class="ind '+(d.proxyUp?'ok':'bad')+'"></span>proxy '+(d.proxyUp?'up':'down');
     $('chain').innerHTML='<span class="ind '+(d.chainOk?'ok':'bad')+'"></span>ledger '+(d.chainOk?'verified':('BROKEN at '+d.brokenAt));
     $('updated').textContent='updated '+new Date(d.updatedAt).toLocaleTimeString();

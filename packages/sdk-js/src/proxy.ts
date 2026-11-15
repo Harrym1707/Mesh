@@ -57,6 +57,14 @@ export type MeshProxyOptions = {
    * sealed inside an enclave). Off when unset — no features are computed.
    */
   blindFeaturesKey?: string;
+  /**
+   * Mirror ledger events to a Mesh account. When both are set, each appended
+   * record is pushed fire-and-forget to `${meshApiUrl}/v1/ledger/events`,
+   * authenticated by the Mesh account key. The local spools stay authoritative,
+   * and the customer's provider key is never involved.
+   */
+  meshApiUrl?: string;
+  meshAccountKey?: string;
 };
 
 export type MeshProxy = {
@@ -270,6 +278,9 @@ export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
     const ledger = createSavingsLedger({
       path: join(options.ledgerDirectory, `${safeApp}-${provider}.jsonl`),
       provider,
+      ...(options.meshApiUrl && options.meshAccountKey
+        ? { mirror: { apiUrl: options.meshApiUrl, accountKey: options.meshAccountKey } }
+        : {}),
     });
     ledgers.set(key, ledger);
     return ledger;

@@ -1,0 +1,9 @@
+{
+  "name": "@harrym1707/signal",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "license": "BUSL-1.1"
+}

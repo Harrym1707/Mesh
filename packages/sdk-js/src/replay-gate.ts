@@ -415,6 +415,7 @@ export async function replayGate(options: ReplayGateOptions): Promise<ReplayGate
     const costFell = costBaseline !== undefined && costCandidate !== undefined &&
       costCandidate < costBaseline;
 
+    const priced = costBaseline !== undefined && costCandidate !== undefined;
     let approved = lower >= -maximumQualityDrop;
     let rejectionReason: string | undefined;
     if (row.graded === 0) {
@@ -423,12 +424,24 @@ export async function replayGate(options: ReplayGateOptions): Promise<ReplayGate
     } else if (!approved) {
       rejectionReason = `Quality lower bound ${(lower * 100).toFixed(2)} pp breaches the ` +
         `${(maximumQualityDrop * 100).toFixed(2)} pp limit.`;
-    } else if (inputSaved + outputSaved <= 0 && !costFell) {
-      // Tokens removed is the wrong test on its own. Prefix repair removes no
-      // tokens at all and saves money by moving them to the cached rate, so a
-      // token-only check would reject the largest lossless lever there is.
+    } else if (priced) {
+      // With a price, the honest test is whether the BILL fell once cache writes
+      // and reads are priced in — not whether tokens fell. Compaction is the
+      // lever that separates the two: summarising stale turns removes input
+      // tokens yet rewrites a prefix the provider was still serving from cache,
+      // so it can shrink the prompt and still RAISE the bill. Gating on tokens
+      // alone waves that net loss through; gating on cost catches it, while
+      // still crediting prefix repair (the bill falls though no tokens move).
+      if (!costFell) {
+        approved = false;
+        rejectionReason =
+          "Quality held but the bill did not fall once cache writes and reads are priced in " +
+          "(e.g. compacting a prefix the provider was still serving from cache), so there is nothing to enable.";
+      }
+    } else if (inputSaved + outputSaved <= 0) {
+      // No price to judge the bill by, so fall back to the token test.
       approved = false;
-      rejectionReason = "Quality held but neither tokens nor cost fell, so there is nothing to enable.";
+      rejectionReason = "Quality held but no tokens were removed, so there is nothing to enable.";
     }
 
     return {
