@@ -64,6 +64,55 @@ export type StripeInvoicePlan =
 
 const DEFAULT_CURRENCY = "usd";
 
+export type LiveChargeGate = { ok: true } | { ok: false; reason: string };
+
+/**
+ * The deliberate human gate on a LIVE charge, made real (the doc promised an
+ * amount re-type that the script never implemented).
+ *
+ * A live key may charge real money, so before any live charge the operator must
+ * (a) pass `--live` deliberately and (b) re-type the exact amount to be charged.
+ * Test mode needs neither. Returning a reason rather than throwing keeps this
+ * pure and unit-testable: the caller prints the reason and charges nothing.
+ */
+export function checkLiveChargeConfirmation(params: {
+  /** The key is a live key (sk_live_…). */
+  isLive: boolean;
+  /** `--live` was passed. */
+  requestedLive: boolean;
+  /** The exact amount the plan will charge (integer cents). */
+  amountCents: number;
+  /** The amount the operator re-typed to confirm (integer cents), if any. */
+  confirmAmountCents?: number;
+}): LiveChargeGate {
+  if (!params.isLive) return { ok: true };
+  if (!params.requestedLive) {
+    return {
+      ok: false,
+      reason:
+        "Refusing to charge against a LIVE Stripe key. This creates real charges. Use a test key " +
+        "(sk_test_…), or pass --live deliberately.",
+    };
+  }
+  if (params.confirmAmountCents === undefined) {
+    return {
+      ok: false,
+      reason:
+        `A LIVE charge must be confirmed by re-typing the exact amount. Re-run with ` +
+        `--confirm-amount-cents ${params.amountCents}.`,
+    };
+  }
+  if (params.confirmAmountCents !== params.amountCents) {
+    return {
+      ok: false,
+      reason:
+        `Amount re-type mismatch: you typed ${params.confirmAmountCents}¢ but the plan charges ` +
+        `${params.amountCents}¢. Charging nothing.`,
+    };
+  }
+  return { ok: true };
+}
+
 /**
  * Build the Stripe plan for one recomputed invoice.
  *

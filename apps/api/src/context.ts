@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import {
+  DEFAULT_MAX_CHARGE_CENTS,
   createStripeClient,
   openFileAccountStore,
   openFileLedgerStore,
@@ -38,6 +39,8 @@ export type ServerContext = {
   adminToken?: string;
   /** MESH's default contracted fee percent. */
   defaultFeePercent: number;
+  /** Max-charge ceiling (cents): a charge above it is held, never pulled. */
+  maxChargeCents: number;
 };
 
 /**
@@ -99,5 +102,16 @@ export function buildContext(env: NodeJS.ProcessEnv = process.env): ServerContex
     directDebitPaymentMethods: parseDirectDebitMethods(env.MESH_DIRECT_DEBIT_METHODS),
     ...(env.MESH_ADMIN_TOKEN ? { adminToken: env.MESH_ADMIN_TOKEN } : {}),
     defaultFeePercent: Number(env.MESH_FEE_PERCENT ?? 1),
+    maxChargeCents: parseMaxChargeCents(env.MESH_MAX_CHARGE_CENTS),
   };
+}
+
+/** The max-charge ceiling (cents): configurable, defaulting to $500.00. */
+function parseMaxChargeCents(raw: string | undefined): number {
+  if (raw === undefined || raw.trim() === "") return DEFAULT_MAX_CHARGE_CENTS;
+  const cents = Number(raw);
+  if (!Number.isInteger(cents) || cents <= 0) {
+    throw new Error("MESH_MAX_CHARGE_CENTS must be a positive integer number of cents.");
+  }
+  return cents;
 }

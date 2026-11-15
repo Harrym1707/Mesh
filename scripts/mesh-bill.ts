@@ -3,14 +3,16 @@
  *
  * Reads the spools, recomputes the invoice (pure, from the hash-chained ledger),
  * verifies the chain, builds the Stripe plan (packages/core/stripe-billing),
- * and — against STRIPE TEST MODE — creates the Stripe objects: a one-off invoice
- * item for the fee and a DRAFT invoice. Nothing is charged: the invoice is left
- * as a draft for a human to review and finalize in the dashboard, unless
- * --finalize is passed explicitly.
+ * and — through the shared, hardened createStripeClient — creates the Stripe
+ * objects: a one-off invoice item for the fee and a DRAFT invoice. Nothing is
+ * charged: the invoice is left as a draft for a human to review and finalize in
+ * the dashboard, unless --finalize is passed explicitly.
  *
  * SAFETY RAILS (deliberate, do not remove):
- *   - Refuses a live key (sk_live_…) unless --live is passed AND the operator
- *     re-types the amount to confirm. Default workflow is test mode only.
+ *   - LIVE path goes through createStripeClient's sk_live_ guard (allowLive is
+ *     granted ONLY when --live is passed) AND requires the operator to re-type
+ *     the exact amount (--confirm-amount-cents) before any live charge. Without
+ *     the matching re-type, a --live run charges nothing.
  *   - A broken/unverified ledger chain is a hard stop: DO NOT BILL.
  *   - Idempotency key on customer+period+amount: re-running a month is a no-op
  *     at Stripe, never a double charge.
@@ -20,18 +22,30 @@
  *   STRIPE_TEST_SECRET_KEY=... node --import tsx scripts/mesh-bill.ts \
  *     --customer cus_XXX --period 2026-10 --fee 1 spool1.jsonl [spool2.jsonl ...]
  *   Optional: --finalize (finalize+send instead of leaving a draft),
- *             --label "acme-anthropic", --live (requires confirmation).
+ *             --label "acme-anthropic",
+ *             --live --confirm-amount-cents <cents> (live charge, re-type gated).
  */
 import { readFileSync } from "node:fs";
 import {
   buildStripeInvoicePlan,
+  checkLiveChargeConfirmation,
+  createStripeClient,
   recomputeInvoice,
   verifyLedgerChain,
   type BillableEvent,
   type LedgerRecord,
 } from "../packages/core/dist/src/index.js";
 
-type Args = { customer?: string; period?: string; fee: number; label?: string; finalize: boolean; live: boolean; spools: string[] };
+type Args = {
+  customer?: string;
+  period?: string;
+  fee: number;
+  label?: string;
+  finalize: boolean;
+  live: boolean;
+  confirmAmountCents?: number;
+  spools: string[];
+};
 
 function parseArgs(argv: string[]): Args {
   const args: Args = { fee: 1, finalize: false, live: false, spools: [] };
@@ -43,6 +57,7 @@ function parseArgs(argv: string[]): Args {
     else if (a === "--label") args.label = argv[++i];
     else if (a === "--finalize") args.finalize = true;
     else if (a === "--live") args.live = true;
+    else if (a === "--confirm-amount-cents") args.confirmAmountCents = Number(argv[++i]);
     else if (!a.startsWith("--")) args.spools.push(a);
     else throw new Error(`Unknown flag ${a}`);
   }
@@ -54,28 +69,6 @@ function loadRecords(path: string): LedgerRecord[] {
   return lines.map((line) => JSON.parse(line) as LedgerRecord);
 }
 
-/** Minimal Stripe POST: form-encoded, idempotent, zero dependencies. */
-async function stripePost(
-  key: string,
-  path: string,
-  form: Record<string, string>,
-  idempotencyKey?: string,
-): Promise<Record<string, unknown>> {
-  const body = new URLSearchParams(form).toString();
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${key}`,
-    "Content-Type": "application/x-www-form-urlencoded",
-  };
-  if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
-  const res = await fetch(`https://api.stripe.com/v1/${path}`, { method: "POST", headers, body });
-  const json = (await res.json()) as Record<string, unknown>;
-  if (!res.ok) {
-    const err = (json.error as { message?: string } | undefined)?.message ?? JSON.stringify(json);
-    throw new Error(`Stripe ${path} failed (${res.status}): ${err}`);
-  }
-  return json;
-}
-
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const key = process.env.STRIPE_TEST_SECRET_KEY ?? process.env.STRIPE_SECRET_KEY ?? "";
@@ -84,12 +77,6 @@ async function main(): Promise<void> {
   if (args.spools.length === 0) throw new Error("Pass at least one ledger spool (.jsonl).");
 
   const isLive = key.startsWith("sk_live_");
-  if (isLive && !args.live) {
-    throw new Error(
-      "Refusing to run against a LIVE Stripe key. This creates real charges. Use a test key " +
-      "(sk_test_…), or pass --live deliberately. There is no reason to bill live before a real customer exists.",
-    );
-  }
 
   // One invoice across all spools for this customer/period.
   const allEvents: BillableEvent[] = [];
@@ -124,34 +111,57 @@ async function main(): Promise<void> {
     return;
   }
 
+  // LIVE human gate (Fix 6): require --live AND a matching amount re-type before
+  // any live charge. Enforced here, BEFORE the Stripe client is even created, so
+  // a live run without the correct re-type charges nothing.
+  const gate = checkLiveChargeConfirmation({
+    isLive,
+    requestedLive: args.live,
+    amountCents: plan.amountCents,
+    ...(args.confirmAmountCents === undefined ? {} : { confirmAmountCents: args.confirmAmountCents }),
+  });
+  if (!gate.ok) {
+    console.error(`\nREFUSING TO CHARGE — ${gate.reason}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  // Route through the shared client. allowLive is granted only once the gate
+  // above has passed, so the sk_live_ guard still protects every other path.
+  const stripe = createStripeClient(key, { allowLive: isLive });
+
   console.log(`\nWill create (draft=${!plan.finalize}): ${plan.amountCents} ${plan.currency} cents to ${plan.customerId}`);
   console.log(`  "${plan.description}"`);
 
   // Create the draft invoice FIRST, then attach the fee item to it explicitly
   // by id. (Relying on Stripe to auto-sweep pending items into a draft is
   // unreliable with auto_advance=false — it leaves an empty invoice.)
-  const inv = await stripePost(key, "invoices", {
-    customer: plan.customerId,
+  const inv = await stripe.createInvoice({
+    customerId: plan.customerId,
     currency: plan.currency, // match the fee currency; the account default may differ (e.g. GBP)
-    collection_method: "charge_automatically",
-    auto_advance: "false", // never let the draft advance to payment on its own
+    collectionMethod: "charge_automatically",
+    autoAdvance: false, // never let the draft advance to payment on its own
     description: `MESH statement ${plan.metadata.mesh_period ?? ""}`,
-  }, `${plan.idempotencyKey}-inv`);
+    idempotencyKey: `${plan.idempotencyKey}-inv`,
+  });
 
-  await stripePost(key, "invoiceitems", {
-    customer: plan.customerId,
-    invoice: inv.id as string, // explicit attachment — the fix for the empty-draft bug
-    amount: String(plan.amountCents),
+  await stripe.createInvoiceItem({
+    customerId: plan.customerId,
+    invoiceId: inv.id, // explicit attachment — the fix for the empty-draft bug
+    amountCents: plan.amountCents,
     currency: plan.currency,
     description: plan.description,
-    "metadata[mesh_period]": plan.metadata.mesh_period ?? "",
-    "metadata[mesh_fee_percent]": plan.metadata.mesh_fee_percent ?? "",
-    "metadata[mesh_net_verified_savings_usd]": plan.metadata.mesh_net_verified_savings_usd ?? "",
-  }, `${plan.idempotencyKey}-item`);
+    metadata: {
+      mesh_period: plan.metadata.mesh_period ?? "",
+      mesh_fee_percent: plan.metadata.mesh_fee_percent ?? "",
+      mesh_net_verified_savings_usd: plan.metadata.mesh_net_verified_savings_usd ?? "",
+    },
+    idempotencyKey: `${plan.idempotencyKey}-item`,
+  });
 
   console.log(`\nCreated Stripe invoice ${inv.id} — status ${inv.status} (${isLive ? "LIVE" : "TEST"} mode).`);
   if (plan.finalize) {
-    const final = await stripePost(key, `invoices/${inv.id as string}/finalize`, {}, `${plan.idempotencyKey}-fin`);
+    const final = await stripe.finalizeInvoice(inv.id, `${plan.idempotencyKey}-fin`);
     console.log(`Finalized: status ${final.status}, hosted at ${final.hosted_invoice_url ?? "(none)"}`);
   } else {
     console.log("Left as a DRAFT. Review it in the Stripe dashboard and finalize there, or re-run with --finalize.");
