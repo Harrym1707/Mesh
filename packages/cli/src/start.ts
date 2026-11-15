@@ -368,14 +368,64 @@ export async function runServe(argv: string[]): Promise<void> {
 export async function runStart(argv: string[]): Promise<void> {
   const args = parseStart(argv);
   const { proxy, policy } = await startProxyWithPolicy(args.port, args.ledgerDir, args, args.capturePath ? { path: args.capturePath, ...(args.captureMaxMb !== undefined ? { maxBytes: Math.round(args.captureMaxMb * 1024 * 1024) } : {}) } : undefined);
-  const restore = args.install
+
+  // ---- clean shutdown, armed BEFORE Claude Code's settings are touched ----
+  // A signal with no handler takes the default action: the process dies at once
+  // and nothing runs, not even the "exit" hook. So these handlers must exist
+  // before wireClaudeCode writes. Registered any later, a Ctrl+C in the first
+  // moments of `mesh start` left Claude Code pointed at a dead proxy.
+  let restore: () => void = () => {};
+  let monitor: ReturnType<typeof setInterval> | undefined;
+  let stopTheo: (() => void) | undefined;
+  let closing = false;
+  const shutdown = async (quiet = false): Promise<void> => {
+    if (closing) return;
+    closing = true;
+    // First, before anything that could fail or hang: a dead proxy must never be
+    // left as Claude Code's address.
+    restore();
+    if (monitor) clearInterval(monitor);
+    stopTheo?.();
+    if (quiet) {
+      // The terminal is gone (SIGHUP): nothing to print to, and nothing may hold
+      // the exit up.
+      setTimeout(() => process.exit(0), 2000).unref();
+      await proxy.close().catch(() => undefined);
+      process.exit(0);
+    }
+    const snap = snapshotLedger(args.ledgerDir);
+    await proxy.close();
+    console.log("");
+    if (snap.requests > 0) {
+      console.log(`  ${T} — session done: ${snap.requests} request${snap.requests === 1 ? "" : "s"}, $${snap.savedUsd.toFixed(4)} verified saved.`);
+      console.log(`  ${T}   Recompute it yourself any time: mesh verify`);
+      // The signup ask — only when there's a real, verified saving to claim.
+      if (snap.chainOk && snap.verdict === "charge" && snap.savedUsd > 0) {
+        console.log("");
+        console.log(`  ${T} — keep these savings metered: ${MESH_SIGNUP_URL}`);
+        console.log(`  ${T}   show it off — paste this badge into your README:`);
+        console.log(`     ${savingsBadge(snap).markdown}`);
+      }
+    } else {
+      console.log(`  ${T} — no requests ran through MESH this session.`);
+    }
+    console.log(`  Claude Code restored. Bye.`);
+    process.exit(0);
+  };
+  process.on("SIGINT", () => { void shutdown(); });
+  process.on("SIGTERM", () => { void shutdown(); });
+  // Closing the terminal window or tab sends SIGHUP. Unhandled, it kills the
+  // process with Claude Code still pointed at the proxy.
+  process.on("SIGHUP", () => { void shutdown(true); });
+
+  restore = args.install
     ? wireClaudeCode({ settingsPath: CLAUDE_SETTINGS, statePath: WIRING_STATE }, proxy.url)
     : () => {};
-  // However this process ends — a signal handled below, an uncaught error, a
+  // However this process ends — a signal handled above, an uncaught error, a
   // plain exit — Claude Code is pointed back first. `restore` is synchronous and
   // idempotent, so it is safe here as the last line of defence. (A hard kill
   // runs nothing; the wiring record covers that case on the next run.)
-  process.on("exit", restore);
+  process.on("exit", () => restore());
   const withheld = withheldLevers(policy);
 
   // ---- banner ----
@@ -426,13 +476,13 @@ export async function runStart(argv: string[]): Promise<void> {
     const verdict = s.verdict === "charge" ? saved : `${saved} (nothing to bill yet — do not pay us)`;
     console.log(`  ${T} — ${s.events} request${s.events === 1 ? "" : "s"} seen · ${verdict} verified saved`);
   };
-  const monitor = setInterval(tick, 6000);
+  monitor = setInterval(tick, 6000);
 
   // ---- Theo alongside: the same cycle the always-on service runs ----
   // Quiet: the full report belongs to `mesh theo`; here only what changed or
   // needs an answer is printed, once.
   const announced = new Set<string>();
-  const stopTheo = args.noTheo ? undefined : startBackgroundTheo(
+  stopTheo = args.noTheo ? undefined : startBackgroundTheo(
     {
       ledgerDir: args.ledgerDir,
       customer: "local",
@@ -462,48 +512,6 @@ export async function runStart(argv: string[]): Promise<void> {
     },
   );
 
-  // ---- clean shutdown ----
-  let closing = false;
-  const shutdown = async (quiet = false): Promise<void> => {
-    if (closing) return;
-    closing = true;
-    // First, before anything that could fail or hang: a dead proxy must never be
-    // left as Claude Code's address.
-    restore();
-    clearInterval(monitor);
-    stopTheo?.();
-    if (quiet) {
-      // The terminal is gone (SIGHUP): nothing to print to, and nothing may hold
-      // the exit up.
-      setTimeout(() => process.exit(0), 2000).unref();
-      await proxy.close().catch(() => undefined);
-      process.exit(0);
-    }
-    const snap = snapshotLedger(args.ledgerDir);
-    await proxy.close();
-    console.log("");
-    if (snap.requests > 0) {
-      console.log(`  ${T} — session done: ${snap.requests} request${snap.requests === 1 ? "" : "s"}, $${snap.savedUsd.toFixed(4)} verified saved.`);
-      console.log(`  ${T}   Recompute it yourself any time: mesh verify`);
-      // The signup ask — only when there's a real, verified saving to claim.
-      if (snap.chainOk && snap.verdict === "charge" && snap.savedUsd > 0) {
-        console.log("");
-        console.log(`  ${T} — keep these savings metered: ${MESH_SIGNUP_URL}`);
-        console.log(`  ${T}   show it off — paste this badge into your README:`);
-        console.log(`     ${savingsBadge(snap).markdown}`);
-      }
-    } else {
-      console.log(`  ${T} — no requests ran through MESH this session.`);
-    }
-    console.log(`  Claude Code restored. Bye.`);
-    process.exit(0);
-  };
-  process.on("SIGINT", () => { void shutdown(); });
-  process.on("SIGTERM", () => { void shutdown(); });
-  // Closing the terminal window or tab sends SIGHUP. Unhandled, it kills the
-  // process with Claude Code still pointed at the proxy.
-  process.on("SIGHUP", () => { void shutdown(true); });
-
-  // Keep the process alive.
+  // Keep the process alive. (Shutdown is armed above, before the wiring.)
   await new Promise<void>(() => {});
 }
