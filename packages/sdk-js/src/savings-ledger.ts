@@ -7,6 +7,7 @@ import {
   priceLedgerUsage,
   type BillableEvent,
   type LedgerExecutionMode,
+  type LedgerGateVerdict,
   type LedgerLever,
   type LedgerRecord,
   type LedgerUsage,
@@ -265,9 +266,20 @@ export function billableEventFromRequest(
   };
 }
 
+/** Per-request facts the ledger cannot know at construction time. */
+export type SavingsLedgerEmitContext = {
+  /**
+   * Replay-gate verdicts for the lossy levers the policy in force for THIS
+   * request enforces, keyed by lever id. Merged over the config's static
+   * `gateVerdicts`. The proxy passes these because the policy hot-reloads and
+   * differs per route, so one fixed map per ledger would be wrong.
+   */
+  gateVerdicts?: Record<string, LedgerGateVerdict>;
+};
+
 export type SavingsLedger = {
   /** Synchronously appends one chained record. Never throws. */
-  emit: (event: MeshRequestEvent) => void;
+  emit: (event: MeshRequestEvent, context?: SavingsLedgerEmitContext) => void;
   readonly path: string;
 };
 
@@ -302,10 +314,13 @@ export function createSavingsLedger(config: MeshSavingsLedgerConfig): SavingsLed
 
   return {
     path: config.path,
-    emit(event: MeshRequestEvent): void {
+    emit(event: MeshRequestEvent, context?: SavingsLedgerEmitContext): void {
       if (disabled) return;
       try {
-        const billable = billableEventFromRequest(event, config, catalogue, pinnedCatalogueVersion);
+        const effective = context?.gateVerdicts === undefined
+          ? config
+          : { ...config, gateVerdicts: { ...(config.gateVerdicts ?? {}), ...context.gateVerdicts } };
+        const billable = billableEventFromRequest(event, effective, catalogue, pinnedCatalogueVersion);
         const record = chainLedgerRecord(billable, previous);
         mkdirSync(dirname(config.path), { recursive: true, mode: 0o700 });
         appendFileSync(config.path, `${JSON.stringify(record)}\n`, { encoding: "utf8", mode: 0o600 });
