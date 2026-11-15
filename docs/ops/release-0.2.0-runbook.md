@@ -1,6 +1,7 @@
 # Release 0.2.0 runbook — the first public build with Theo
 
-Staged 2026-11-12 on `theo/autonomous-agent` (PR #31). **Nothing has been merged
+Staged 2026-11-12 on `theo/autonomous-agent`. It reaches `main` through
+**PR #40** (opened 2026-11-15), in one merge. **Nothing has been merged
 to `main`, deployed or published.** Every step below that changes what the
 public gets is the founder's to take.
 
@@ -63,7 +64,9 @@ against a real provider.
 
 ## Before you start
 
-- [ ] **CI is green on PR #31** at `2060fbd` or later (`ci`, `install-smoke`).
+- [ ] **CI is green on PR #40** at the branch head (`ci`, `install-smoke`).
+      All 9 checks passed at `1f6f233` on 2026-11-15; a later commit re-runs
+      them.
 - [ ] **npm trusted publishing is set up for both packages.** On npmjs.com, for
       `@harrym1707/sdk` and `@harrym1707/mesh`: Settings → Trusted Publisher →
       GitHub Actions, repository `Harrym1707/Mesh`, workflow `release.yml`.
@@ -77,12 +80,15 @@ against a real provider.
          production for their own use.
       2. Liability is capped at the greater of fees paid in 12 months and £100.
       3. No fee is due unless billing was agreed in writing.
-- [ ] **The IP assignment is signed.** `LICENSE` now names Flux AI Technologies
+- [ ] **The IP assignment — deferred by the founder on 2026-11-15, not a
+      merge condition.** `LICENSE` and the Terms name Flux AI Technologies
       Limited as licensor and copyright holder (the founder's decision on
-      2026-11-12). That is true only once the founder has signed the deed
-      assigning the work to the company. A draft is in the founder's private
-      project folder, not in this repository. Do not merge before it is
-      signed.
+      2026-11-12). That becomes true only when the founder signs the deed
+      assigning the work to the company; until then he owns it personally. He
+      chose to release first and sign later, since there are no users yet. A
+      draft is in his private project folder, not in this repository. Sign it
+      before any investment, sale, paid contract or attempt to enforce the
+      licence.
 - [x] **Registered office address is on both pages** (added 2026-11-15, as
       supplied by the founder and matching the Companies House register read
       the same day). A UK company's website must show its registered name,
@@ -101,15 +107,18 @@ against a real provider.
 
 ### 1. Merge the code
 
-Use **"Create a merge commit"** for both. Do not squash: the hosted runtime is
-stamped with commit `b5dff02`, and squashing would remove that commit from
-`main`'s history.
+Merge **PR #40** (`theo/autonomous-agent` → `main`) with **"Create a merge
+commit"**. Do not squash or rebase: the hosted runtime is stamped with commit
+`b5dff02`, and either would remove that commit from `main`'s history.
 
-1. Merge **PR #31** (`theo/autonomous-agent` → `integration/trunk`).
-2. Merge **PR #27** (`integration/trunk` → `main`). It now carries Theo too.
+PR #40 carries everything in one merge: `integration/trunk` is an ancestor of
+the release branch, so the 73 commits are the same ones the older two-step
+route (PR #31 into trunk, then PR #27 into `main`) would have delivered. Use
+this route only. Afterwards PR #27 should show as merged on its own, because
+its commits are then on `main`; close PR #31 by hand.
 
-Merging #27 changes `docs/site/dist` on `main`, so `pages.yml` starts the
-website deploy by itself.
+Merging changes `docs/site/dist` on `main`, so `pages.yml` starts the website
+deploy by itself.
 
 ### 2. Confirm the website
 
