@@ -4,12 +4,14 @@ import {
   policyToReductionConfig,
   withheldLevers,
   publishLever,
+  gateProofFrom,
   policyCoverage,
   knownLeverIds,
   ENFORCEABLE_LEVERS,
   type TheoPolicy,
   type TheoLever,
 } from "./theo-policy.js";
+import type { ReplayCandidateResult } from "./replay-gate.js";
 
 const AT = "2026-10-29T00:00:00.000Z";
 
@@ -126,5 +128,43 @@ describe("policyCoverage", () => {
     const ttl = coverage.stands.find((s) => s.lever === "cache-ttl")!;
     expect(ttl.state).toBe("active");
     expect(coverage.activeCount).toBe(1); // not two, despite two TTL ids existing
+  });
+});
+
+describe("gateProofFrom", () => {
+  const result = (over: Partial<ReplayCandidateResult> = {}): ReplayCandidateResult => ({
+    label: "candidate", config: {}, graded: 8, failed: 0,
+    meanQualityDelta: 0, lower95QualityDelta: 0, approved: true,
+    baselineUsage: { inputTokens: 8000, outputTokens: 400, cachedInputTokens: 0, cacheWriteInputTokens: 0 },
+    candidateUsage: { inputTokens: 4000, outputTokens: 400, cachedInputTokens: 0, cacheWriteInputTokens: 0 },
+    inputTokensSaved: 4000, outputTokensSaved: 0, tokenSavingPercent: 47.6,
+    ...over,
+  });
+
+  it("returns undefined for a candidate the gate did not approve, so it can never be published", () => {
+    expect(gateProofFrom(result({ approved: false }), { grader: "tool-selection", at: AT })).toBeUndefined();
+  });
+
+  it("packages an approved candidate as a proof, carrying the token saving and the clock", () => {
+    const proof = gateProofFrom(result(), { grader: "tool-selection", at: AT })!;
+    expect(proof.savingPercent).toBe(47.6);
+    expect(proof.qualityDeltaPercent).toBe(0);
+    expect(proof.grader).toBe("tool-selection");
+    expect(proof.provenAt).toBe(AT);
+  });
+
+  it("carries the CONSERVATIVE lower-bound quality delta, not the mean", () => {
+    const proof = gateProofFrom(result({ meanQualityDelta: -0.001, lower95QualityDelta: -0.015 }), { grader: "g", at: AT })!;
+    expect(proof.qualityDeltaPercent).toBe(-1.5); // the lower bound, as a percent
+  });
+
+  it("never records a positive 'drop' when the candidate beat the baseline", () => {
+    const proof = gateProofFrom(result({ lower95QualityDelta: 0.01 }), { grader: "g", at: AT })!;
+    expect(proof.qualityDeltaPercent).toBe(0);
+  });
+
+  it("prefers the money saving over the token saving when a price was known", () => {
+    const proof = gateProofFrom(result({ costSavingPercent: 31.2, tokenSavingPercent: 47.6 }), { grader: "g", at: AT })!;
+    expect(proof.savingPercent).toBe(31.2);
   });
 });

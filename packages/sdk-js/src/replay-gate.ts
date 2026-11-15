@@ -189,12 +189,16 @@ export function responseToolCalls(response: unknown): ToolCall[] {
     }
     if (!isPlainObject(value)) return;
     const name = typeof value.name === "string" ? value.name : undefined;
+    // function_call / tool_call are the OpenAI shapes; tool_use is Anthropic's
+    // (its arguments live in `input`, not `arguments`). Without the tool_use
+    // case the grader is blind to tool calls on Anthropic traffic — which is
+    // exactly where the Tool Search lever runs — and would falsely score a pass.
     const isCall = value.type === "function_call" || value.type === "tool_call" ||
-      isPlainObject(value.function);
+      value.type === "tool_use" || isPlainObject(value.function);
     if (isCall) {
       const fn = isPlainObject(value.function) ? value.function : undefined;
       const callName = name ?? (fn && typeof fn.name === "string" ? fn.name : undefined);
-      const rawArguments = value.arguments ?? (fn ? fn.arguments : undefined);
+      const rawArguments = value.arguments ?? value.input ?? (fn ? fn.arguments : undefined);
       if (callName !== undefined) {
         let argumentsJson = "";
         try {

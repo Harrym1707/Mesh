@@ -752,3 +752,133 @@ describe("output effort governor", () => {
     expect((reduced as Record<string, unknown>).output_config).toBeUndefined();
   });
 });
+
+describe("tool-search deferral", () => {
+  // Anthropic Messages tool shape: a direct `name` plus an `input_schema`.
+  const anthropicTools = (count: number): Record<string, unknown>[] =>
+    Array.from({ length: count }, (_, index) => ({
+      name: `lookup_${index}`,
+      description: LONG_DESCRIPTION,
+      input_schema: {
+        type: "object",
+        properties: { accountId: { type: "string", description: "Account identifier." } },
+        required: ["accountId"],
+      },
+    }));
+
+  const anthropicRequest = (
+    tools: unknown[],
+    overrides: Record<string, unknown> = {},
+  ): Record<string, unknown> => ({
+    model: "claude-opus-5",
+    system: "You are a support agent.",
+    messages: [{ role: "user", content: "Which tool should I use?" }],
+    tools,
+    ...overrides,
+  });
+
+  type ToolRow = Record<string, unknown>;
+  const asTools = (reduced: unknown): ToolRow[] => (reduced as { tools: ToolRow[] }).tools;
+  const isSearchTool = (t: ToolRow): boolean =>
+    typeof t.type === "string" && (t.type as string).startsWith("tool_search_tool_");
+
+  it("injects a bm25 search tool and defers the tail on a supported model + large catalogue", () => {
+    const { request: reduced, summary } = reduceRequest(anthropicRequest(anthropicTools(12)), { toolSearch: true });
+    const tools = asTools(reduced);
+    // One injected search tool at the front, plus the original 12.
+    expect(tools).toHaveLength(13);
+    expect(tools[0].type).toBe("tool_search_tool_bm25_20251119");
+    expect(tools[0].name).toBe("tool_search_tool_bm25");
+    // Default 4 resident (from the front, after the search tool) → 8 deferred.
+    const deferred = tools.filter((t) => t.defer_loading === true);
+    expect(deferred).toHaveLength(8);
+    // The first 4 originals stay resident.
+    const residentOriginals = tools.filter((t) => !isSearchTool(t) && t.defer_loading !== true);
+    expect(residentOriginals).toHaveLength(4);
+
+    const change = summary.changes.find((c) => c.lever === "tool-search-defer")!;
+    expect(change).toBeDefined();
+    expect(change.lossless).toBe(false); // needs-verification, not provably lossless
+    expect(change.estimatedTokensSaved).toBe(0); // saving is read from provider usage, not the body
+  });
+
+  it("always leaves at least one non-deferred tool (the API rejects an all-deferred request)", () => {
+    const { request: reduced } = reduceRequest(anthropicRequest(anthropicTools(40)), {
+      toolSearch: { residentTools: 1 },
+    });
+    const nonDeferred = asTools(reduced).filter((t) => t.defer_loading !== true);
+    expect(nonDeferred.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("selects the regex variant when asked", () => {
+    const { request: reduced } = reduceRequest(anthropicRequest(anthropicTools(12)), {
+      toolSearch: { variant: "regex" },
+    });
+    expect(asTools(reduced)[0].type).toBe("tool_search_tool_regex_20251119");
+  });
+
+  it("no-ops below the minimum tool count", () => {
+    const { request: reduced, summary } = reduceRequest(anthropicRequest(anthropicTools(9)), { toolSearch: true });
+    expect(asTools(reduced).some(isSearchTool)).toBe(false);
+    expect(summary.changes.some((c) => c.lever === "tool-search-defer")).toBe(false);
+  });
+
+  it("no-ops on a model not in the dated support allow-list (Opus 4.1 and earlier)", () => {
+    const { request: reduced } = reduceRequest(
+      anthropicRequest(anthropicTools(12), { model: "claude-opus-4-1" }),
+      { toolSearch: true },
+    );
+    expect(asTools(reduced).some(isSearchTool)).toBe(false);
+  });
+
+  it("no-ops on a non-claude model", () => {
+    const { request: reduced } = reduceRequest(
+      anthropicRequest(anthropicTools(12), { model: "gpt-5" }),
+      { toolSearch: true },
+    );
+    expect(asTools(reduced).some(isSearchTool)).toBe(false);
+  });
+
+  it("no-ops on an OpenAI-shaped catalogue (function.name), covering the Bedrock Converse case too", () => {
+    const openaiShaped = Array.from({ length: 12 }, (_, i) => ({
+      type: "function",
+      function: { name: `lookup_${i}`, description: LONG_DESCRIPTION, parameters: { type: "object" } },
+    }));
+    const { request: reduced } = reduceRequest(anthropicRequest(openaiShaped), { toolSearch: true });
+    expect(asTools(reduced).some(isSearchTool)).toBe(false);
+  });
+
+  it("never defers a tool carrying cache_control (that pairing is a 400) — it stays resident", () => {
+    // The caller placed a breakpoint on a tool deep in the tail (index 10, well
+    // past the 4-tool resident window), so only the cache_control rule can keep
+    // it resident.
+    const tools = anthropicTools(12);
+    tools[10] = { ...tools[10], cache_control: { type: "ephemeral" } };
+    const { request: reduced } = reduceRequest(anthropicRequest(tools), { toolSearch: true });
+    const rows = asTools(reduced);
+    // No tool may carry BOTH defer_loading and cache_control.
+    expect(rows.some((t) => t.defer_loading === true && t.cache_control !== undefined)).toBe(false);
+    // The cache_control tool is still present and resident.
+    const flagged = rows.find((t) => t.cache_control !== undefined)!;
+    expect(flagged).toBeDefined();
+    expect(flagged.defer_loading).toBeUndefined();
+  });
+
+  it("stays safe when combined with cacheTtl: no deferred tool carries cache_control", () => {
+    const tools = anthropicTools(12);
+    tools[11] = { ...tools[11], cache_control: { type: "ephemeral", ttl: "1h" } };
+    const { request: reduced } = reduceRequest(
+      anthropicRequest(tools, { system: "You are a support agent. ".repeat(200) }),
+      { toolSearch: true, cacheTtl: "1h" },
+    );
+    const rows = asTools(reduced);
+    expect(rows.some((t) => t.defer_loading === true && t.cache_control !== undefined)).toBe(false);
+  });
+
+  it("is idempotent: a second pass injects no second search tool and is byte-stable", () => {
+    const first = reduceRequest(anthropicRequest(anthropicTools(12)), { toolSearch: true });
+    const second = reduceRequest(first.request, { toolSearch: true });
+    expect(asTools(second.request).filter(isSearchTool)).toHaveLength(1);
+    expect(JSON.stringify(second.request)).toBe(JSON.stringify(first.request));
+  });
+});

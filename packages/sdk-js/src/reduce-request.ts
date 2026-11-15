@@ -69,6 +69,38 @@ export type MeshTokenReductionConfig = {
     descriptions?: "keep" | "truncate" | "drop";
     maximumDescriptionTokens?: number;
   };
+  /**
+   * Anthropic Tool Search. On a large Anthropic tool catalogue, inject a built-in
+   * search tool (`tool_search_tool_bm25_20251119` or `..._regex_20251119`) and set
+   * `defer_loading: true` on the tools held back from the model's working context.
+   * The deferred definitions are STILL SENT in full on every request; Anthropic
+   * excludes them from the system-prompt prefix, so the model's PROCESSED input
+   * tokens drop (Anthropic reports ~85% off a ~55k-token definition set), and it
+   * retrieves any deferred tool it needs via a server-side search inside the same
+   * request — no extra client round trip.
+   *
+   * Because the body is not shrunk (it is marginally larger — a search tool plus
+   * the defer flags), this is a RATE/PROVIDER-USAGE lever, not a body-shrink one:
+   * like cacheTtl and outputEffort it records estimatedTokensSaved 0, and its real
+   * saving is read from provider usage on COLD/cache-miss turns (a cache-warm turn
+   * already discounts the definitions, so deferral buys almost nothing there).
+   *
+   * NEEDS-VERIFICATION, off by default: deferral can change whether the model picks
+   * the right tool, so the saving must clear a tool-selection / task-completion
+   * replay gate on the caller's own traffic before it is billed. Applied only on a
+   * `claude-*` model whose id is in MESH's dated support allow-list (4.5+ and 5.x),
+   * only on an Anthropic-shaped tool catalogue, only above a minimum tool count,
+   * and never on a tool carrying cache_control (that pairing is a 400). `true` uses
+   * the defaults; pass an object to tune.
+   */
+  toolSearch?: boolean | {
+    /** Search tool to inject. Default "bm25" (natural-language queries). */
+    variant?: "regex" | "bm25";
+    /** Tools kept resident (non-deferred), from the front. Default 4 (Anthropic: 3-5). */
+    residentTools?: number;
+    /** Minimum catalogue size before deferral is worthwhile. Default 10. */
+    minTools?: number;
+  };
   /** Remove exact duplicate blocks from instructions and message text. */
   duplicateContext?: boolean;
   /**
@@ -259,6 +291,138 @@ function anthropicEffortSupport(model: string): Set<MeshOutputEffort> {
   // Sonnet 4.5, every Haiku, 3.x, and anything unrecognised: effort errors or is
   // unknown -> never stamp.
   return new Set();
+}
+
+/**
+ * Whether a Claude model accepts Tool Search (`defer_loading` + the built-in
+ * search tools). DENY by default, keyed off the model id, for the same reason as
+ * effort: an unsupported model rejects the request, and the reducer must never
+ * break a request. Tool Search landed with the 4.5 generation; Anthropic states
+ * Opus 4.1 and earlier do not support it. So: all 5.x, and 4.5/4.6/4.7/4.8 across
+ * opus/sonnet/haiku. Anything older or unrecognised returns false and the lever
+ * no-ops. Dated (claude-api skill, Tool Search GA 2025-11); widen only against a
+ * provider source, never by guessing a newer id.
+ */
+function anthropicToolSearchSupport(model: string): boolean {
+  const m = model.toLowerCase();
+  if (!m.includes("claude")) return false;
+  if (m.includes("opus-5") || m.includes("sonnet-5") || m.includes("haiku-5") ||
+      m.includes("fable-5") || m.includes("mythos-5")) return true;
+  // 4.5 generation and up (the floor): opus/sonnet/haiku 4-5, 4-6, 4-7, 4-8.
+  if (/(?:opus|sonnet|haiku)-4-[5678]/.test(m)) return true;
+  // Opus 4.1 and earlier, 3.x, and anything unrecognised: not supported.
+  return false;
+}
+
+const TOOL_SEARCH_TOOL_BY_VARIANT: Record<"regex" | "bm25", { type: string; name: string }> = {
+  regex: { type: "tool_search_tool_regex_20251119", name: "tool_search_tool_regex" },
+  bm25: { type: "tool_search_tool_bm25_20251119", name: "tool_search_tool_bm25" },
+};
+
+/** True for the Anthropic Messages tool shape (direct `name` + an `input_schema`). */
+function isAnthropicToolShape(tool: unknown): tool is AnyObject {
+  return isPlainObject(tool) && typeof tool.name === "string" && isPlainObject(tool.input_schema);
+}
+
+/** True for one of the built-in Tool Search tools (by its versioned `type`). */
+function isToolSearchTool(tool: unknown): boolean {
+  return isPlainObject(tool) && typeof tool.type === "string" && tool.type.startsWith("tool_search_tool_");
+}
+
+/**
+ * Anthropic Tool Search deferral. Injects a built-in search tool and marks the
+ * non-resident tools `defer_loading: true`, so the provider excludes their
+ * definitions from the model's processed prefix. Pure and idempotent: it mutates
+ * only `next.tools` (replacing it with a new array) and pushes at most one change.
+ *
+ * Honours every constraint in docs/rnd/tool-search-lever-scope.md:
+ *  - Anthropic surface only (claude model + Anthropic-shaped tools);
+ *  - dated model allow-list (4.5+ / 5.x), else no-op;
+ *  - minimum catalogue size, else no-op;
+ *  - never defer a tool carrying cache_control (that pairing is a 400) — such a
+ *    tool is forced resident;
+ *  - at least one non-deferred tool (the search tool always is);
+ *  - idempotent: no-op if a search tool is already present.
+ */
+function applyToolSearchDefer(
+  next: AnyObject,
+  config: NonNullable<MeshTokenReductionConfig["toolSearch"]>,
+  changes: MeshReductionChange[],
+  countTokens: TokenCounter,
+): void {
+  const options = isPlainObject(config) ? config : {};
+  const variant: "regex" | "bm25" = options.variant === "regex" ? "regex" : "bm25";
+  const residentCount = Number.isInteger(options.residentTools) && (options.residentTools as number) >= 1
+    ? (options.residentTools as number)
+    : 4;
+  const minTools = Number.isInteger(options.minTools) && (options.minTools as number) >= 1
+    ? (options.minTools as number)
+    : 10;
+
+  const model = typeof next.model === "string" ? next.model : "";
+  if (!anthropicToolSearchSupport(model)) return;
+  if (!Array.isArray(next.tools)) return;
+  const tools = next.tools;
+
+  // Idempotent: if a search tool is already here (caller, or a previous pass),
+  // leave the request exactly as it is.
+  if (tools.some(isToolSearchTool)) return;
+
+  // Act only on a catalogue of Anthropic-shaped tools above the threshold. A
+  // mixed or non-Anthropic array (OpenAI `function.name`, Bedrock `toolSpec`)
+  // fails the shape test and the lever no-ops, which is also how Bedrock Converse
+  // is excluded without a runtime probe.
+  if (tools.length < minTools) return;
+  if (!tools.every(isAnthropicToolShape)) return;
+
+  const carriesCacheControl = (tool: AnyObject): boolean => tool.cache_control !== undefined;
+
+  // Defer every tool past the resident window, EXCEPT any that carries
+  // cache_control (defer_loading + cache_control is a 400) — that one stays
+  // resident so its breakpoint remains on a non-deferred tool.
+  let deferredCount = 0;
+  let deferredTokens = 0;
+  const rewritten = tools.map((tool, index) => {
+    const t = tool as AnyObject;
+    const resident = index < residentCount || carriesCacheControl(t);
+    if (resident) return t;
+    deferredCount += 1;
+    try {
+      deferredTokens += countTokens(JSON.stringify(t) ?? "");
+    } catch {
+      // A tool we cannot measure is still deferrable; it just contributes no
+      // projected-saving estimate.
+    }
+    return { ...t, defer_loading: true };
+  });
+
+  // Nothing to defer (everything fell in the resident window or carried
+  // cache_control) — injecting a lone search tool would only add tokens.
+  if (deferredCount === 0) return;
+
+  const searchTool = {
+    type: TOOL_SEARCH_TOOL_BY_VARIANT[variant].type,
+    name: TOOL_SEARCH_TOOL_BY_VARIANT[variant].name,
+  };
+  // Search tool first so it is unambiguously resident; at least one non-deferred
+  // tool is guaranteed (the search tool, plus the resident window).
+  next.tools = [searchTool, ...rewritten];
+
+  changes.push({
+    lever: "tool-search-defer",
+    lossless: false,
+    // The body is not shrunk (it is marginally larger); the saving is the
+    // processed-input drop Anthropic applies when it excludes the deferred
+    // definitions from the prefix, read from provider usage on cold turns and
+    // proven by the replay gate. The projected size is reported in the detail.
+    estimatedTokensSaved: 0,
+    detail: `Injected the ${variant} tool-search tool and set defer_loading on ${deferredCount} of ` +
+      `${tools.length} tool(s) (~${deferredTokens} tokens of definitions), keeping ${tools.length - deferredCount} ` +
+      "resident. The deferred definitions are still sent in full but excluded from the model's prefix, so " +
+      "processed input drops on cold turns; the model retrieves any deferred tool it needs via a server-side " +
+      "search in the same request. Needs-verification — deferral can change tool selection, so the saving is " +
+      "held until a task-completion replay gate passes on the caller's own traffic.",
+  });
 }
 
 /**
@@ -1014,6 +1178,15 @@ export function reduceRequest(
           });
         }
       }
+    }
+
+    // Tool Search deferral, AFTER compaction so it defers the already-compacted
+    // definitions. A rate/provider-usage lever (it does not shrink the body), so
+    // it records estimatedTokensSaved 0 and is proven on provider usage by the
+    // gate; gated to supported Anthropic models and large catalogues inside the
+    // helper, where it no-ops otherwise.
+    if (config.toolSearch) {
+      applyToolSearchDefer(next, config.toolSearch, changes, countTokens);
     }
 
     // Instructions: dedupe, then move prefix breakers to the end. The same

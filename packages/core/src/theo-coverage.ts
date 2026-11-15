@@ -44,6 +44,23 @@ const ARCHITECTURE_LEVERS: Record<string, string> = {
     "headroom is flagged for your engineers rather than auto-applied.",
 };
 
+/**
+ * Levers the proxy CAN apply transparently but holds off the default stack,
+ * because they overlap a lever already in it and must be proven to beat it on the
+ * customer's own traffic before Theo switches. Their headroom is Theo's to
+ * capture — once the live gate clears — not the customer's engineers'. Keyed by
+ * Lever.id, and kept distinct from ARCHITECTURE_LEVERS so the two reasons never
+ * blur: an architecture gap needs the customer to rebuild; a held gap needs only
+ * the gate to pass.
+ */
+const HELD_LEVERS: Record<string, string> = {
+  "tool-search-defer":
+    "Held for the live gate: the proxy applies this transparently (no agent rebuild), but it defers whole " +
+    "tool definitions and so overlaps the per-schema tool levers already in Theo's stack — Theo enables it " +
+    "only once it is proven on your traffic to beat them within the quality ceiling, never stacked on top " +
+    "to double-count the same tokens.",
+};
+
 export type LeverCoverage = {
   leverId: string;
   description: string;
@@ -128,6 +145,7 @@ export function coverageForProfile(profile: WorkloadProfile, price: TokenPrice):
     if (applicable && !applied) {
       reason =
         ARCHITECTURE_LEVERS[lever.id] ??
+        HELD_LEVERS[lever.id] ??
         "Not in Theo's active lever set for this workload.";
     }
     return {

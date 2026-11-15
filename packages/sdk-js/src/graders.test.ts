@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   agentGrader,
   compositeGrader,
+  taskCompletionGrader,
   textSimilarityGrader,
   truncationAwareGrader,
 } from "./graders.js";
@@ -170,5 +171,54 @@ describe("agentGrader", () => {
       baselineResponse: text(SENTENCE),
       candidateResponse: text(SENTENCE, { finish_reason: "stop" }),
     })).resolves.toBe(1);
+  });
+});
+
+describe("taskCompletionGrader", () => {
+  // A response carrying any number of tool calls, plus optional answer text.
+  const resp = (calls: Array<[string, string?]>, answer?: string): unknown => ({
+    output: calls.map(([name, args]) => ({ type: "function_call", name, arguments: args ?? '{"accountId":"1"}' })),
+    ...(answer === undefined ? {} : { output_text: answer }),
+  });
+
+  it("scores 1 when the candidate reproduced the baseline's action", () => {
+    expect(taskCompletionGrader()({ request: {}, baselineResponse: resp([["lookup_7"]]), candidateResponse: resp([["lookup_7"]]) })).toBe(1);
+  });
+
+  it("tolerates an EXTRA exploratory call — where toolSelectionGrader would penalise it", () => {
+    // The point of the lever's gate: a search detour that still did the needed
+    // call completed the task. Recall of the baseline's one call is 1.
+    const comparison = { request: {}, baselineResponse: resp([["lookup_7"]]), candidateResponse: resp([["lookup_7"], ["lookup_3"]]) };
+    expect(taskCompletionGrader()(comparison)).toBe(1);
+  });
+
+  it("fails when a required call was missed or replaced by the wrong one", () => {
+    expect(taskCompletionGrader()({ request: {}, baselineResponse: resp([["lookup_7"]]), candidateResponse: resp([["lookup_wrong"]]) })).toBe(0);
+  });
+
+  it("scores partial recall when some required calls are missing", () => {
+    const comparison = { request: {}, baselineResponse: resp([["lookup_7"], ["lookup_2"]]), candidateResponse: resp([["lookup_7"]]) };
+    expect(taskCompletionGrader()(comparison)).toBe(0.5);
+  });
+
+  it("ignoreArguments matches on tool name alone", () => {
+    const comparison = {
+      request: {},
+      baselineResponse: resp([["lookup_7", '{"accountId":"1"}']]),
+      candidateResponse: resp([["lookup_7", '{"accountId":"2"}']]),
+    };
+    expect(taskCompletionGrader()(comparison)).toBe(0); // args differ
+    expect(taskCompletionGrader({ ignoreArguments: true })(comparison)).toBe(1);
+  });
+
+  it("requireAnswer fails a candidate that produced no answer", () => {
+    const comparison = { request: {}, baselineResponse: resp([["lookup_7"]], "done"), candidateResponse: resp([["lookup_7"]]) };
+    expect(taskCompletionGrader()(comparison)).toBe(1); // calls matched
+    expect(taskCompletionGrader({ requireAnswer: true })(comparison)).toBe(0); // but no answer
+  });
+
+  it("with no tool calls, passes unless the baseline answered and the candidate did not", () => {
+    expect(taskCompletionGrader()({ request: {}, baselineResponse: resp([], "hi"), candidateResponse: resp([], "hi") })).toBe(1);
+    expect(taskCompletionGrader()({ request: {}, baselineResponse: resp([], "hi"), candidateResponse: resp([]) })).toBe(0);
   });
 });

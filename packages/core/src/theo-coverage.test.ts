@@ -6,21 +6,30 @@ import { coverageForProfile } from "./theo-coverage.js";
 const cachingPrice: TokenPrice = { inputPerMillion: 1, cachedInputPerMillion: 0.1, outputPerMillion: 10 };
 
 describe("coverageForProfile", () => {
-  it("reports the structural gap on a tool-heavy workload: the two architecture levers Theo cannot apply", () => {
+  it("reports the structural gaps on a tool-heavy workload: the two architecture levers plus the held Tool Search lever", () => {
     const report = coverageForProfile(WORKLOAD_ARCHETYPES.toolHeavyAgent!, cachingPrice);
 
-    // The catalogue has 10 levers; on a tool-heavy workload the two the proxy
-    // cannot apply are the agent re-architectures, and only those.
+    // On a tool-heavy workload the levers the proxy does not apply by default are
+    // the two agent re-architectures (code-mode, progressive-disclosure) and
+    // tool-search-defer, which the proxy CAN apply but holds for its live gate.
     const gapIds = report.gaps.map((g) => g.leverId).sort();
-    expect(gapIds).toEqual(["code-mode", "progressive-disclosure"]);
+    expect(gapIds).toEqual(["code-mode", "progressive-disclosure", "tool-search-defer"]);
 
     for (const gap of report.gaps) {
       expect(gap.applicable).toBe(true);
       expect(gap.applied).toBe(false);
-      expect(gap.reason).toMatch(/[Aa]rchitecture change/);
       // Headroom is shown, but as a projection — it must be a finite number.
       expect(Number.isFinite(gap.projectedSavingUsd)).toBe(true);
     }
+
+    // The two architecture gaps say the customer must rebuild the agent.
+    for (const id of ["code-mode", "progressive-disclosure"]) {
+      expect(report.gaps.find((g) => g.leverId === id)!.reason).toMatch(/[Aa]rchitecture change/);
+    }
+    // The Tool Search gap is held for the gate, NOT an architecture change.
+    const held = report.gaps.find((g) => g.leverId === "tool-search-defer")!;
+    expect(held.reason).toMatch(/[Hh]eld for the live gate/);
+    expect(held.reason).not.toMatch(/[Aa]rchitecture change/);
   });
 
   it("coverage counts applied over applicable, and every applied lever is a real leversFor lever", () => {
@@ -35,7 +44,7 @@ describe("coverageForProfile", () => {
       (report.appliedLevers / report.applicableLevers) * 100,
       6,
     );
-    expect(report.appliedLevers).toBeLessThan(report.applicableLevers); // the two architecture gaps
+    expect(report.appliedLevers).toBeLessThan(report.applicableLevers); // the architecture gaps + the held Tool Search lever
   });
 
   it("splits the realized saving into live-now (deterministic) and held-for-replay", () => {
@@ -51,9 +60,10 @@ describe("coverageForProfile", () => {
     const report = coverageForProfile(WORKLOAD_ARCHETYPES.ragDocumentQa!, cachingPrice);
     const toolLever = report.levers.find((l) => l.leverId === "tool-schema-compaction")!;
     expect(toolLever.applicable).toBe(false);
-    // Architecture levers only target tool schemas, so with no tools they are not gaps here.
+    // The tool-catalogue levers only target tool schemas, so with no tools they are not gaps here.
     expect(report.gaps.map((g) => g.leverId)).not.toContain("code-mode");
     expect(report.gaps.map((g) => g.leverId)).not.toContain("progressive-disclosure");
+    expect(report.gaps.map((g) => g.leverId)).not.toContain("tool-search-defer");
   });
 
   it("is deterministic: the same inputs produce an identical report", () => {

@@ -205,6 +205,32 @@ export const PUBLISHED_LEVERS: Record<string, Lever> = {
         "extra round trip and an extra model decision.",
     },
   },
+  toolSearchDefer: {
+    id: "tool-search-defer",
+    description:
+      "Anthropic Tool Search: inject a built-in search tool and set defer_loading on the non-resident tools, so " +
+      "the provider excludes their definitions from the model's processed prefix. The full definitions are still " +
+      "sent, but the model only loads the 3-5 resident tools and searches for the rest server-side in the same " +
+      "request. The GA, server-side sibling of progressive disclosure — same prompt cut without the client hop.",
+    risk: "needs-verification",
+    targets: ["toolSchemas"],
+    // Anthropic reports ~85% off a large (~55k-token) definition set. Set to 0.70,
+    // below that headline, because the resident 3-5 tools are never deferred and
+    // the saving lands only on cold / cache-miss turns (a cache-warm turn already
+    // discounts the definitions to ~0.1x, so deferral buys almost nothing there).
+    reduction: 0.70,
+    // The reason this holds up where progressive disclosure disappoints: the search
+    // runs server-side INSIDE the same request, so there is no extra client round
+    // trip per novel tool call. 1.0 = call count unchanged.
+    roundTripMultiplier: 1.0,
+    evidence: {
+      source: "Anthropic API docs, Tool Search (GA tool_search_tool_bm25/regex_20251119); claude-api skill 2026-11",
+      claim:
+        "Anthropic reports a ~55,000-token tool-definition set reduced by over 85%, loading only the 3-5 tools a " +
+        "turn needs; deferred tools are retrieved by a server-side search in the same request, so unlike a client-" +
+        "side router it adds no extra round trip. Supported on Claude 4.5 and later.",
+    },
+  },
   codeMode: {
     id: "code-mode",
     description:

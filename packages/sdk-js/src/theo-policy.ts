@@ -1,4 +1,5 @@
 import type { MeshTokenReductionConfig, MeshOutputEffort } from "./reduce-request.js";
+import type { ReplayCandidateResult } from "./replay-gate.js";
 
 /**
  * Theo's per-user policy — the control mechanism between Theo and MESH.
@@ -114,6 +115,13 @@ function applyLever(config: MeshTokenReductionConfig, lever: TheoLever): void {
     case "output-effort-max":
       config.outputEffort = lever.lever.replace("output-effort-", "") as MeshOutputEffort;
       return;
+    case "tool-search-defer":
+      config.toolSearch = {
+        ...(p.variant === "regex" || p.variant === "bm25" ? { variant: p.variant } : {}),
+        ...(typeof p.residentTools === "number" ? { residentTools: p.residentTools } : {}),
+        ...(typeof p.minTools === "number" ? { minTools: p.minTools } : {}),
+      };
+      return;
     default:
       return; // unknown lever id: ignore, never guess.
   }
@@ -168,6 +176,35 @@ export function publishLever(policy: TheoPolicy, lever: TheoLever, at: string): 
   return { ...policy, levers, version: policy.version + 1, updatedAt: at };
 }
 
+/**
+ * Turn an APPROVED replay-gate candidate into the proof a policy needs to enable
+ * a lossy lever. This is the seam between measurement and enforcement: the gate
+ * measures on the user's own traffic (saving from provider-reported usage, a
+ * quality lower bound from a grader), and this packages that verdict as the
+ * TheoGateProof `publishLever` requires. Returns undefined for a candidate the
+ * gate did not approve, so a rejected lever can never be published.
+ *
+ * The proof carries the gate's CONSERVATIVE lower-bound quality delta, not the
+ * mean: proofClearsCeiling re-checks |Y| against the route ceiling, and it must
+ * re-check the same figure the gate approved on, so the two can never disagree.
+ */
+export function gateProofFrom(
+  result: ReplayCandidateResult,
+  options: { grader: string; at: string },
+): TheoGateProof | undefined {
+  if (!result.approved) return undefined;
+  return {
+    // The money saving where the price was known, else the token saving — the
+    // same precedence the gate uses to rank approved candidates.
+    savingPercent: result.costSavingPercent ?? result.tokenSavingPercent,
+    // Already <= 0 when quality fell; clamped so a candidate that scored BETTER
+    // than baseline never records a positive "drop".
+    qualityDeltaPercent: Math.min(0, result.lower95QualityDelta * 100),
+    grader: options.grader,
+    provenAt: options.at,
+  };
+}
+
 /** A fresh, STRICT default policy for a new user — lossless-only until Theo proves more. */
 export function defaultPolicy(user: string, at: string): TheoPolicy {
   return {
@@ -192,6 +229,7 @@ export function knownLeverIds(): string[] {
     "fresh-tool-result-cap", "output-cap", "execution-tier-flex",
     "cache-ttl-5m", "cache-ttl-1h",
     "output-effort-low", "output-effort-medium", "output-effort-high", "output-effort-xhigh", "output-effort-max",
+    "tool-search-defer",
   ];
 }
 
@@ -220,6 +258,7 @@ export const ENFORCEABLE_LEVERS: readonly EnforceableLever[] = [
     label: "Output effort",
     members: ["output-effort-low", "output-effort-medium", "output-effort-high", "output-effort-xhigh", "output-effort-max"],
   },
+  { id: "tool-search-defer", label: "Tool Search deferral", members: ["tool-search-defer"] },
 ];
 
 /**

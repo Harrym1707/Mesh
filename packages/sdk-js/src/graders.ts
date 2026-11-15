@@ -4,6 +4,7 @@ import {
   toolSelectionGrader,
   type ReplayComparison,
   type ReplayGrader,
+  type ToolCall,
 } from "./replay-gate.js";
 
 /**
@@ -164,5 +165,51 @@ export function agentGrader(options: TruncationOptions = {}): ReplayGrader {
       if (tool < 1) return tool;
     }
     return truncation(comparison);
+  };
+}
+
+export type TaskCompletionOptions = {
+  /** Match tool calls by name only, ignoring arguments. Default false (name + args). */
+  ignoreArguments?: boolean;
+  /**
+   * Also require the candidate to have produced non-empty answer text, so a run
+   * that "saved tokens" by doing nothing cannot score a pass. Default false.
+   */
+  requireAnswer?: boolean;
+};
+
+/**
+ * Scores whether the candidate accomplished at least what the baseline did,
+ * tolerating extra exploratory steps.
+ *
+ * toolSelectionGrader scores the Jaccard overlap of the two call sets, so ANY
+ * extra call the candidate makes drags it below 1. That is right for
+ * description-trimming — a changed catalogue should not change behaviour at all —
+ * but too brittle for a DEFERRAL lever on a multi-step agent: Tool Search
+ * legitimately makes the model take an extra exploratory step to discover a
+ * deferred tool, and penalising that would reject a trajectory that completed the
+ * task correctly. This grader scores the RECALL of the baseline's actions —
+ * every tool call the baseline made must also have happened in the candidate — so
+ * a benign extra call costs nothing while a MISSED or WRONG required call still
+ * fails. With requireAnswer, a candidate that produced no answer fails outright.
+ */
+export function taskCompletionGrader(options: TaskCompletionOptions = {}): ReplayGrader {
+  const keyOf = options.ignoreArguments
+    ? (call: ToolCall): string => call.name
+    : (call: ToolCall): string => `${call.name}|${call.argumentsJson}`;
+  return (comparison: ReplayComparison): number => {
+    if (options.requireAnswer && responseText(comparison.candidateResponse).trim() === "") return 0;
+    const baseline = responseToolCalls(comparison.baselineResponse).map(keyOf);
+    const candidate = new Set(responseToolCalls(comparison.candidateResponse).map(keyOf));
+    if (baseline.length === 0) {
+      // No actions to reproduce: completion reduces to "did the candidate answer
+      // when the baseline did". A baseline that answered and a candidate that did
+      // not is the one failure; anything else is a pass.
+      const baselineAnswered = responseText(comparison.baselineResponse).trim() !== "";
+      const candidateAnswered = responseText(comparison.candidateResponse).trim() !== "";
+      return baselineAnswered && !candidateAnswered ? 0 : 1;
+    }
+    const hit = baseline.filter((key) => candidate.has(key)).length;
+    return hit / baseline.length;
   };
 }
