@@ -109,7 +109,23 @@ h2.rise{opacity:1;transform:none;transition:none}
 .install-cmd code{flex:1;min-width:0;overflow-x:auto;white-space:nowrap}
 .install-cmd .copy{flex:none;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.22);color:#F5F7FA;font:12px/1 ui-monospace,monospace;border-radius:5px;padding:7px 12px;cursor:pointer;transition:background .15s ease}
 .install-cmd .copy:hover{background:rgba(255,255,255,.22)}
-.install-note{margin-top:var(--s3);font-size:14px;color:var(--muted)}
+.os-note{max-width:41rem;margin:var(--s3) auto 0;font-size:14px;color:var(--muted)}
+.os-note[hidden]{display:none}
+.os-note a{color:var(--ocean)}
+.connect-head{margin:var(--s5) 0 var(--s3);font-size:18px;font-weight:800;color:var(--ink)}
+.connect{display:grid;gap:12px;max-width:41rem;margin:0 auto;text-align:left}
+.connect-opt{display:grid;grid-template-columns:13rem minmax(0,1fr);gap:10px 20px;align-items:center;background:#fff;border:1px solid var(--stone-line);border-radius:10px;padding:16px 18px}
+.connect-opt .who{grid-column:1/-1;font-size:13px;font-weight:700;color:var(--muted)}
+.connect-opt .what{min-width:0}
+.connect-opt p{margin:0;font-size:14px;line-height:1.5;color:var(--muted)}
+.connect-opt .env{display:block;margin-top:6px;font:12.5px/1.5 ui-monospace,Menlo,monospace;background:var(--stone);color:var(--ink);padding:3px 8px;border-radius:5px;white-space:nowrap;overflow-x:auto}
+.mini-cmd{display:flex;align-items:center;gap:10px;background:var(--ink);color:#F5F7FA;border-radius:8px;padding:10px 10px 10px 14px;font:14px/1.4 ui-monospace,Menlo,Consolas,monospace}
+.mini-cmd .prompt{color:#7D8BA1;flex:none;user-select:none}
+.mini-cmd code{flex:1;min-width:0;white-space:nowrap}
+.mini-cmd .copy{flex:none;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.22);color:#F5F7FA;font:12px/1 ui-monospace,monospace;border-radius:5px;padding:6px 10px;cursor:pointer;transition:background .15s ease}
+.mini-cmd .copy:hover{background:rgba(255,255,255,.22)}
+@media (max-width:640px){.connect-opt{grid-template-columns:minmax(0,1fr)}.install-cmd{align-items:flex-start}.install-cmd code,.connect-opt .env{white-space:normal;overflow-wrap:anywhere}}
+.install-note{margin-top:var(--s4);font-size:14px;color:var(--muted)}
 .install-note code{font:13px/1 ui-monospace,Menlo,monospace;background:var(--stone);color:var(--ink);padding:2px 7px;border-radius:5px}
 .install-note b{color:var(--ink);font-weight:700}
 .install-note a{color:var(--ocean)}
@@ -295,8 +311,10 @@ section h2::after{content:"";position:absolute;left:50%;transform:translateX(-50
 .cta-main{background:var(--accent);color:var(--accent-ink);display:flex;flex-direction:column;justify-content:center;padding:40px}
 .cta-main h2{font-size:30px;margin:0 0 var(--s2);color:var(--accent-ink)}
 .cta-main p{font-size:16px;line-height:1.6;margin:0 0 var(--s3);max-width:48ch}
-.cta-main .btn{background:var(--accent-ink);color:#F1F7FB;width:max-content}
-.cta-main .btn:hover{background:#163149}
+.cta-main .btn{background:#fff;color:var(--accent);width:max-content}
+.cta-main .btn:hover{background:#E8EFFD}
+.cta-main .cta-help{font-size:14px;margin:var(--s3) 0 0}
+.cta-main .cta-help a{color:var(--accent-ink);font-weight:700}
 .cta-flat{background:var(--ocean)}
 .xfade{position:relative;overflow:hidden}
 .xfade img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity 1.6s ease}
@@ -313,6 +331,7 @@ section h2::after{content:"";position:absolute;left:50%;transform:translateX(-50
 @media (max-width:760px){.quiet-foot{grid-template-columns:1fr;gap:8px;text-align:left}.quiet-foot .links{justify-content:flex-start}.quiet-foot .right{text-align:left}.quiet-foot .legal{text-align:left}}
 @media (max-width:760px){section{padding:var(--s6) 24px}.slip{max-width:100%}.price-wrap{min-height:auto}.exchange .response.breakout{width:100%}}
 @media (max-width:980px){.price-wrap{min-height:auto}}</style>
+<noscript><style>.rise,.exchange .call,.exchange .response,.total-side .figure{opacity:1;transform:none;transition:none}</style></noscript>
 </head>
 <body>
 
@@ -335,7 +354,7 @@ section h2::after{content:"";position:absolute;left:50%;transform:translateX(-50
       <a class="btn-download" href="#install"><svg class="arrow" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3v11m0 0l-4.5-4.5M12 14l4.5-4.5M5 20h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Install MESH</a>
       <a class="arrowlink" href="evidence.html">See the evidence</a>
     </div>
-    <p class="cta-note rise">One command &middot; keep your own key &middot; <b>verify every number yourself</b></p>
+    <p class="cta-note rise">One command &middot; no signup &middot; keep your own key &middot; <b>verify every number yourself</b></p>
   </div>
   <aside class="hero-proof rise">
     <p class="lbl"><span class="pct">22.0<span>%</span></span> net savings on our last live export &mdash; verified on the provider&rsquo;s own usage, recomputable from a ledger you hold.</p>
@@ -348,11 +367,29 @@ section h2::after{content:"";position:absolute;left:50%;transform:translateX(-50
   <div class="os-tabs rise" role="tablist" aria-label="Choose your platform">
     <button class="os-tab" type="button" role="tab" data-os="unix" aria-selected="true">macOS &amp; Linux</button>
     <button class="os-tab" type="button" role="tab" data-os="npm" aria-selected="false">npm</button>
-    <button class="os-tab" type="button" role="tab" disabled title="Windows support is coming">Windows &middot; soon</button>
+    <button class="os-tab" type="button" role="tab" data-os="windows" aria-selected="false">Windows</button>
   </div>
   <div class="install-cmd rise" data-os-panel="unix"><span class="prompt">$</span><code>curl -fsSL https://www.mesh-technology.com/install.sh | sh</code><button class="copy" type="button" data-copy="curl -fsSL https://www.mesh-technology.com/install.sh | sh">copy</button></div>
-  <div class="install-cmd rise" data-os-panel="npm" hidden><span class="prompt">$</span><code>npx @harrym1707/mesh start</code><button class="copy" type="button" data-copy="npx @harrym1707/mesh start">copy</button></div>
-  <p class="install-note rise">Then <code>mesh start</code> &middot; needs Node 22+ &middot; <b>your key never leaves Claude Code</b> &middot; <a href="start.html">full setup guide</a></p>
+  <div class="install-cmd rise" data-os-panel="npm" hidden><span class="prompt">$</span><code>npm install -g @harrym1707/mesh</code><button class="copy" type="button" data-copy="npm install -g @harrym1707/mesh">copy</button></div>
+  <div class="install-cmd rise" data-os-panel="windows" hidden><span class="prompt">$</span><code>curl -fsSL https://www.mesh-technology.com/install.sh | sh</code><button class="copy" type="button" data-copy="curl -fsSL https://www.mesh-technology.com/install.sh | sh">copy</button></div>
+  <p class="os-note" data-os-panel="windows" hidden>Run it inside WSL: MESH installs as a Linux program. Native PowerShell is not supported yet &mdash; <a href="https://github.com/Harrym1707/Mesh/issues/new">tell us</a> if you need it.</p>
+
+  <h3 class="connect-head rise">Then connect what you run.</h3>
+  <div class="connect rise">
+    <div class="connect-opt">
+      <span class="who">Claude Code</span>
+      <div class="mini-cmd"><span class="prompt">$</span><code>mesh start</code><button class="copy" type="button" data-copy="mesh start">copy</button></div>
+      <div class="what"><p>Points Claude Code at MESH and runs alongside you. Ctrl+C puts Claude Code back exactly as it was.</p></div>
+    </div>
+    <div class="connect-opt">
+      <span class="who">Your own app or agent</span>
+      <div class="mini-cmd"><span class="prompt">$</span><code>mesh proxy</code><button class="copy" type="button" data-copy="mesh proxy">copy</button></div>
+      <div class="what"><p>Then set the one your app uses. Your code and your key stay the same.</p>
+        <code class="env">ANTHROPIC_BASE_URL=http://127.0.0.1:8787</code>
+        <code class="env">OPENAI_BASE_URL=http://127.0.0.1:8787/v1</code></div>
+    </div>
+  </div>
+  <p class="install-note rise">Needs Node 22+ &middot; no signup, no account &middot; <b>your key goes straight to your provider and is never stored</b> &middot; <a href="start.html">full setup guide</a></p>
 </section>
 
 <section aria-label="Measured bands" class="bands">
@@ -411,14 +448,16 @@ section h2::after{content:"";position:absolute;left:50%;transform:translateX(-50
 
   <div class="exchange rise">
     <p class="lead">First, point your client at it.</p>
-    <div class="call"><button class="copy" type="button" data-copy="npx -y -p @harrym1707/sdk mesh-proxy">copy</button><pre style="margin:0;padding:20px;font:13px/1.65 ui-monospace,Menlo,monospace;overflow-x:auto"><code>$ npx -y -p @harrym1707/sdk mesh-proxy
-<span style="color:#57534E"># then one line in your app &mdash; keep your own key</span>
-baseURL: <span style="color:#1D4ED8">"http://127.0.0.1:8787"</span></code></pre></div>
+    <div class="call"><button class="copy" type="button" data-copy="mesh proxy">copy</button><pre style="margin:0;padding:20px;font:13px/1.65 ui-monospace,Menlo,monospace;overflow-x:auto"><code>$ mesh proxy
+<span style="color:#57534E"># then one setting for your app &mdash; keep your own key</span>
+ANTHROPIC_BASE_URL=<span style="color:#1D4ED8">http://127.0.0.1:8787</span></code></pre></div>
     <div class="response" data-ui>
-      <div class="bar"><span>mesh-proxy</span><span class="pill">running</span></div>
-      <pre>MESH proxy listening on http://127.0.0.1:8787
-Ledger spools: ./mesh-ledger <span class="tok">(one hash-chained JSONL per app + provider)</span>
-Anthropic SDK: new Anthropic({ baseURL: "http://127.0.0.1:8787" })</pre>
+      <div class="bar"><span>mesh proxy</span><span class="pill">running</span></div>
+      <pre>MESH is running
+proxy    http://127.0.0.1:8787
+ledger   ~/.mesh/ledger  <span class="tok">(hash-chained; recompute any time with: mesh verify)</span>
+connect  Anthropic clients   ANTHROPIC_BASE_URL=http://127.0.0.1:8787
+         OpenAI-style        OPENAI_BASE_URL=http://127.0.0.1:8787/v1</pre>
     </div>
   </div>
 
@@ -426,7 +465,7 @@ Anthropic SDK: new Anthropic({ baseURL: "http://127.0.0.1:8787" })</pre>
     <p class="lead">Then run your traffic as normal.</p>
     <div class="call"><pre style="margin:0;padding:20px;font:13px/1.65 ui-monospace,Menlo,monospace;overflow-x:auto"><code>await anthropic.messages.create({ model, system, messages })  <span style="color:#57534E">// unchanged</span></code></pre></div>
     <div class="response" data-ui>
-      <div class="bar"><span>mesh-ledger/my-app-anthropic.jsonl</span><span class="pill">hash-chained</span></div>
+      <div class="bar"><span>~/.mesh/ledger/proxy-anthropic.jsonl</span><span class="pill">hash-chained</span></div>
       <pre>{"seq":0,"prevHash":"000&hellip;0","event":{"requestId":"a1f2&hellip;","model":"claude-sonnet-5-5",
   "usage":{"inputTokens":1695,"outputTokens":412},"levers":[{"leverId":"duplicate-context-removal",
   "kind":"lossless","savedUsd":0.00130,<span class="key">"basis":"estimated-baseline"</span>}],"status":"succeeded"}}</pre>
@@ -434,20 +473,16 @@ Anthropic SDK: new Anthropic({ baseURL: "http://127.0.0.1:8787" })</pre>
   </div>
 
   <div class="exchange rise">
-    <p class="lead">Last, recompute the invoice yourself.</p>
-    <div class="call"><button class="copy" type="button" data-copy="node --import tsx evals/run-invoice.ts mesh-ledger/my-app-anthropic.jsonl">copy</button><pre style="margin:0;padding:20px;font:13px/1.65 ui-monospace,Menlo,monospace;overflow-x:auto"><code>$ node --import tsx evals/run-invoice.ts mesh-ledger/my-app-anthropic.jsonl</code></pre></div>
-    <div class="response breakout" data-ui>
-      <div class="bar"><span>invoice &mdash; recomputed from your spool</span><span class="pill">verdict: charge</span></div>
-      <div class="tblwrap"><table>
-        <thead><tr><th>lever</th><th>kind</th><th>basis</th><th class="num">events</th><th class="num">saved</th></tr></thead>
-        <tbody>
-          <tr><td>duplicate-context-removal</td><td>lossless</td><td>estimated-baseline</td><td class="num">6</td><td class="num">$0.0086</td></tr>
-          <tr><td>tool-schema-compaction</td><td>lossless</td><td>estimated-baseline</td><td class="num">6</td><td class="num">$0.0054</td></tr>
-          <tr><td>execution-tier-flex</td><td>tier</td><td>measured</td><td class="num">8</td><td class="num">$0.0193</td></tr>
-          <tr><td>fresh-tool-result-cap</td><td>lossy</td><td>recorded &mdash; unbilled, no gate verdict</td><td class="num">4</td><td class="num">&mdash;</td></tr>
-        </tbody>
-      </table></div>
-      <div class="footrow"><span class="tok">Savings you already had don&rsquo;t count. Our losses count against us. Run the command yourself &mdash; you must get the same number.</span></div>
+    <p class="lead">Last, check our maths yourself.</p>
+    <div class="call"><button class="copy" type="button" data-copy="mesh verify">copy</button><pre style="margin:0;padding:20px;font:13px/1.65 ui-monospace,Menlo,monospace;overflow-x:auto"><code>$ mesh verify</code></pre></div>
+    <div class="response" data-ui>
+      <div class="bar"><span>mesh verify</span><span class="pill">all checks passed</span></div>
+      <pre>&check; provenance   cached runtime matches its download checksum
+&check; ledger       hash-chain verified across 1 spool(s), 2 record(s)
+&check; determinism  invoice recomputes identically: $0.0000 verified <span class="key">(do_not_charge)</span>
+
+The ledger is yours; this command recomputes the invoice from it with no network calls.</pre>
+      <div class="footrow"><span class="tok">Output from a fresh install after two requests: nothing worth billing yet, so the verdict is do_not_charge. Savings you already had don&rsquo;t count. Our losses count against us.</span></div>
     </div>
   </div>
   </div>
@@ -541,8 +576,9 @@ Anthropic SDK: new Anthropic({ baseURL: "http://127.0.0.1:8787" })</pre>
     <div class="cta-flat" aria-hidden="true"></div>
     <div class="cta-main">
       <h2>Start with one URL.</h2>
-      <p>Point your app&rsquo;s baseURL at MESH and keep your own key. Five minutes later you have a tamper-evident record of what you spend &mdash; and what you stopped spending. No signup; the source is public.</p>
-      <a class="btn" href="start.html">Start in five minutes</a>
+      <p>Point your app&rsquo;s baseURL at MESH and keep your own key. Five minutes later you have a tamper-evident record of what you spend &mdash; and what you stopped spending. Open to everyone: no signup, no waiting list, and the source is public.</p>
+      <a class="btn" href="#install">Install MESH</a>
+      <p class="cta-help">Stuck, or want a hand setting it up? <a href="https://github.com/Harrym1707/Mesh/issues/new">Ask us on GitHub</a> &middot; <a href="start.html">Read the setup guide</a></p>
     </div>
     <div class="xfade" aria-hidden="true">
       <img class="front" src="https://picsum.photos/id/114/480/720" width="480" height="720" alt="Dark storm clouds over a faint mountain ridge (photo: Brian Gonzalez, Unsplash licence)" loading="lazy">
@@ -554,7 +590,7 @@ Anthropic SDK: new Anthropic({ baseURL: "http://127.0.0.1:8787" })</pre>
 
 <footer class="quiet-foot">
   <span>mesh &mdash; verified LLM cost reduction</span>
-  <span class="links"><a href="overview.html">Overview</a><a href="segments.html">Savings</a><a href="methodology.html">Methodology</a><a href="evidence.html">Evidence</a><a href="comparison.html">Comparison</a><a href="start.html">Get started</a><a href="faq.html">FAQ</a><a href="https://github.com/Harrym1707/Mesh">GitHub</a><a href="llms.txt">llms.txt</a><a href="terms.html">Terms</a><a href="privacy.html">Privacy</a></span>
+  <span class="links"><a href="overview.html">Overview</a><a href="segments.html">Savings</a><a href="methodology.html">Methodology</a><a href="evidence.html">Evidence</a><a href="comparison.html">Comparison</a><a href="start.html">Get started</a><a href="faq.html">FAQ</a><a href="https://github.com/Harrym1707/Mesh/issues/new">Contact</a><a href="https://github.com/Harrym1707/Mesh">GitHub</a><a href="llms.txt">llms.txt</a><a href="terms.html">Terms</a><a href="privacy.html">Privacy</a></span>
   <span class="right">2026 &middot; BUSL-1.1</span>
 </footer>
 
@@ -647,6 +683,11 @@ Anthropic SDK: new Anthropic({ baseURL: "http://127.0.0.1:8787" })</pre>
       es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } });
     }, { rootMargin: "-10% 0px" });
     document.querySelectorAll(".rise").forEach(function (el) { io.observe(el); });
+    // The first screen and the install box must never stay hidden: if the
+    // observer has not fired (a throttled or embedded view), show them anyway.
+    setTimeout(function () {
+      document.querySelectorAll(".hero .rise, .install-sect .rise").forEach(function (el) { el.classList.add("in"); });
+    }, 1500);
   } else {
     document.querySelectorAll(".rise").forEach(function (el) { el.classList.add("in"); });
   }
