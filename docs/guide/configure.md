@@ -94,8 +94,16 @@ Two things to know before you turn it on:
   client that uses prompt caching (Claude Code does) re-writes its cached
   prefix one time.
 
-`mesh theo --apply` writes Theo's own policy over the default one, so a lever
-you added by hand is not carried over; add it again afterwards.
+Theo keeps a lever you add by hand. He writes his own policy to the same file,
+in the background of `mesh start` and whenever you accept one of his
+proposals, and leaves your additions in place. Two exceptions: the six levers
+Theo manages himself follow his policy, so adding one of those by hand does
+not last; and if he proves a lever from the same either-or group as yours
+(another output effort level, the other cache lifetime), his replaces yours.
+
+**MESH 0.2.2 does not do this.** On 0.2.2 Theo's first background cycle after
+any traffic removes a hand-added lever from the file. Until you are on a later
+build, start the proxy with `--no-theo`, or use the SDK option.
 
 ## Your key never leaves
 

@@ -167,6 +167,30 @@ describe("mesh theo — answering proposals from the command line", () => {
     expect(memoryNow().driftBaselines[LEVER]).toMatchObject({ retryRate: 0, failureRate: 0 });
   });
 
+  it("--accept keeps a lever the user added to the policy file by hand, and says so", () => {
+    // The file as `mesh start` first writes it, plus one lever the user opted into.
+    const policy = createTheoMemory("local", "recommend", "2026-11-10T00:00:00.000Z").policy;
+    mkdirSync(join(policyPath, ".."), { recursive: true });
+    writeFileSync(policyPath, `${JSON.stringify({
+      ...policy,
+      levers: [...policy.levers, { lever: "tool-result-json-compaction", class: "lossless" }],
+    }, null, 2)}\n`);
+
+    runTheoDecision({ ...options, accept: LEVER });
+
+    const bundle = JSON.parse(readFileSync(policyPath, "utf8")) as TheoPolicyBundle;
+    const levers = bundle.default.levers.map((l) => l.lever);
+    expect(levers).toContain(LEVER); // Theo's lever landed
+    expect(levers).toContain("tool-result-json-compaction"); // the user's is still there
+    expect(levers.filter((id) => id === "tool-result-json-compaction")).toHaveLength(1);
+    expect(printed.join("\n")).toContain("Kept the lever you added by hand: tool-result-json-compaction.");
+  });
+
+  it("--accept says nothing about kept levers when the user added none", () => {
+    runTheoDecision({ ...options, accept: LEVER });
+    expect(printed.join("\n")).not.toContain("added by hand");
+  });
+
   it("--accept with --route lands the lever on that route only, for a route with its own environment", () => {
     saveTheoMemory(defaultTheoMemoryPath(ledgerDir, "cheap"), { ...memoryNow(), customer: "cheap" });
     runTheoDecision({ ...options, customer: "cheap", accept: LEVER, route: "claude-haiku*" });
