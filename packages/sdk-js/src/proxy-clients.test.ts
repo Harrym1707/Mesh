@@ -301,6 +301,23 @@ describe("the integration pathway — real client libraries through the proxy", 
     });
   });
 
+  it("streams an upload too large to buffer, and every byte arrives", async () => {
+    // Past the 16 MB buffer limit, so the body is piped rather than held.
+    const big = Buffer.alloc(17 * 1024 * 1024, 0x61);
+    big.write("START", 0);
+    big.write("END", big.byteLength - 3);
+    const response = await fetch(`${proxy.url}/v1/files`, {
+      method: "POST",
+      headers: { "content-type": "application/octet-stream", authorization: "Bearer sk-test-not-real" },
+      body: big,
+    });
+    expect(response.status).toBe(200);
+    expect(last().side).toBe("openai");
+    expect(last().body.byteLength).toBe(big.byteLength);
+    expect(last().body.subarray(0, 5).toString()).toBe("START");
+    expect(last().body.subarray(-3).toString()).toBe("END");
+  });
+
   it("answers its own health check without contacting a provider", async () => {
     const response = await fetch(`${proxy.url}/mesh/health`);
     expect(response.status).toBe(200);

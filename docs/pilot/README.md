@@ -6,6 +6,7 @@ founder's act, not an agent's.**
 
 | File | What it is |
 |---|---|
+| [TESTER-GUIDE.md](./TESTER-GUIDE.md) | What to hand a tester: install, connect Claude Code or their own app, check it works, what to expect, what to send back, how to remove it. Written 2026-11-16 for MESH 0.2.1. |
 | [runbook.md](./runbook.md) | The one-page pilot runbook: what a partner does, day 0 to day 14, and what MESH never does. |
 | [data-handling.md](./data-handling.md) | The data-handling answer, verbatim-usable, sourced to the code paths it describes. |
 | [outreach-litellm.md](./outreach-litellm.md) | Draft letter 1: LiteLLM proxy operator (spend logs ready to triage). |
