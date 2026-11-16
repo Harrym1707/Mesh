@@ -32,22 +32,34 @@ const CODE_FENCE = /```[\s\S]*?```|`[^`\n]+`/g;
  * string by one constant. Expect roughly +/-15% against a real tokenizer; good
  * enough to rank candidate reductions, not good enough to bill on.
  */
+// Capturing the three alternatives (instead of re-testing match[0] against two
+// more regexes per chunk) lets the single matchAll pass also classify the
+// chunk: which group is defined says which alternative matched. Proxy-overhead
+// profiling showed the re-classification tests were over half of this
+// function's own per-request CPU time; group index gives the same
+// classification for zero extra passes over the text.
+const TOKEN_CHUNK_PATTERN = /([\p{L}\p{N}']+)|([^\p{L}\p{N}'\s]+)|(\s+)/gu;
+
 export const approximateTokenCount: TokenCounter = (text) => {
   if (text === "") return 0;
   let total = 0;
-  for (const match of text.matchAll(/[\p{L}\p{N}']+|[^\p{L}\p{N}'\s]+|\s+/gu)) {
-    const chunk = match[0]!;
-    if (/^\s+$/.test(chunk)) {
-      // Runs of whitespace mostly ride along with an adjacent token; newlines do not.
-      total += (chunk.match(/\n/g)?.length ?? 0);
+  for (const match of text.matchAll(TOKEN_CHUNK_PATTERN)) {
+    const word = match[1];
+    if (word !== undefined) {
+      total += Math.max(1, Math.ceil(word.length / 4.5));
       continue;
     }
-    if (/^[\p{L}\p{N}']+$/u.test(chunk)) {
-      total += Math.max(1, Math.ceil(chunk.length / 4.5));
+    const symbols = match[2];
+    if (symbols !== undefined) {
+      // Punctuation and symbols tokenize densely.
+      total += Math.max(1, Math.ceil(symbols.length / 2));
       continue;
     }
-    // Punctuation and symbols tokenize densely.
-    total += Math.max(1, Math.ceil(chunk.length / 2));
+    // Runs of whitespace mostly ride along with an adjacent token; newlines do not.
+    const whitespace = match[3]!;
+    for (let index = 0; index < whitespace.length; index += 1) {
+      if (whitespace.charCodeAt(index) === 10) total += 1;
+    }
   }
   return total;
 };
