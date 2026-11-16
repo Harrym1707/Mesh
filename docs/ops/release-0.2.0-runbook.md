@@ -20,8 +20,8 @@ The sections below describe 0.2.2 and earlier as they stood.
   policy over `~/.mesh/theo-policy.json`. A lever a user added there by hand
   was dropped, with no message. So the opt-in `tool-result-json-compaction`
   lever, turned on through the policy file, stopped working after one cycle.
-  The SDK option was never affected. Every earlier build with a background
-  Theo behaves the same way for any hand-added lever.
+  The SDK option was never affected. Reproduced on 0.2.2 only; earlier builds
+  were not run, though the same write is in their source.
 - **What 0.2.3 changes.** When Theo's policy is written, every lever in the
   policy it replaces is kept unless Theo authors that lever himself. His own
   six follow his policy, so a lever he rolled back stays out. An operator's
