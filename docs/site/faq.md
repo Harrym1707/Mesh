@@ -1,12 +1,16 @@
 # FAQ — built from the caveats we already print
 
 **How do I install MESH?**
-One command: `npx -y -p @harrym1707/sdk mesh-proxy` starts a local proxy with a
-hash-chained ledger — then set your client's `baseURL` to
+One command: `curl -fsSL https://www.mesh-technology.com/install.sh | sh`
+(macOS, Linux or WSL; or `npm install -g @harrym1707/mesh`). Then `mesh start`
+if you use Claude Code, or `mesh proxy` for your own app: it starts a local
+proxy with a hash-chained ledger, and you set your client's base URL to
 `http://127.0.0.1:8787` (Anthropic) or `http://127.0.0.1:8787/v1` (OpenAI).
-No signup, no account, and your API key passes through without being stored.
-The full walk-through, including recomputing the invoice yourself, is on
-[Get started](start.md).
+It is open to everyone: no signup, no account, no waiting list, and your API
+key passes through without being stored. The full walk-through, including
+recomputing the invoice yourself with `mesh verify`, is on
+[Get started](start.md). To run the proxy without installing anything, use
+`npx -y -p @harrym1707/sdk mesh-proxy`.
 
 **Does MESH work with my language or framework?**
 Yes, if it can set a base URL — which is Python, TypeScript, Go, curl,

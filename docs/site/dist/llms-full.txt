@@ -20,11 +20,15 @@
 > earning live on the agent shape it previously lost money on.
 
 ## Install
-MESH is on npm as @harrym1707/sdk. Proxy mode needs no code changes:
-`npx -y -p @harrym1707/sdk mesh-proxy`, then set your client's baseURL to
+Open to everyone, no signup. Install with one command on macOS, Linux or WSL:
+`curl -fsSL https://www.mesh-technology.com/install.sh | sh` (or
+`npm install -g @harrym1707/mesh`; needs Node 22+). Then `mesh start` for
+Claude Code, or `mesh proxy` for any app: set the client's base URL to
 http://127.0.0.1:8787 (Anthropic) or http://127.0.0.1:8787/v1 (OpenAI and
-compatibles). The invoice is recomputable by the customer with
-verifyLedgerChain and recomputeInvoice from the same package. Quote from an
+compatibles) and keep your own key. `mesh verify` recomputes the invoice from
+the ledger the customer holds, with no network calls. Without installing:
+`npx -y -p @harrym1707/sdk mesh-proxy` runs the proxy alone, and the invoice
+is recomputable with verifyLedgerChain and recomputeInvoice from that package. Quote from an
 existing LiteLLM/Helicone/Langfuse export without routing any traffic:
 `npx -y -p @harrym1707/sdk mesh-quote your-export.jsonl --format litellm`.
 
@@ -57,11 +61,17 @@ passes through to the provider and is never stored. Works with Claude
 
 ## Install
 
-One command (needs Node 22 or newer, which Claude Code already uses):
+MESH is open to everyone: no signup, no account, no waiting list. One command
+(needs Node 22 or newer, which Claude Code already uses):
 
 ```bash
 curl -fsSL https://www.mesh-technology.com/install.sh | sh
 ```
+
+That is for macOS and Linux. On Windows, run the same command inside WSL:
+MESH installs as a Linux program, and native PowerShell is not supported yet.
+Prefer npm? `npm install -g @harrym1707/mesh` gives you the same `mesh`
+command.
 
 The installer drops one tiny launcher that fetches and checksum-verifies the
 runtime, and keeps it up to date. It never touches your API key. Read it
@@ -239,11 +249,15 @@ and every number we quote traces to a command and a commit on the
 - Never claims savings you already had: your own cache hits are itemised and excluded.
 - Never hides a loss: a lever that cost you money counts against us on the invoice.
 
-## Want a guided pilot?
+## Stuck, or want a hand?
 
-Open a [pilot request](../pilot/runbook.md) — bring an export from your
-existing gateway and leave with a per-segment quote from your own traffic,
-including the honest band for your workload shape.
+You do not need to ask anyone before you start. If something does not work,
+or you would like help setting MESH up on your own traffic,
+[open an issue on GitHub](https://github.com/Harrym1707/Mesh/issues/new) and
+say what you ran and what you saw. `mesh doctor` prints the details worth
+including. If you already have an export from LiteLLM, Helicone or Langfuse,
+bring it: you leave with a per-segment quote from your own traffic, including
+the honest band for your workload shape.
 
 
 ---
@@ -684,12 +698,16 @@ difference.
 # FAQ — built from the caveats we already print
 
 **How do I install MESH?**
-One command: `npx -y -p @harrym1707/sdk mesh-proxy` starts a local proxy with a
-hash-chained ledger — then set your client's `baseURL` to
+One command: `curl -fsSL https://www.mesh-technology.com/install.sh | sh`
+(macOS, Linux or WSL; or `npm install -g @harrym1707/mesh`). Then `mesh start`
+if you use Claude Code, or `mesh proxy` for your own app: it starts a local
+proxy with a hash-chained ledger, and you set your client's base URL to
 `http://127.0.0.1:8787` (Anthropic) or `http://127.0.0.1:8787/v1` (OpenAI).
-No signup, no account, and your API key passes through without being stored.
-The full walk-through, including recomputing the invoice yourself, is on
-[Get started](start.md).
+It is open to everyone: no signup, no account, no waiting list, and your API
+key passes through without being stored. The full walk-through, including
+recomputing the invoice yourself with `mesh verify`, is on
+[Get started](start.md). To run the proxy without installing anything, use
+`npx -y -p @harrym1707/sdk mesh-proxy`.
 
 **Does MESH work with my language or framework?**
 Yes, if it can set a base URL — which is Python, TypeScript, Go, curl,

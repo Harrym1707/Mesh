@@ -8,11 +8,17 @@ passes through to the provider and is never stored. Works with Claude
 
 ## Install
 
-One command (needs Node 22 or newer, which Claude Code already uses):
+MESH is open to everyone: no signup, no account, no waiting list. One command
+(needs Node 22 or newer, which Claude Code already uses):
 
 ```bash
 curl -fsSL https://www.mesh-technology.com/install.sh | sh
 ```
+
+That is for macOS and Linux. On Windows, run the same command inside WSL:
+MESH installs as a Linux program, and native PowerShell is not supported yet.
+Prefer npm? `npm install -g @harrym1707/mesh` gives you the same `mesh`
+command.
 
 The installer drops one tiny launcher that fetches and checksum-verifies the
 runtime, and keeps it up to date. It never touches your API key. Read it
@@ -190,8 +196,12 @@ and every number we quote traces to a command and a commit on the
 - Never claims savings you already had: your own cache hits are itemised and excluded.
 - Never hides a loss: a lever that cost you money counts against us on the invoice.
 
-## Want a guided pilot?
+## Stuck, or want a hand?
 
-Open a [pilot request](../pilot/runbook.md) — bring an export from your
-existing gateway and leave with a per-segment quote from your own traffic,
-including the honest band for your workload shape.
+You do not need to ask anyone before you start. If something does not work,
+or you would like help setting MESH up on your own traffic,
+[open an issue on GitHub](https://github.com/Harrym1707/Mesh/issues/new) and
+say what you ran and what you saw. `mesh doctor` prints the details worth
+including. If you already have an export from LiteLLM, Helicone or Langfuse,
+bring it: you leave with a per-segment quote from your own traffic, including
+the honest band for your workload shape.
