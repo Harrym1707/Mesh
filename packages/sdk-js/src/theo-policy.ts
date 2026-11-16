@@ -294,19 +294,86 @@ export function upsertRoutePolicy(bundle: TheoPolicyBundle, policy: TheoPolicy, 
 }
 
 /**
+ * The levers an OPERATOR added to a stored policy by hand, which a policy Theo
+ * writes over it must keep.
+ *
+ * Theo's policy lives in his own memory and starts from the default policy, so
+ * it knows nothing of a lever a person put in the policy file (an opt-in lever
+ * such as `tool-result-json-compaction`, a cache TTL, an unused-tool list).
+ * Writing his policy over the file would drop it, silently, on every cycle.
+ *
+ * `theoLeverIds` are the levers Theo authors himself. For those his policy is
+ * the whole truth: a lever he rolled back must STAY out, so one of his own ids
+ * is never carried over from the file. Every other lever in the policy that
+ * governs the target today is kept, unless Theo's policy already has that id
+ * or a lever from the same mutually-exclusive group (he proved one effort
+ * level; the operator's other level must not sit beside it).
+ *
+ * The policy that governs the target is the stored route with the same
+ * matcher, else the stored default - so a lever on the default still applies
+ * to a model when Theo first gives that model a route of its own.
+ *
+ * Keeping a lever here does not enforce it: `policyToReductionConfig` still
+ * withholds any lossy lever without a proof inside the ceiling. Entries that
+ * are not lever objects are ignored. Pure.
+ */
+export function keptOperatorLevers(
+  existing: TheoPolicyBundle | undefined,
+  policy: TheoPolicy,
+  route: string | undefined,
+  theoLeverIds: readonly string[],
+): TheoLever[] {
+  if (existing === undefined) return [];
+  const routed = route !== undefined && route !== "";
+  const governing = (routed ? (existing.routes ?? []).find((stored) => stored?.route === route) : undefined) ??
+    existing.default;
+  const stored: unknown = governing?.levers;
+  if (!Array.isArray(stored)) return [];
+
+  const theoOwned = new Set(theoLeverIds);
+  const incomingLevers = Array.isArray(policy.levers) ? policy.levers : [];
+  const incoming = new Set(incomingLevers.map((lever) => lever.lever));
+  const groupOf = (id: string): string =>
+    ENFORCEABLE_LEVERS.find((group) => group.members.includes(id))?.id ?? id;
+  const incomingGroups = new Set([...incoming].map(groupOf));
+
+  const kept = new Map<string, TheoLever>();
+  for (const entry of stored as unknown[]) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const lever = entry as TheoLever;
+    if (typeof lever.lever !== "string" || lever.lever === "") continue;
+    if (theoOwned.has(lever.lever) || incoming.has(lever.lever)) continue;
+    if (incomingGroups.has(groupOf(lever.lever))) continue;
+    kept.set(lever.lever, lever);
+  }
+  return [...kept.values()];
+}
+
+/**
  * Land a policy Theo has evolved into a bundle WITHOUT clobbering the rest of it,
  * returning a NEW bundle. With a `route`, the policy becomes that route's override
  * (every other route and the default preserved); without one, it replaces the
  * bundle's default (every route preserved). This is what `mesh theo --apply`
  * writes: Theo optimises one model at a time, so he can publish to that model's
  * route and leave the others exactly as they were.
+ *
+ * Pass `theoLeverIds` (the levers Theo authors) and the levers an operator
+ * added by hand to the policy being replaced are kept as well - see
+ * `keptOperatorLevers`. Without it the policy replaces the old one whole.
  */
 export function mergePolicyIntoBundle(
   existing: TheoPolicyBundle | undefined,
-  policy: TheoPolicy,
+  incomingPolicy: TheoPolicy,
   route: string | undefined,
   at: string,
+  options: { theoLeverIds?: readonly string[] } = {},
 ): TheoPolicyBundle {
+  const kept = options.theoLeverIds === undefined
+    ? []
+    : keptOperatorLevers(existing, incomingPolicy, route, options.theoLeverIds);
+  const policy: TheoPolicy = kept.length === 0
+    ? incomingPolicy
+    : { ...incomingPolicy, levers: [...incomingPolicy.levers, ...kept] };
   if (route !== undefined && route !== "") {
     const base = existing ?? asBundle(defaultPolicy(policy.user, at));
     return upsertRoutePolicy(base, { ...policy, route }, at);

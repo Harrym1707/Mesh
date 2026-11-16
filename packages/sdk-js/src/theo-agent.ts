@@ -186,6 +186,18 @@ const ENFORCEABLE_BY_CONCEPT: Record<string, { lever: string; class: TheoLeverCl
   "output-budget": { lever: "output-effort-low", class: "lossy" },
 };
 
+/**
+ * The lever ids Theo authors himself: the default policy's lossless levers and
+ * the levers he can prove and publish. His policy is the whole truth for these
+ * (a lever he rolled back stays out); any other lever in a user's policy file
+ * was put there by a person and is theirs to keep - see `keptOperatorLevers`.
+ */
+export function theoLeverIds(): string[] {
+  const ids = new Set(defaultPolicy("", "").levers.map((lever) => lever.lever));
+  for (const entry of Object.values(ENFORCEABLE_BY_CONCEPT)) ids.add(entry.lever);
+  return [...ids];
+}
+
 /** Concepts already covered by an active lossless lever — neither a candidate nor
  * a frontier gap. `prefix-caching` is delivered by the active cache-prefix-repair. */
 const ALREADY_COVERED_CONCEPTS = new Set(["prefix-caching"]);

@@ -20,11 +20,15 @@
 > earning live on the agent shape it previously lost money on.
 
 ## Install
-MESH is on npm as @harrym1707/sdk. Proxy mode needs no code changes:
-`npx -y -p @harrym1707/sdk mesh-proxy`, then set your client's baseURL to
+Open to everyone, no signup. Install with one command on macOS, Linux or WSL:
+`curl -fsSL https://www.mesh-technology.com/install.sh | sh` (or
+`npm install -g @harrym1707/mesh`; needs Node 22+). Then `mesh start` for
+Claude Code, or `mesh proxy` for any app: set the client's base URL to
 http://127.0.0.1:8787 (Anthropic) or http://127.0.0.1:8787/v1 (OpenAI and
-compatibles). The invoice is recomputable by the customer with
-verifyLedgerChain and recomputeInvoice from the same package. Quote from an
+compatibles) and keep your own key. `mesh verify` recomputes the invoice from
+the ledger the customer holds, with no network calls. Without installing:
+`npx -y -p @harrym1707/sdk mesh-proxy` runs the proxy alone, and the invoice
+is recomputable with verifyLedgerChain and recomputeInvoice from that package. Quote from an
 existing LiteLLM/Helicone/Langfuse export without routing any traffic:
 `npx -y -p @harrym1707/sdk mesh-quote your-export.jsonl --format litellm`.
 

@@ -1050,7 +1050,49 @@ export function reduceRequest(
   request: unknown,
   config: MeshTokenReductionConfig = {},
 ): { request: unknown; summary: MeshReductionSummary } {
-  const countTokens = config.countTokens ?? approximateTokenCount;
+  // The levers measure overlapping slices of the same request several times
+  // over (the before/after totals, tool-schema minification, the per-lever
+  // before/after figures and the cache stamp's prefix checks all count the
+  // same serialised tools, system text and message bodies), so the counter is
+  // memoized for this one call: each distinct string is counted once.
+  //
+  // This ASSUMES a caller's `countTokens` is a pure function of its string -
+  // the same text always gives the same number. A tokenizer is. A counter that
+  // is not would already report inconsistent figures without the memo.
+  //
+  // The memo is created here and dropped on return, so it never carries a
+  // count from one request, or one caller's counter, into another. Until then
+  // it keeps every counted string alive, including the serialised copies.
+  return reduceRequestWithCounter(
+    request,
+    config,
+    memoizeTokenCounter(config.countTokens ?? approximateTokenCount),
+  );
+}
+
+/** Wrap a counter so each distinct string reaches it once; a count that throws is not kept. */
+function memoizeTokenCounter(countTokens: TokenCounter): TokenCounter {
+  const counted = new Map<string, number>();
+  return (text) => {
+    const known = counted.get(text);
+    if (known !== undefined) return known;
+    const tokens = countTokens(text);
+    counted.set(text, tokens);
+    return tokens;
+  };
+}
+
+/**
+ * The reducer itself, counting only through the counter it is handed (it never
+ * reads `config.countTokens`). Not part of the package API - index.ts does not
+ * export it. It is exported so the tests can run the un-memoized path beside
+ * `reduceRequest` and show the two agree.
+ */
+export function reduceRequestWithCounter(
+  request: unknown,
+  config: MeshTokenReductionConfig,
+  countTokens: TokenCounter,
+): { request: unknown; summary: MeshReductionSummary } {
   const changes: MeshReductionChange[] = [];
 
   const unchanged = (reason: string): { request: unknown; summary: MeshReductionSummary } => ({

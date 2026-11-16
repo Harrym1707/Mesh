@@ -5,7 +5,9 @@ import {
   capToolResultBody,
   digestStaleBody,
   reduceRequest,
+  reduceRequestWithCounter,
   type MeshReductionSummary,
+  type MeshTokenReductionConfig,
 } from "./reduce-request.js";
 
 const LONG_DESCRIPTION =
@@ -853,3 +855,300 @@ describe("reduceRequest: the default levers leave a tool's schema resolvable", (
   });
 });
 
+describe("reduceRequest: the token counter is memoized for one call only", () => {
+  const MEMORY =
+    "Standing notes for this customer: the account is on the annual business plan, billing contact is the " +
+    "finance team, refunds above two hundred pounds need supervisor approval, the customer prefers email over " +
+    "phone, and two earlier tickets about delayed settlement were closed as resolved after a ledger correction. " +
+    "Never promise a settlement date; quote the ledger state instead.";
+
+  const KNOWLEDGE =
+    "Knowledge base article 4471: Refunds issued to a closed card are returned to the original payment method " +
+    "where the issuer supports it, and otherwise credited to the customer wallet within one business day.";
+
+  function policyLines(count: number): string {
+    return Array.from({ length: count }, (_, index) =>
+      `Policy ${index + 1}: when a request falls under category ${index + 1}, check the ledger entry for that ` +
+      `category first, state what the ledger shows, and escalate to tier ${(index % 3) + 1} only when the entry ` +
+      "is missing or disputed by the customer in writing.").join("\n");
+  }
+
+  function settlementLog(task: number): string {
+    const lines = [
+      `Lookup complete for account ${1000 + task}: 3 records found; latest reference R-${task}-2 ` +
+      "with a pending adjustment awaiting supervisor approval.",
+    ];
+    for (let row = 0; row < 18; row += 1) {
+      lines.push(
+        `Record ${row} shows a settlement entry of ${row * 137 + task} pence captured on day ${(row % 28) + 1}, ` +
+        "routed through the refunds subsystem, with reconciliation state nominal, no customer notification " +
+        "sent, and two internal annotations noting routine supervisor review cadence for this category.",
+      );
+    }
+    lines.push("One earlier retry failed with a transient timeout before the record was captured cleanly.");
+    lines.push("The reconciliation ledger lives at ops/settlements/ledger.csv for later checks.");
+    return lines.join(" ");
+  }
+
+  function accountJson(task: number): string {
+    return JSON.stringify({
+      account: { id: 1000 + task, plan: "business-annual", contact: "finance" },
+      refunds: Array.from({ length: 6 }, (_, index) => ({
+        reference: `R-${task}-${index}`,
+        amountPence: 1250 * (index + 1),
+        state: index % 2 === 0 ? "settled" : "pending",
+      })),
+    }, null, 2);
+  }
+
+  function schema(index: number): Record<string, unknown> {
+    return {
+      $schema: "https://json-schema.org/draft/2020-12/schema",
+      type: "object",
+      title: `Lookup${index}Arguments`,
+      properties: {
+        accountId: { type: "string", title: "accountId", description: "Account identifier." },
+        limit: { type: "integer", title: "limit", description: "Maximum records to return.", examples: [10, 50] },
+      },
+      required: ["accountId"],
+    };
+  }
+
+  function description(index: number): string {
+    return `Look up record set ${index} for a customer account. Use this when the customer asks about historical ` +
+      "activity in this subsystem. Returns a paginated list ordered by creation time descending.";
+  }
+
+  /** A multi-tool, multi-turn Anthropic Messages agent request (tool_use / tool_result blocks). */
+  function anthropicAgentRequest(): Record<string, unknown> {
+    return {
+      model: "claude-sonnet-5-5-20260514",
+      max_tokens: 1024,
+      system: `Current time: 2026-11-16T09:30:00Z\nYou are a support agent for a payments company.\n\n` +
+        `${KNOWLEDGE}\n\n${policyLines(40)}\n\n${KNOWLEDGE}`,
+      tools: Array.from({ length: 8 }, (_, index) => ({
+        name: `lookup_${index}`,
+        description: description(index),
+        input_schema: schema(index),
+      })),
+      messages: [
+        { role: "user", content: `${MEMORY}\n\nWhy was my refund delayed?` },
+        { role: "assistant", content: [
+          { type: "text", text: "I will check the account." },
+          { type: "tool_use", id: "toolu_01", name: "lookup_0", input: { accountId: "1003" } },
+        ] },
+        { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_01", content: accountJson(3) }] },
+        { role: "assistant", content: "One refund is pending. Anything else?" },
+        { role: "user", content: `${MEMORY}\n\nWhich settlement entries does it depend on?` },
+        { role: "assistant", content: [
+          { type: "tool_use", id: "toolu_02", name: "lookup_1", input: { accountId: "1003", limit: 50 } },
+        ] },
+        { role: "user", content: [
+          { type: "tool_result", tool_use_id: "toolu_02", content: [{ type: "text", text: settlementLog(3) }] },
+        ] },
+        { role: "assistant", content: "It depends on reference R-3-2, which awaits supervisor approval." },
+        { role: "user", content: `${MEMORY}\n\n${KNOWLEDGE}\n\n${KNOWLEDGE}\n\nCan you summarise that for my finance team?` },
+        { role: "assistant", content: [
+          { type: "tool_use", id: "toolu_03", name: "lookup_2", input: { accountId: "1003" } },
+        ] },
+        { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_03", content: accountJson(4) }] },
+        { role: "assistant", content: "Summary drafted. Shall I send it?" },
+        { role: "user", content: `${MEMORY}\n\nYes, and tell me when the adjustment clears.` },
+        { role: "assistant", content: [
+          { type: "tool_use", id: "toolu_04", name: "lookup_1", input: { accountId: "1003", limit: 10 } },
+        ] },
+        { role: "user", content: [
+          { type: "tool_result", tool_use_id: "toolu_04", content: [{ type: "text", text: settlementLog(5) }] },
+        ] },
+      ],
+    };
+  }
+
+  /** The same conversation shaped for the OpenAI Responses API (`instructions` + `input` items). */
+  function responsesAgentRequest(): Record<string, unknown> {
+    return {
+      model: "gpt-5",
+      instructions: `Current time: 2026-11-16T09:30:00Z\nYou are a support agent for a payments company.\n\n` +
+        `${KNOWLEDGE}\n\n${policyLines(40)}\n\n${KNOWLEDGE}`,
+      tools: Array.from({ length: 8 }, (_, index) => ({
+        type: "function",
+        name: `lookup_${index}`,
+        description: description(index),
+        parameters: schema(index),
+      })),
+      input: [
+        { role: "user", content: `${MEMORY}\n\nWhy was my refund delayed?` },
+        { type: "function_call", call_id: "call_01", name: "lookup_0", arguments: "{\"accountId\":\"1003\"}" },
+        { type: "function_call_output", call_id: "call_01", output: accountJson(3) },
+        { role: "assistant", content: "One refund is pending. Anything else?" },
+        { role: "user", content: `${MEMORY}\n\nWhich settlement entries does it depend on?` },
+        { type: "function_call", call_id: "call_02", name: "lookup_1", arguments: "{\"accountId\":\"1003\",\"limit\":50}" },
+        { type: "function_call_output", call_id: "call_02", output: settlementLog(3) },
+        { role: "assistant", content: "It depends on reference R-3-2, which awaits supervisor approval." },
+        { role: "user", content: `${MEMORY}\n\n${KNOWLEDGE}\n\n${KNOWLEDGE}\n\nCan you summarise that for my finance team?` },
+        { type: "function_call", call_id: "call_03", name: "lookup_2", arguments: "{\"accountId\":\"1003\"}" },
+        { type: "function_call_output", call_id: "call_03", output: accountJson(4) },
+        { role: "assistant", content: "Summary drafted. Shall I send it?" },
+        { role: "user", content: `${MEMORY}\n\nYes, and tell me when the adjustment clears.` },
+        { type: "function_call", call_id: "call_04", name: "lookup_1", arguments: "{\"accountId\":\"1003\",\"limit\":10}" },
+        { type: "function_call_output", call_id: "call_04", output: settlementLog(5) },
+      ],
+    };
+  }
+
+  const DEFAULT_PROXY_LEVERS: MeshTokenReductionConfig = {
+    toolSchemas: true,
+    duplicateContext: true,
+    repairCachePrefix: true,
+  };
+
+  const EVERY_COUNTING_LEVER: MeshTokenReductionConfig = {
+    dropTools: ["lookup_7"],
+    toolSchemas: { descriptions: "truncate", maximumDescriptionTokens: 16 },
+    duplicateContext: true,
+    repairCachePrefix: true,
+    toolResultJson: true,
+    freshToolResultCap: { maximumTokens: 200 },
+    historyCompaction: true,
+    crossTurnMemoryDedup: true,
+    cacheTtl: "5m",
+  };
+
+  const HISTORY_WITHOUT_THE_CAP: MeshTokenReductionConfig = {
+    toolSchemas: true,
+    duplicateContext: true,
+    toolResultJson: true,
+    historyCompaction: { minimumTurns: 2, keepRecentTurns: 1, epochTurns: 1 },
+    cacheTtl: "1h",
+  };
+
+  /** A counter that records how many times it was asked for each string. */
+  function countingCounter(count: (text: string) => number = approximateTokenCount) {
+    const calls = new Map<string, number>();
+    return {
+      calls,
+      counter: (text: string): number => {
+        calls.set(text, (calls.get(text) ?? 0) + 1);
+        return count(text);
+      },
+      total: (): number => [...calls.values()].reduce((sum, times) => sum + times, 0),
+    };
+  }
+
+  /** The reducer's own top-level total, recomputed here with a raw counter. */
+  function topLevelTokens(body: unknown, count: (text: string) => number): number {
+    const fields = body as Record<string, unknown>;
+    return [fields.instructions, fields.system, fields.input, fields.messages, fields.tools]
+      .reduce((sum: number, value) => sum + count(typeof value === "string" ? value : JSON.stringify(value) ?? ""), 0);
+  }
+
+  const SHAPES = [
+    ["Anthropic Messages", anthropicAgentRequest],
+    ["OpenAI Responses", responsesAgentRequest],
+  ] as const;
+  const CONFIGS = [
+    ["the default levers", DEFAULT_PROXY_LEVERS],
+    ["the default levers with a 5m cache stamp", { ...DEFAULT_PROXY_LEVERS, cacheTtl: "5m" }],
+    ["every lever that counts tokens", EVERY_COUNTING_LEVER],
+    ["history compaction without the cap", HISTORY_WITHOUT_THE_CAP],
+  ] as const satisfies ReadonlyArray<readonly [string, MeshTokenReductionConfig]>;
+
+  for (const [shape, makeRequest] of SHAPES) {
+    for (const [name, config] of CONFIGS) {
+      it(`${shape}, ${name}: same result as the un-memoized path, each distinct string counted once`, () => {
+        // The un-memoized path: the reducer handed the raw counter directly.
+        const raw = countingCounter();
+        const rawSummaries: MeshReductionSummary[] = [];
+        const unmemoized = reduceRequestWithCounter(
+          makeRequest(),
+          { ...config, onReduction: (summary) => rawSummaries.push(summary) },
+          raw.counter,
+        );
+
+        // The shipped path: the same counter, passed as config.countTokens.
+        const memo = countingCounter();
+        const memoSummaries: MeshReductionSummary[] = [];
+        const memoized = reduceRequest(makeRequest(), {
+          ...config,
+          countTokens: memo.counter,
+          onReduction: (summary) => memoSummaries.push(summary),
+        });
+
+        // The comparison means something only if the levers actually ran.
+        expect(unmemoized.summary.skipped).toBe(false);
+        expect(unmemoized.summary.changes.length).toBeGreaterThan(0);
+        expect(unmemoized.summary.estimatedTokensSaved).toBeGreaterThan(0);
+
+        // (a) Identical output, byte for byte, and identical token figures:
+        // the totals, the lossless share and every per-lever change.
+        expect(JSON.stringify(memoized.request)).toBe(JSON.stringify(unmemoized.request));
+        expect(memoized.request).toEqual(unmemoized.request);
+        expect(memoized.summary).toEqual(unmemoized.summary);
+        expect(memoSummaries).toEqual(rawSummaries);
+        // The totals also equal a recount made here with the bare counter.
+        expect(memoized.summary.estimatedTokensBefore).toBe(topLevelTokens(makeRequest(), approximateTokenCount));
+        expect(memoized.summary.estimatedTokensAfter).toBe(topLevelTokens(memoized.request, approximateTokenCount));
+
+        // (b) The raw counter is asked at most once per distinct string, for
+        // exactly the strings the un-memoized path counts.
+        expect([...memo.calls.entries()].filter(([, times]) => times > 1)).toEqual([]);
+        expect(new Set(memo.calls.keys())).toEqual(new Set(raw.calls.keys()));
+        expect(memo.total()).toBe(raw.calls.size);
+        // And the un-memoized path does repeat itself, or the memo would be pointless.
+        expect(raw.total()).toBeGreaterThan(raw.calls.size);
+      });
+    }
+  }
+
+  it("does not carry counts from one call into the next, whatever counter each call uses", () => {
+    const byLength = (text: string): number => text.length;
+    const flatSeven = (_text: string): number => 7;
+    const fields = 5; // instructions, system, input, messages, tools
+
+    const first = reduceRequest(anthropicAgentRequest(), { ...EVERY_COUNTING_LEVER, countTokens: byLength });
+    // Same request, a counter that disagrees on every string: a leaked memo
+    // would hand back the lengths counted above.
+    const second = reduceRequest(anthropicAgentRequest(), { ...EVERY_COUNTING_LEVER, countTokens: flatSeven });
+    expect(second.summary.skipped).toBe(false);
+    expect(second.summary.estimatedTokensBefore).toBe(7 * fields);
+    expect(second.summary.estimatedTokensAfter).toBe(7 * fields);
+    expect(second.summary).toEqual(
+      reduceRequestWithCounter(anthropicAgentRequest(), EVERY_COUNTING_LEVER, flatSeven).summary,
+    );
+
+    // Back to the first counter, then the default: each matches its own un-memoized run.
+    const third = reduceRequest(anthropicAgentRequest(), { ...EVERY_COUNTING_LEVER, countTokens: byLength });
+    expect(third).toEqual(first);
+    expect(third.summary.estimatedTokensBefore).toBe(topLevelTokens(anthropicAgentRequest(), byLength));
+    expect(third.summary).toEqual(
+      reduceRequestWithCounter(anthropicAgentRequest(), EVERY_COUNTING_LEVER, byLength).summary,
+    );
+    const fourth = reduceRequest(anthropicAgentRequest(), EVERY_COUNTING_LEVER);
+    expect(fourth.summary).toEqual(
+      reduceRequestWithCounter(anthropicAgentRequest(), EVERY_COUNTING_LEVER, approximateTokenCount).summary,
+    );
+  });
+
+  it("starts each call with an empty memo: a repeated request is counted again in full", () => {
+    const spy = countingCounter();
+    reduceRequest(anthropicAgentRequest(), { ...EVERY_COUNTING_LEVER, countTokens: spy.counter });
+    const afterFirst = spy.total();
+    expect(afterFirst).toBe(spy.calls.size);
+    reduceRequest(anthropicAgentRequest(), { ...EVERY_COUNTING_LEVER, countTokens: spy.counter });
+    expect(spy.total()).toBe(2 * afterFirst);
+    expect([...spy.calls.values()].every((times) => times === 2)).toBe(true);
+  });
+
+  it("does not keep a count that threw: a failing counter skips the request exactly as before", () => {
+    const failing = countingCounter(() => { throw new Error("tokenizer unavailable"); });
+    const memoized = reduceRequest(anthropicAgentRequest(), { ...DEFAULT_PROXY_LEVERS, countTokens: failing.counter });
+    const unmemoized = reduceRequestWithCounter(anthropicAgentRequest(), DEFAULT_PROXY_LEVERS, () => {
+      throw new Error("tokenizer unavailable");
+    });
+    expect(memoized).toEqual(unmemoized);
+    expect(memoized.summary.skipped).toBe(true);
+    expect(memoized.summary.skippedReason).toBe("tokenizer unavailable");
+    // Nothing was remembered, so the strings the reducer asks about twice reached the counter twice.
+    expect([...failing.calls.values()].some((times) => times > 1)).toBe(true);
+  });
+});

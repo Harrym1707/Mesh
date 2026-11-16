@@ -5,6 +5,81 @@ Staged 2026-11-12 on `theo/autonomous-agent`. It reaches `main` through
 to `main`, deployed or published.** Every step below that changes what the
 public gets is the founder's to take.
 
+## Update 2026-11-16 (evening): release 0.2.2, the opt-in JSON tool-result lever, hosted runtime `d83ee89`
+
+Written on branch `release/0.2.2`. **Not merged, not deployed, not published.**
+The sections below describe 0.2.1 and 0.2.0 as they stood.
+
+- **Where things stand.** Release 0.2.1 is out on both channels: the website
+  serves build `5738486` and npm has both packages at 0.2.1 (tag `v0.2.1` at
+  `150558c`). After that tag, `main` gained PR #48 (with PR #47) and PR #46;
+  this branch starts from `main` at `0e16e2a`.
+- **What 0.2.2 adds.**
+  - A new lever, `tool-result-json-compaction` (SDK option `toolResultJson`).
+    It removes the whitespace between JSON tokens in tool results that are, as
+    a whole, one JSON object or array. Every key, string and number is kept as
+    written. **It is off by default** and Theo does not adopt it: a user adds
+    it to `~/.mesh/theo-policy.json` or passes the SDK option. See
+    `docs/guide/configure.md` for how, and for when not to.
+  - `minifyJsonBlocks` in `packages/core` no longer rewrites numbers. No
+    product path calls it.
+  - Lab-only files under `lab/` (PR #46). They are not in the runtime or the
+    npm packages.
+- **What changes for a user who turns nothing on.** The coverage line that
+  `mesh status` prints counts 13 levers instead of 12, so a default policy
+  reads "3/13 enforceable levers (23%)" where it read 3/12 (25%). Theo's
+  report and the dashboard use the same count. Nothing else.
+- **Known limit, shipped as it is.** `mesh theo --apply` writes Theo's policy
+  over the default one in `~/.mesh/theo-policy.json`
+  (`mergePolicyIntoBundle`). A lever a user added by hand, this one included,
+  is not carried over, and nothing tells them. A tester who turns the lever on
+  and later applies a Theo proposal has to add it again.
+  `docs/guide/configure.md` says so. Read from the code; not changed in 0.2.2.
+  **Correction, 2026-11-16 (after release):** this understated it. The same
+  write happens on every background Theo cycle, which `mesh start`,
+  `mesh proxy` and the installed service run by default (at startup and
+  every 15 minutes, once the ledger has any traffic). Reproduced on the
+  shipped runtime `d83ee89` with a 2-second interval: the lever was in the
+  file, the first request was compacted, Theo's next cycle rewrote the file
+  without it, and the next request was forwarded uncompacted. So on 0.2.2
+  the policy-file way of turning the lever on does not last unless the
+  proxy runs with `--no-theo`. The SDK option is not affected. Fixed on the
+  branch `fix/theo-apply-keeps-levers`; it needs a later build to reach
+  users.
+- **Version.** Both packages are 0.2.2 (`d83ee89`), because `v0.2.1` points at
+  a commit without the lever and npm will not publish a version twice.
+- **The hosted runtime** is rebuilt at `d83ee89`, from a clean worktree.
+  Manifest: build `d83ee89`, sha256
+  `7ef1c723a3467acff6aa76f894697eebcbd6f43564c17b249076968395481957`. Only
+  `mesh-runtime` and `mesh-version.json` changed in `docs/site/dist`.
+- **Checked on the built artifact** (2026-11-16, macOS arm64, Node 24):
+  - A clean install from the rebuilt `docs/site/dist` into an empty home gives
+    `mesh 0.2.2 (build d83ee89)`; `mesh verify` passes.
+  - A copy installed from the live site (`mesh 0.2.1 (build 5738486)`) updates
+    itself to `d83ee89` with `mesh update`; `mesh verify` passes after it.
+  - `mesh proxy` from the built runtime, in an empty home, against a stand-in
+    provider: with the default policy a 21,922-character JSON tool result is
+    forwarded byte-identical. After the lever is added to the policy file,
+    with the proxy still running, the same result is forwarded at 15,694
+    characters, parses to the same document, and the rest of the request is
+    unchanged.
+  - The release workflow's steps short of publishing: `pnpm build`, 1,035
+    tests in 69 files at default timeouts, the SDK package and its smoke test,
+    the CLI package and its two smoke tests. Both built packages say 0.2.2.
+  - Not checked: any real provider; any model's answers with the lever on;
+    Linux and Windows locally; `mesh update --rollback` on this build.
+- **To release 0.2.2** (each step is the founder's):
+  1. Merge this branch's pull request into `main` with **"Create a merge
+     commit"** (the runtime is stamped with `d83ee89`, which a squash or
+     rebase would remove from `main`). `pages.yml` then deploys the site, and
+     installed copies update within 24 hours.
+  2. Push the tag `v0.2.2` from `main`. That publishes both npm packages. The
+     trusted publisher was validated by the 0.2.1 publish; nothing needs
+     setting up again.
+  3. In the checks below expect `"version": "d83ee89"` and the sha256 above.
+     `npx -y @harrym1707/mesh version` prints the tagged commit as its build,
+     not `d83ee89`; that is the same source.
+
 ## Update 2026-11-16 (later): release 0.2.1, the integration pathway, hosted runtime `5738486`
 
 Written on branch `integration/tester-pathway`. **Not merged, not deployed, not
