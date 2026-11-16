@@ -18,9 +18,9 @@ the ledger in `~/.mesh/ledger/`.
 | [pilot-agreement.md](./pilot-agreement.md) | Draft lightweight pilot agreement + onboarding email (keys never held, data kept and where, fee basis, no charge if no savings). Not sent and not reviewed by a lawyer. |
 | [VERIFICATION.md](./VERIFICATION.md) | A dated record: the happy-path checks run on 2026-11-07 against the build of that day, kept as written, plus the checks run on 2026-11-16 for this refresh. |
 | [data-handling.md](./data-handling.md) | The data-handling answer, verbatim-usable, sourced to the code paths it describes. |
-| [outreach-litellm.md](./outreach-litellm.md) | Draft letter 1: LiteLLM proxy operator (spend logs ready to triage). Written 2026-10-13; see the note below. |
-| [outreach-helicone.md](./outreach-helicone.md) | Draft letter 2: Helicone user re-evaluating their stack. Written 2026-10-13; see the note below. |
-| [engagement-list.md](./engagement-list.md) | Where the conversation already exists: the named LiteLLM threads, verified 2026-10-13, with draft responses. See the note below. |
+| [outreach-litellm.md](./outreach-litellm.md) | Draft letter 1: LiteLLM proxy operator (spend logs ready to triage). Written 2026-10-13; savings figures refreshed 2026-11-16. |
+| [outreach-helicone.md](./outreach-helicone.md) | Draft letter 2: Helicone user re-evaluating their stack. Written 2026-10-13; savings figures refreshed 2026-11-16. |
+| [engagement-list.md](./engagement-list.md) | Where the conversation already exists: the named LiteLLM threads, verified 2026-10-13, with draft responses. Savings figures refreshed 2026-11-16. |
 
 ## Number discipline
 
@@ -53,10 +53,15 @@ SIMULATOR rows, with the command and commit behind each, are in
 never without the label. A partner's own number comes from their own ledger
 and replaces all of these.
 
-## Older figures in the outreach drafts
+## The outreach drafts
 
 `outreach-litellm.md`, `outreach-helicone.md` and `engagement-list.md` were
-written on 2026-10-13, before `docs/NUMBERS.md` was reconciled, and have not
-been updated. They still label harness figures "measured" and carry figures
-that have since moved. Check every figure in them against `docs/NUMBERS.md`
-before any of them is used.
+written on 2026-10-13. Their MESH savings figures were refreshed to
+`docs/NUMBERS.md` on 2026-11-16: each letter leads with the LIVE 18.2% and
+labels the rest SIMULATOR, and each has a claim audit that names the row in
+`docs/NUMBERS.md` behind every figure. Two things in them were **not**
+re-checked on 2026-11-16 and must be before anything is sent:
+
+- the figures quoted from the public LiteLLM issue threads (last verified
+  2026-10-13);
+- the Helicone "maintenance mode" premise, which has never been verified.

@@ -50,10 +50,18 @@ the proof-of-pain and the audience list.
      third-party evidence — they are public, numbered, and quotable.
   3. If a comment is ever warranted (e.g. a new related issue opens), it must
      be diagnostic-first: offer the reconciliation method, not the product.
-- Standing constraints from the honesty rules: 34.1% never appears in
-  engagement (simulator-measured); 64.3% only with the latency-tolerant +
-  OpenAI-priced caveat; the provider cache's own savings are always credited
-  to the operator; no mention of competitor incidents.
+- Standing constraints from the honesty rules, with figures from
+  [docs/NUMBERS.md](../NUMBERS.md) (last reconciled 2026-10-27; refreshed here
+  2026-11-16):
+  - Lead with the one LIVE figure, 18.2% (mixed 30-request basket of MESH's
+    own test agents, run 2026-10-26). Every other MESH savings figure is
+    SIMULATOR and is said to be.
+  - 34.3% (SIMULATOR, sparse interactive, 1h TTL) never appears in
+    engagement.
+  - The async figure is 57.7% net (SIMULATOR), only with the latency-tolerant
+    and OpenAI-priced caveats; the 64.3% ceiling is never quoted on its own.
+  - The provider cache's own savings are always credited to the operator.
+  - No mention of competitor incidents.
 
 ## Draft comment (held, unposted — only for a future OPEN reconciliation thread)
 
