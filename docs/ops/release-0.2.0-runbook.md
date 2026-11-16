@@ -29,6 +29,12 @@ The sections below describe 0.2.1 and 0.2.0 as they stood.
   `mesh status` prints counts 13 levers instead of 12, so a default policy
   reads "3/13 enforceable levers (23%)" where it read 3/12 (25%). Theo's
   report and the dashboard use the same count. Nothing else.
+- **Known limit, shipped as it is.** `mesh theo --apply` writes Theo's policy
+  over the default one in `~/.mesh/theo-policy.json`
+  (`mergePolicyIntoBundle`). A lever a user added by hand, this one included,
+  is not carried over, and nothing tells them. A tester who turns the lever on
+  and later applies a Theo proposal has to add it again.
+  `docs/guide/configure.md` says so. Read from the code; not changed in 0.2.2.
 - **Version.** Both packages are 0.2.2 (`d83ee89`), because `v0.2.1` points at
   a commit without the lever and npm will not publish a version twice.
 - **The hosted runtime** is rebuilt at `d83ee89`, from a clean worktree.
