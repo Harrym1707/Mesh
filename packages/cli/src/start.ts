@@ -123,7 +123,8 @@ function parseStart(argv: string[]): StartArgs {
           `                          test | optimise (default recommend).\n` +
           `  --theo-interval <dur>   How often Theo runs a cycle (e.g. 15m, 1h; default 15m).\n` +
           `  --no-theo               Don't run Theo alongside the proxy; just serve.\n` +
-          `  --no-install            Don't touch ~/.claude/settings.json; just run the proxy.\n` +
+          `  --no-install            Don't touch ~/.claude/settings.json; just run the proxy\n` +
+          `                          (the same as: mesh proxy).\n` +
           `  --help                  Show this message.`,
       );
       process.exit(0);
@@ -275,17 +276,49 @@ export async function startProxyWithPolicy(
   // on an event always matches the policy that reduced it.
   const liveVerdicts = (modelId?: string): ReturnType<typeof bundleGateVerdicts> =>
     bundleGateVerdicts(cached.bundle, modelId ?? "");
-  const proxy = await startMeshProxy({
-    port,
-    ledgerDirectory: ledgerDir,
-    tokenReduction: liveReduction,
-    gateVerdicts: liveVerdicts,
-    blindFeaturesKey: blindKey(),
-    ...(capture ? { requestCapture: capture } : {}),
-    ...(upstreams.anthropicUpstream ? { anthropicUpstream: upstreams.anthropicUpstream } : {}),
-    ...(upstreams.openaiUpstream ? { openaiUpstream: upstreams.openaiUpstream } : {}),
-  });
+  let proxy: Awaited<ReturnType<typeof startMeshProxy>>;
+  try {
+    proxy = await startMeshProxy({
+      port,
+      ledgerDirectory: ledgerDir,
+      tokenReduction: liveReduction,
+      gateVerdicts: liveVerdicts,
+      blindFeaturesKey: blindKey(),
+      ...(capture ? { requestCapture: capture } : {}),
+      ...(upstreams.anthropicUpstream ? { anthropicUpstream: upstreams.anthropicUpstream } : {}),
+      ...(upstreams.openaiUpstream ? { openaiUpstream: upstreams.openaiUpstream } : {}),
+    });
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === "EADDRINUSE") throw new Error(await portInUseMessage(port));
+    throw cause;
+  }
   return { proxy, policy };
+}
+
+/**
+ * What to tell someone whose port is taken. The usual reason is that MESH is
+ * already running there (the always-on service, or another terminal), in which
+ * case nothing needs starting; otherwise another program has the port.
+ */
+export async function portInUseMessage(port: number): Promise<string> {
+  let isMesh = false;
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/mesh/health`, { signal: AbortSignal.timeout(1500) });
+    const text = await response.text();
+    // A current build answers its health check; a build from before the health
+    // check answers 404 with its own "MESH proxy ..." sentence. Both are MESH.
+    isMesh = text.includes('"mesh-proxy"') || text.includes("MESH proxy");
+  } catch {
+    isMesh = false;
+  }
+  // A port to suggest that the option parser will accept.
+  const other = port < 65535 ? port + 1 : port - 1;
+  return isMesh
+    ? `MESH is already running on port ${port} (see: mesh status). If that is the always-on service, ` +
+      `Claude Code is already using it; an app can use it at http://127.0.0.1:${port}. ` +
+      `Otherwise stop the other copy first, or run this one beside it: add --port ${other}.`
+    : `Port ${port} is in use by another program. Start MESH on a free port instead: add --port ${other} ` +
+      `(and use that port in your base URL).`;
 }
 
 /**
@@ -409,7 +442,7 @@ export async function runStart(argv: string[]): Promise<void> {
     } else {
       console.log(`  ${T} — no requests ran through MESH this session.`);
     }
-    console.log(`  Claude Code restored. Bye.`);
+    console.log(args.install ? `  Claude Code restored. Bye.` : `  Bye.`);
     process.exit(0);
   };
   process.on("SIGINT", () => { void shutdown(); });
@@ -433,12 +466,19 @@ export async function runStart(argv: string[]): Promise<void> {
   console.log(`  MESH is running  ·  build ${BUILD_COMMIT}`);
   console.log(`  proxy    ${proxy.url}`);
   console.log(`  ledger   ${args.ledgerDir}  (hash-chained; recompute any time with: mesh verify)`);
-  if (args.install) console.log(`  claude   pointed at MESH via ~/.claude/settings.json  (restored on exit)`);
-  else console.log(`  claude   not configured (--no-install); set ANTHROPIC_BASE_URL=${proxy.url} yourself`);
-  // MESH is not Claude-specific: any OpenAI-style client works by pointing its
-  // base URL here and keeping its own key. The proxy picks the upstream from
-  // the request (Anthropic vs OpenAI-style) and your key passes straight through.
-  console.log(`  openai   point any OpenAI-style client here: OPENAI_BASE_URL=${proxy.url}/v1  (keep your own key)`);
+  // MESH is not Claude-specific: any client works by pointing its base URL here
+  // and keeping its own key. The proxy picks the upstream from the request
+  // (Anthropic vs OpenAI-style) and the key passes straight through.
+  if (args.install) {
+    console.log(`  claude   pointed at MESH via ~/.claude/settings.json  (restored on exit)`);
+    console.log(`  openai   point any OpenAI-style client here: OPENAI_BASE_URL=${proxy.url}/v1  (keep your own key)`);
+  } else {
+    console.log(`  connect  Anthropic clients   ANTHROPIC_BASE_URL=${proxy.url}`);
+    console.log(`           OpenAI-style        OPENAI_BASE_URL=${proxy.url}/v1`);
+    console.log(`           Keep your own API key. Calls MESH does not reduce (embeddings, token`);
+    console.log(`           counting, uploads) pass straight through to your provider.`);
+    console.log(`  claude   left alone (Claude Code's settings were not touched)`);
+  }
   if (args.openaiUpstream) console.log(`  upstream OpenAI-style traffic → ${args.openaiUpstream}`);
   if (args.anthropicUpstream) console.log(`  upstream Anthropic traffic → ${args.anthropicUpstream}`);
   console.log("");
@@ -458,7 +498,9 @@ export async function runStart(argv: string[]): Promise<void> {
     console.log(`  ${T}   may not apply myself, I'll put to you here.`);
   }
   console.log("");
-  console.log(`  Just use Claude Code as normal. Press Ctrl+C to stop (Claude Code reverts cleanly).`);
+  console.log(args.install
+    ? `  Just use Claude Code as normal. Press Ctrl+C to stop (Claude Code reverts cleanly).`
+    : `  Run your app as normal. Check the proxy is up: curl ${proxy.url}/mesh/health   ·   Ctrl+C to stop.`);
   console.log("");
 
   // ---- Theo's monitor: report verified savings as they accrue ----

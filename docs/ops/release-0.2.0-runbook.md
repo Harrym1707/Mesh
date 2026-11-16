@@ -5,6 +5,75 @@ Staged 2026-11-12 on `theo/autonomous-agent`. It reaches `main` through
 to `main`, deployed or published.** Every step below that changes what the
 public gets is the founder's to take.
 
+## Update 2026-11-16 (later): release 0.2.1, the integration pathway, hosted runtime `5738486`
+
+Written on branch `integration/tester-pathway`. **Not merged, not deployed, not
+published.** The sections below still describe 0.2.0.
+
+- **Where things stand.** `main` is `ca73b64` (PR #44) and the website serves
+  build `73dcdfe`. The tag `v0.2.0` was pushed at `ca73b64` on the founder's
+  word. Its release run failed twice and **published nothing**:
+  1. First attempt: `pnpm test` failed on a timing race in
+     `packages/cli/src/start-theo.test.ts` (fixed on this branch, `47a3474`).
+  2. Re-run: tests passed; `npm publish` was refused with
+     `403 ... OIDC permission denied for this action`.
+- **Why npm refused.** A trusted publisher created on npmjs.com after
+  2026-09-03 allows only `npm stage publish` unless "npm publish" is ticked
+  under **Allowed actions** (npm docs, "Trusted publishing", read 2026-11-16).
+  The repository, workflow and user fields matched, or the error would have
+  been an authentication failure. A connection cannot be edited: delete it and
+  create it again with **npm publish** ticked, for both `@harrym1707/sdk` and
+  `@harrym1707/mesh`. A new connection must complete its first publish within
+  2 days or it expires.
+- **What this branch fixes.** Found by driving the proxy with the real
+  Anthropic and OpenAI client libraries (TypeScript and Python) and the Claude
+  Code command-line tool, against a stand-in provider:
+  - Any POST other than the three generation endpoints got MESH's own 404:
+    token counting, embeddings, batches, file uploads, deletes. They are now
+    forwarded unchanged (`1c91349`).
+  - Passthrough requests picked the provider from `x-api-key` alone. Current
+    Anthropic SDKs and a Claude subscription login send a bearer token, so
+    their `GET /v1/models` went to the OpenAI upstream carrying an Anthropic
+    credential. Build `73dcdfe` and every earlier build have this.
+  - The query string (`?beta=true`) was dropped; an untouched request was
+    re-serialised (`1.0` became `1`); an unreadable body got MESH's 400.
+  - New: `mesh proxy` (MESH in front of any app, Claude Code left alone),
+    `GET /mesh/health`, and a taken port now says what to do.
+- **Version.** Both packages are 0.2.1, because `v0.2.0` points at a commit
+  without these fixes and npm will not publish a version twice.
+- **An independent review** of the passthrough (a separate agent, against
+  stub upstreams) found eight more defects, all fixed in `5738486` with a test
+  each: `Expect: 100-continue` uploads got a 502 (curl sends it for every body
+  over 1 MB); a request naming no provider was forwarded on a guess; redirects
+  were followed inside the proxy, carrying `x-api-key` to the target; a
+  response that broke off upstream looked complete; `HEAD /mesh/health`
+  reached the provider; localhost cookies were forwarded; a streamed upload
+  lost its `Content-Length`; three wrong cases in the taken-port message.
+- **The hosted runtime** is rebuilt at `5738486`. Manifest: build `5738486`,
+  sha256 `fe15e886695cfc27f4ff2e589c8877fb98de9f604bc0120b5d6d426f9c39f8ae`.
+- **Checked on the built artifact** (2026-11-16, macOS arm64, Node 24): a
+  clean install from the rebuilt `docs/site/dist` into an empty home gives
+  `mesh 0.2.1 (build 5738486)`; `mesh verify` passes; `mesh proxy` answers its
+  health check; the official Python SDKs (anthropic 2.8.0, openai 3.51.0),
+  configured only through `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL`, pass 9 of
+  9 calls; a second copy on the same port prints the "already running"
+  sentence; `mesh status` and `mesh verify` read the resulting ledger.
+  A copy installed from the live site (`73dcdfe`) updates itself to
+  `5738486`; the real Claude Code tool completes a turn through `mesh start`
+  and its settings are restored on exit; a 2.2 MB `curl` POST returns 200.
+  `corepack pnpm test`: 1002 passed. No real provider was called.
+- **To release 0.2.1** (each step is the founder's):
+  1. Merge this branch's pull request into `main` with a merge commit. The
+     website then serves build `5738486` and installed copies update within
+     24 hours.
+  2. On npmjs.com, recreate the trusted publisher for both packages with
+     **npm publish** allowed.
+  3. Push the tag `v0.2.1` from `main`. Do not re-run the `v0.2.0` release:
+     it would publish the build without these fixes.
+  4. The public one-line command `npx -y -p @harrym1707/sdk mesh-proxy`
+     installs sdk 0.1.1 (2026-11-05) until step 3 succeeds.
+- **For testers:** `docs/pilot/TESTER-GUIDE.md` (draft, not sent).
+
 ## Update 2026-11-16: tool-schema fix, hosted runtime `73dcdfe`
 
 Written after the release was merged; the sections below are as they stood

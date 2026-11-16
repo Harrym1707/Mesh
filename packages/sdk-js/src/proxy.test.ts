@@ -23,7 +23,17 @@ function stubUpstream(seen: AnyObject[]): Promise<{ server: Server; url: string 
     const chunks: Buffer[] = [];
     req.on("data", (c: Buffer) => chunks.push(c));
     req.on("end", () => {
-      const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as AnyObject;
+      const raw = Buffer.concat(chunks).toString("utf8");
+      let body: AnyObject;
+      try {
+        body = JSON.parse(raw) as AnyObject;
+      } catch {
+        // What a provider does with a body it cannot read: its own 400.
+        seen.push({ path: req.url, headers: req.headers, raw });
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(JSON.stringify({ type: "error", error: { type: "invalid_request_error", message: "provider says: not JSON" } }));
+        return;
+      }
       seen.push({ path: req.url, headers: req.headers, body });
       const inputTokens = Math.ceil(JSON.stringify(body).length / 4);
       if (req.url === "/v1/messages" && body.stream === true) {
@@ -168,17 +178,27 @@ describe("MESH proxy mode", () => {
     expect(sent.headers.authorization).toBe("Bearer caller-key");
   });
 
-  it("rejects paths it does not proxy with a helpful message, touching nothing", async () => {
+  it("forwards a path it does not reduce to the provider, and answers the root itself", async () => {
+    const before = seen.length;
     const res = await fetch(`${proxy.url}/v1/other`, { method: "POST", body: "{}" });
-    expect(res.status).toBe(404);
-    expect(((await res.json()) as AnyObject).error).toContain("base_url");
+    // The provider's own answer for an endpoint it does not have, not MESH's.
+    expect(res.status).toBe(500);
+    expect(((await res.json()) as AnyObject).error).toContain("unexpected path /v1/other");
+    expect(seen.length).toBe(before + 1);
+
+    const root = await fetch(`${proxy.url}/`);
+    expect(root.status).toBe(404);
+    expect((((await root.json()) as AnyObject).error as AnyObject).message).toContain("base URL");
+    expect(seen.length).toBe(before + 1);
   });
 
-  it("rejects a non-JSON body without contacting the upstream", async () => {
+  it("forwards a body it cannot read as it came, and returns the provider's own error", async () => {
     const before = seen.length;
     const res = await fetch(`${proxy.url}/v1/messages`, { method: "POST", body: "not json" });
     expect(res.status).toBe(400);
-    expect(seen.length).toBe(before);
+    expect((((await res.json()) as AnyObject).error as AnyObject).message).toBe("provider says: not JSON");
+    expect(seen.length).toBe(before + 1);
+    expect((seen[seen.length - 1] as AnyObject).raw).toBe("not json");
   });
 });
 
