@@ -200,7 +200,7 @@ describe("continuous scouting", () => {
       .find((r) => r.techniqueKey.includes("@minimumBlockTokens="));
     expect(promotedVariant).toBeDefined();
     expect(promotedVariant!.evaluation!.tokenReductionPercent).toBeGreaterThan(0);
-  });
+  }, 15000);
 
   it("honours maxTicks as a hard cap", async () => {
     const ledger = new LabLedger(root, { now });

@@ -53,6 +53,29 @@ describe("approximate token count", () => {
     const prose = "a".repeat(json.length);
     expect(approximateTokenCount(json)).toBeGreaterThan(approximateTokenCount(prose));
   });
+
+  // Exact values, pinned so a future rewrite of the classification loop (the
+  // chunk is re-classified by matched capture group, not by re-testing
+  // match[0] against two more regexes — see the proxy-overhead profiling in
+  // docs/rnd) cannot silently change what gets billed as "tokens saved".
+  it.each([
+    ["   ", 0], // whitespace with no newline carries no token
+    ["\n", 1],
+    ["\n\n\n", 3],
+    ["a\n\nb", 4], // "a"(1) + two newlines(2) + "b"(1)
+    [" \t\n ", 1], // one newline inside a mixed whitespace run
+    ["a", 1], // single char still costs a whole token (the max(1, ...) floor)
+    ["hello", 2], // ceil(5/4.5)
+    ["12345", 2], // digits are \p{N}, same word-rate as letters
+    ["don't", 2], // the apostrophe stays inside the word run, not punctuation
+    ["!!!", 2], // ceil(3/2), punctuation tokenizes denser than prose
+    [".", 1],
+    ["hello, world!", 6], // "hello"(2) + ","(1) + " "(0) + "world"(2) + "!"(1)
+    ["héllo", 2], // accented Latin letters are \p{L}; still one word run
+    ["日本語", 1], // three CJK \p{L} chars, ceil(3/4.5)
+  ] as const)("counts %j as %i", (text, expected) => {
+    expect(approximateTokenCount(text)).toBe(expected);
+  });
 });
 
 describe("dedupeRepeatedBlocks", () => {
