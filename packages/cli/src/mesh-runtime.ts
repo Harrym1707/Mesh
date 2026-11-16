@@ -15,6 +15,8 @@ Usage: mesh <command> [options]
 
   start      Start the MESH proxy, point Claude Code at it, and run Theo
              alongside you. One command; reverts cleanly on exit.
+  proxy      Start the MESH proxy for any app or agent: point its base URL at
+             MESH and keep your own key. Leaves Claude Code alone.
   install    Always-on: run MESH as a background service so every Claude Code
              session is optimised, with nothing to start by hand.
   stop       Stop the background service (kept, resume with install); restore Claude Code.
@@ -40,6 +42,9 @@ async function main(): Promise<void> {
   const sub = process.argv[2];
   if (sub === "start") {
     await (await import("./start.js")).runStart(process.argv.slice(3));
+  } else if (sub === "proxy") {
+    // The same proxy and Theo as `start`, for an application rather than Claude Code.
+    await (await import("./start.js")).runStart(["--no-install", ...process.argv.slice(3)]);
   } else if (sub === "serve") {
     await (await import("./start.js")).runServe(process.argv.slice(3));
   } else if (sub === "install") {

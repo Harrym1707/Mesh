@@ -13,6 +13,8 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const MAIN = fileURLToPath(new URL("./main.ts", import.meta.url));
+// What a downloaded user actually runs: the runtime has its own command table.
+const RUNTIME = fileURLToPath(new URL("./mesh-runtime.ts", import.meta.url));
 
 const sleep = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms));
 async function waitFor(check: () => boolean, timeoutMs = 20_000): Promise<boolean> {
@@ -61,10 +63,10 @@ describe("mesh start — Theo runs alongside the proxy", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
-  function start(extra: string[], command: string[] = ["start", "--no-install"]): { output: () => string } {
+  function start(extra: string[], command: string[] = ["start", "--no-install"], entry = MAIN): { output: () => string } {
     let text = "";
     const port = command.includes("--port") ? [] : ["--port", "0"];
-    child = spawn(process.execPath, ["--import", "tsx", MAIN, ...command, ...port, ...extra], {
+    child = spawn(process.execPath, ["--import", "tsx", entry, ...command, ...port, ...extra], {
       env: { ...process.env, HOME: home },
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -125,6 +127,16 @@ describe("mesh start — Theo runs alongside the proxy", () => {
     expect(existsSync(join(home, ".mesh", "ledger", "theo", "local.json"))).toBe(false);
   });
 
+  it("the shipped runtime knows every client command the developer entry lists", () => {
+    const commands = (file: string): string[] =>
+      [...readFileSync(file, "utf8").matchAll(/^ {2}([a-z]+) {2,}\S/gm)].map((match) => match[1]!);
+    const shipped = new Set(commands(RUNTIME));
+    // `analyse` is a developer tool and deliberately not in the download.
+    const missing = commands(MAIN).filter((name) => name !== "analyse" && !shipped.has(name));
+    expect(missing).toEqual([]);
+    expect(shipped.has("proxy")).toBe(true);
+  });
+
   it("a taken port gets a sentence a person can act on, not a system error", { timeout: 40_000 }, async () => {
     // Taken by another program.
     provider = await stubProvider();
@@ -153,7 +165,8 @@ describe("mesh start — Theo runs alongside the proxy", () => {
     mkdirSync(join(home, ".claude"), { recursive: true });
     writeFileSync(settingsPath, settings);
 
-    const { output } = start(["--anthropic-base", provider.url, "--no-theo"], ["proxy"]);
+    // Through the shipped runtime entry, not the developer one.
+    const { output } = start(["--anthropic-base", provider.url, "--no-theo"], ["proxy"], RUNTIME);
     expect(await waitFor(() => /proxy\s+http:\/\/127\.0\.0\.1:\d+/.test(output()))).toBe(true);
     const proxyUrl = /proxy\s+(http:\/\/127\.0\.0\.1:\d+)/.exec(output())![1]!;
     expect(await waitFor(() => output().includes("Run your app as normal."))).toBe(true);
