@@ -1,137 +1,193 @@
-# MESH pilot onboarding — the one canonical path
+# MESH pilot onboarding — the one path
 
-There is more than one way to run MESH (proxy via npm, the `mesh` launcher, the
-SDK wrapper, build-from-source). **For a pilot, use exactly one of them so every
-partner is set up the same way and every ledger lands in the same place.** This
-is that path. Everything here was run end-to-end on `main` on 2026-11-07; see
-[VERIFICATION.md](./VERIFICATION.md) for the exact commands and output.
+Since release 0.2.1 (2026-11-16) there is one way to set MESH up: install it
+from the website, then run `mesh start` (Claude Code) or `mesh proxy` (any
+other app or agent). Every design partner is set up this way, so every ledger
+lands in the same place.
+
+The step-by-step for the person at the keyboard is the
+[tester guide](./TESTER-GUIDE.md). This page does not repeat it. It says what a
+design partner does, what to agree at kickoff, and the details the operator
+needs. A pilot partner follows the same steps as any tester; what a pilot adds
+is the [agreement](./pilot-agreement.md), an agreed measuring window and an
+invoice the partner can check at the end.
+
+**Draft.** Nothing here has been sent to anyone. MESH has not yet run on a
+customer's real traffic; a pilot is the first time it will.
 
 ---
 
-## The canonical path: proxy mode via npm
+## What a partner does
 
-One command starts a local proxy; one line of config points the partner's app at
-it. Any language, any OpenAI- or Anthropic-compatible client. The partner's API
-key passes through verbatim — MESH never holds it.
+Needs Node.js 22 or newer, on macOS or Linux. The Windows path has not been
+walked with anyone yet.
 
-### 1. Start the proxy
+### 1. Install
+
+```bash
+curl -fsSL https://www.mesh-technology.com/install.sh | sh
+```
+
+`mesh version` should print `mesh 0.2.1` or later. `mesh doctor` checks Node,
+the proxy, the Claude Code wiring, the background service and the ledger.
+
+### 2. Connect — one of two commands
+
+| The partner runs | Command | What it does |
+|---|---|---|
+| Claude Code | `mesh start` | Starts the proxy, points Claude Code at it through `~/.claude/settings.json`, and puts the setting back on Ctrl+C |
+| Their own app or agent | `mesh proxy` | Starts the same proxy and leaves Claude Code alone. The partner sets one base URL and keeps their own API key |
+
+For `mesh proxy` the setting is `ANTHROPIC_BASE_URL=http://127.0.0.1:8787` for
+Anthropic clients, or `OPENAI_BASE_URL=http://127.0.0.1:8787/v1` for OpenAI and
+OpenAI-compatible clients. The command prints both.
+
+- **Same machine.** The proxy listens on `127.0.0.1` only, so it runs on the
+  machine (or in the container) that the calling app runs on.
+- **Another OpenAI-compatible provider:** `mesh proxy --openai-base https://your-provider.example`.
+- **Port 8787 taken:** `mesh proxy --port 8788`, and use 8788 in the base URL.
+
+### 3. Check it is working
+
+1. `curl http://127.0.0.1:8787/mesh/health` prints
+   `{"status":"ok","service":"mesh-proxy"}`.
+2. After the first request, the MESH window prints `1 request seen`.
+3. `mesh verify` ends with `All checks passed.`
+4. `mesh status` shows requests seen and the saving so far.
+
+If the request count never moves, the app is still talking to the provider
+directly: the base URL has not reached it. `mesh doctor` checks the rest.
+
+### 4. Run normal traffic for the agreed window
+
+Nothing else changes for the partner. Each request MESH reduces appends one
+line to the ledger.
+
+### 5. Recompute the figure
+
+```bash
+mesh verify
+```
+
+It re-checks the hash chain of every ledger file in `~/.mesh/ledger/` and
+recomputes the invoice figure from them, with no network calls.
+
+For a second opinion that shares no code path with the installed `mesh`, the
+MIT-licensed `@harrym1707/verify` package (0.1.0) does the same recompute on
+one ledger file at a time:
+
+```bash
+npx -y -p @harrym1707/verify mesh-verify ~/.mesh/ledger/proxy-anthropic.jsonl
+```
+
+Name the file. `mesh-verify` reads exactly one file, and it is not meant for
+the `.features.jsonl` files that sit beside the ledger (see below): given one
+of those it reports a broken chain. If the partner's recomputation disagrees
+with ours, theirs wins.
+
+---
+
+## Where the ledger is
+
+**`~/.mesh/ledger/`**, for both `mesh start` and `mesh proxy`.
+
+| File | What it is |
+|---|---|
+| `proxy-anthropic.jsonl`, `proxy-openai.jsonl` | The ledger: one hash-chained file per application and provider. Usage numbers, lever names and hashes; no prompt or answer text. This is what an invoice is computed from |
+| `*.features.jsonl` | Not the ledger. Counts and keyed hashes Theo uses to tune MESH, with no content. Not needed for billing; do not pass these files to `mesh-verify` |
+
+The file name starts with `proxy` unless the app sends an `x-mesh-application`
+header, in which case it starts with that name.
+
+Keep the default location. `mesh start` and `mesh proxy` accept `--ledger <dir>`,
+but `mesh verify` reads `~/.mesh/ledger/` only, so a ledger written somewhere
+else is not covered by it.
+
+## What to agree at kickoff
+
+Record these in the [engagement list](./engagement-list.md):
+
+1. **Which command:** `mesh start` or `mesh proxy`, and on which machine.
+2. **The window.** A pilot is about four weeks end to end; 14 days of that is
+   measurement ([PILOT_PLAN.md](./PILOT_PLAN.md) has the timeline).
+3. **Theo stays on `recommend`,** the default. He applies lossless levers on
+   his own and puts anything that changes what is sent to the partner as a
+   proposal (`mesh theo --proposals`, `--accept`, `--reject`). Nobody turns on
+   `--autonomy optimise` during a pilot: automatic adoption is not ready for
+   real traffic.
+4. **Levers.** A fresh install enforces three lossless levers: tool-schema
+   compaction, duplicate-context removal and cache-prefix repair. A lossy
+   lever runs only if the partner accepts a proposal for it.
+5. **How the ledger reaches us** at the end of the window: the partner sends
+   the ledger files from `~/.mesh/ledger/` (not the `.features.jsonl` files)
+   after looking at them.
+6. **The build can change during the window.** The installed `mesh` keeps
+   itself up to date from the website (each runtime is checked against its
+   published checksum before it runs). Note what `mesh version` prints at
+   kickoff and at the end. `mesh update --rollback` goes back to the previous
+   runtime.
+
+---
+
+## No-install alternative: the proxy from npm
+
+> **Not the pilot default.** Use this only for a partner who will not install
+> anything. It is the proxy on its own, and its ledger is in a different
+> folder.
 
 ```bash
 npx -y -p @harrym1707/sdk mesh-proxy
 ```
 
-It prints:
+It listens on `http://127.0.0.1:8787` and the app is pointed at it in the same
+way. What differs from the installed `mesh`:
 
-```
-MESH proxy listening on http://127.0.0.1:8787
-Ledger spools: <cwd>/mesh-ledger
-```
+- **Ledger folder: `./mesh-ledger/`** in the folder the command was started
+  from, not `~/.mesh/ledger/`.
+- No Theo, no `mesh dashboard`, no `mesh status`, no `mesh verify`.
+- Settings are environment variables: `MESH_PROXY_PORT` (default `8787`),
+  `MESH_PROXY_LEDGER_DIR` (default `./mesh-ledger`), and `MESH_PROXY_CACHE_TTL`
+  (`5m` or `1h`) to switch on the Anthropic prompt-cache stamp, which is off
+  unless set.
+- The recompute is the independent tool, one file at a time:
+  `npx -y -p @harrym1707/verify mesh-verify mesh-ledger/proxy-anthropic.jsonl`.
 
-- **Ledger location (canonical): `./mesh-ledger/` in the directory you ran it
-  from.** One hash-chained `.jsonl` spool per application+provider. This is the
-  file the operator collects at billing time — agree on the directory up front.
-- Port and ledger dir are overridable: `MESH_PROXY_PORT` (default `8787`),
-  `MESH_PROXY_LEDGER_DIR` (default `./mesh-ledger`).
-- Lossless levers only by default. The Anthropic prompt-cache stamp is opt-in:
-  set `MESH_PROXY_CACHE_TTL=5m` (or `1h`) to enable it.
+If a partner uses this, write the ledger folder down at kickoff; the operator's
+billing step reads from it.
 
-### 2. Point the client at it (one line, no SDK adoption)
+## From source
 
-```js
-// Anthropic SDK
-const anthropic = new Anthropic({ baseURL: "http://127.0.0.1:8787" });
-// OpenAI SDK (and any OpenAI-compatible provider)
-const openai = new OpenAI({ baseURL: "http://127.0.0.1:8787/v1" });
-```
-
-**Non-SDK / other-language clients set the base URL manually** — point whatever
-HTTP client the app uses at `http://127.0.0.1:8787` (Anthropic) or
-`http://127.0.0.1:8787/v1` (OpenAI-style) and keep sending your own key in the
-usual header. MESH forwards `x-api-key` / `Authorization` untouched.
-
-### 3. Let it run, then recompute
-
-Run normal traffic for the pilot window. At any time the partner can verify the
-ledger themselves — no MESH involvement, MIT-licensed, zero dependencies:
-
-```bash
-npx -y -p @harrym1707/verify mesh-verify ./mesh-ledger/*.jsonl
-```
-
-This re-checks the hash chain and recomputes the invoice figure. If the
-partner's recomputation disagrees with ours, theirs wins.
-
----
-
-## Claude Code users: the zero-config alternative
-
-If the design partner uses Claude Code, they can skip the manual base-URL step
-and use the `mesh` launcher, which wires Claude Code automatically and ships a
-live dashboard and self-check:
-
-```bash
-npx -y @harrym1707/mesh start      # or: curl -fsSL https://www.mesh-technology.com/install.sh | sh
-```
-
-`mesh start`:
-
-- writes `ANTHROPIC_BASE_URL` into `~/.claude/settings.json` and **reverts it on
-  exit** (Ctrl+C), so Claude Code is never left pointing at a stopped proxy;
-- writes its ledger to **`~/.mesh/ledger`** (note: a *different* location from
-  the proxy path above — pick one convention per partner);
-- gives you `mesh dashboard` (a live local savings view) and `mesh verify` (a
-  four-check self-proof: provenance, reducer, ledger chain, deterministic
-  recompute).
-
-**Always-on mode (`mesh install`, a launchd background service) is macOS-only.**
-On Linux/Windows use `mesh start` per session, or the proxy path above.
-
-> The launcher fetches a checksum-verified runtime from
-> `https://www.mesh-technology.com` on first run. That endpoint is live and the
-> runtime's sha256 matches its manifest (verified 2026-11-07), but it pins a
-> runtime build (`c8378ea`, published 2026-11-05) that can lag `main`. For a
-> pilot where you want a known build, prefer the npm proxy path or
-> build-from-source.
-
----
-
-## Fallback: build from source (no website, no npm)
-
-For a partner who would rather run audited source than an npm package:
+For a partner who would rather run source they have read:
 
 ```bash
 git clone https://github.com/Harrym1707/Mesh && cd Mesh
-corepack enable && pnpm install && pnpm build
-node --import tsx evals/run-proxy.ts          # the same proxy, from source → ./mesh-ledger/
+corepack pnpm install && corepack pnpm build
+node --import tsx packages/cli/src/main.ts proxy
 ```
 
-Then point the client at `http://127.0.0.1:8787` exactly as above.
+This is the same `mesh` command table run in place, so the ledger is still
+`~/.mesh/ledger/`, and `verify`, `status` and `doctor` are run the same way
+(`node --import tsx packages/cli/src/main.ts verify`). A source run reports
+itself as `mesh 0.0.0 (build dev)` and does not update itself.
 
-> **Build gotcha:** `pnpm build` compiles the libraries but **not** the `mesh`
-> CLI (it is bundled separately). To run `mesh start` / `dashboard` / `verify`
-> from source, use tsx directly, e.g.
-> `node --import tsx packages/cli/src/main.ts verify`, or run `pnpm build:cli`.
+## What MESH never does (on every path)
 
----
+- Never holds the partner's API key. It passes through to their provider.
+- Never stores prompt or answer text in the ledger. Request capture, which
+  does write prompt text to a local file the partner names, is off unless they
+  turn it on with `--capture`.
+- Never takes what was spent from its own counting: spend comes from the
+  provider's reported usage. Where the saving of a token-reduction lever is an
+  estimate of the tokens it removed, the ledger line and the invoice line say
+  `estimated-baseline`.
+- Never charges without a ledger the partner can recompute. No saving means
+  `do_not_charge`, and the invoice is $0.
 
-## Which locations hold what (so nothing gets lost)
+## What was checked, and when
 
-| Path | Proxy command | Ledger location | Claude Code wiring |
-|---|---|---|---|
-| **Canonical (pilot)** | `npx -p @harrym1707/sdk mesh-proxy` | `./mesh-ledger/` | manual base URL |
-| Claude Code launcher | `npx @harrym1707/mesh start` | `~/.mesh/ledger` | automatic, reverted on exit |
-| From source | `node --import tsx evals/run-proxy.ts` | `./mesh-ledger/` | manual base URL |
-
-Agree on **one** row per design partner at kickoff and record it in the
-[engagement-list](./engagement-list.md). The operator's billing step
-([runbook.md → Operator playbook](./runbook.md#operator-playbook--manual-billing))
-reads from whichever location you chose.
-
-## What MESH never does (holds on every path)
-
-- Never holds your API key — it passes through verbatim to your provider.
-- Never stores prompt or completion content — the ledger records usage numbers,
-  lever names and hashes only.
-- Never bills from estimates — only provider-reported usage.
-- Never charges without your own recomputable ledger agreeing. No savings →
-  `do_not_charge` → $0.
+The commands on this page were checked against the code on `main` on
+2026-11-16, and the `mesh proxy` path was run from source that day against a
+stand-in provider, with no real provider key. The details are in the dated
+section at the end of [VERIFICATION.md](./VERIFICATION.md). The release's own
+checks on the installed 0.2.1 build are in
+[the release runbook](../ops/release-0.2.0-runbook.md).

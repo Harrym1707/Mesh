@@ -1,5 +1,27 @@
 # Happy-path verification — VERIFIED / BROKEN
 
+> **This is a dated record, and it predates MESH 0.2.1.** The checks under
+> "Record of 2026-11-07" were run on that day against the runtime then
+> published and are kept as written. Since release 0.2.1 (2026-11-16) the
+> setup path is different: install from the website, then `mesh start` or
+> `mesh proxy`, with the ledger in `~/.mesh/ledger/`
+> ([onboarding.md](./onboarding.md)). Where the 0.2.1 checks are recorded:
+>
+> - the release's own checks on the installed 0.2.1 build:
+>   [docs/ops/release-0.2.0-runbook.md](../ops/release-0.2.0-runbook.md),
+>   section "Update 2026-11-16 (later)";
+> - what the 0.2.1 path was and was not tested with: the tester guide's
+>   ["Known limits"](./TESTER-GUIDE.md#known-limits-2026-11-16);
+> - the smaller set of checks run for this document refresh:
+>   [Checks run on 2026-11-16](#checks-run-on-2026-11-16) at the end of this
+>   file.
+>
+> Statements in the 2026-11-07 record about which path is canonical, the
+> published versions and the runtime lagging `main` describe that day, not
+> today.
+
+# Record of 2026-11-07
+
 Every item below was **run end-to-end on `main` on 2026-11-07**, not read from
 docs. Commands were run from a clean worktree with a throwaway `$HOME` so the
 operator's real `~/.mesh` and `~/.claude/settings.json` were never touched. A
@@ -62,3 +84,59 @@ customer traffic yet, published savings bands are synthetic/simulator plus one
 See the command transcript conventions in [onboarding.md](./onboarding.md) and
 [runbook.md](./runbook.md). Run everything under a throwaway `HOME` if you want
 to avoid touching your own `~/.mesh` / `~/.claude`.
+
+---
+
+# Checks run on 2026-11-16
+
+Run for the refresh of this kit to the 0.2.1 path. This is a separate record;
+nothing above was re-run or rewritten.
+
+**Setup.** The repository at `main` (`0e16e2a`), `corepack pnpm install`, then
+`corepack pnpm build`. The CLI was run **from source**
+(`node --import tsx packages/cli/src/main.ts <command>`), so it reports
+`build dev`: this is the 0.2.1-line code, not the runtime the website
+installs. A throwaway `HOME`. A stand-in provider on `127.0.0.1` that records
+what reaches it and returns a fixed answer. No real provider was called and no
+real key was used. Dollar amounts below are artefacts of two test requests
+against the stand-in; they are not savings figures.
+
+## Ran
+
+| Step | Result |
+|---|---|
+| `mesh proxy --port 18787 --anthropic-base <stand-in>` | Starts. Banner shows the proxy address, `ledger <HOME>/.mesh/ledger`, the two `connect` lines, `claude left alone`, and Theo at `autonomy: recommend`. No `~/.claude` folder was created. |
+| `curl http://127.0.0.1:18787/mesh/health` | `{"status":"ok","service":"mesh-proxy"}` |
+| Two `POST /v1/messages` with a made-up key | Both 200. The stand-in received `x-api-key` verbatim and no `authorization` header. `~/.mesh/ledger/` then held `proxy-anthropic.jsonl` (2 hash-chained records, no prompt text) and `proxy-anthropic.features.jsonl` (counts and keyed hashes). The window printed `2 requests seen`. |
+| One `POST /v1/messages/count_tokens` | Forwarded to the stand-in with its body at the original size (1,202 bytes, against 1,098 for the reduced message requests); no ledger line written. |
+| `mesh verify` | Four checks pass: `hash-chain verified across 1 spool(s), 2 record(s)`; `invoice recomputes identically … (do_not_charge)`; `All checks passed.` |
+| `mesh status` | `2 requests seen · … verified saved (do_not_charge)`. It reported `proxy not responding` because it looks at port 8787 and the test proxy was on 18787. |
+| `mesh doctor` | `ledger 2 records, chain verified`. |
+| Ctrl+C on the proxy | `session done: 2 requests, … verified saved.` and exit. |
+| Published `@harrym1707/verify@0.1.0`: `npx -y -p @harrym1707/verify mesh-verify <HOME>/.mesh/ledger/proxy-anthropic.jsonl` | `chain verified: 2 record(s), every hash links`, verdict `do_not_charge`, the same figure `mesh verify` gave. **The published 0.1.0 tool reads a ledger file written by the current code.** |
+| The same with `<HOME>/.mesh/ledger/*.jsonl` | `CHAIN BROKEN at seq undefined`, exit 1. A false alarm: `mesh-verify` reads only its first argument, and the first match is the `.features.jsonl` file, which is not a ledger. Hence "name the file" in the documents. |
+| `scripts/mesh-bill.ts` on `proxy-anthropic.jsonl`, with a placeholder string in place of a Stripe test key | `Mode: TEST`, `verdict: do_not_charge`, `DO NOT BILL`. On this verdict it returns before any request to Stripe; none was made. |
+| The same with `*.jsonl` | `CHAIN BROKEN in …proxy-anthropic.features.jsonl`, then a crash, exit 1. Hence "pass each ledger file by name" in the operator playbook. |
+| Published `@harrym1707/sdk@0.2.1`: `MESH_PROXY_PORT=18788 npx -y -p @harrym1707/sdk mesh-proxy` | Prints `MESH proxy listening on http://127.0.0.1:18788` and `Ledger spools: <cwd>/mesh-ledger`; creates `./mesh-ledger/`; `/mesh/health` answers. No request was sent through it: it has no setting to point it at a stand-in, so a request would have reached a real provider. |
+| `npm view` (read-only) | `@harrym1707/verify` 0.1.0 (published 2026-11-05); `@harrym1707/sdk` 0.2.1 with bins `mesh-demo`, `mesh-proxy`, `mesh-quote`, `mesh-report`; `@harrym1707/mesh` 0.2.1 with bin `mesh`. |
+
+## Read in the code, not run
+
+- `mesh start` wiring and restoring `~/.claude/settings.json`
+  (`packages/cli/src/start.ts`); the command tables in
+  `packages/cli/src/main.ts` and `mesh-runtime.ts`.
+- `mesh verify` reads `~/.mesh/ledger/` only and skips `.features.jsonl`
+  files (`packages/cli/src/verify.ts`).
+- `mesh-bill` flags, the live-key refusal and the do-not-bill reasons
+  (`scripts/mesh-bill.ts`, `packages/core/src/stripe-billing.ts`).
+- The installer and the launcher's update check (`docs/site/install.sh`,
+  `packages/cli/src/update.ts`).
+
+## Not checked here
+
+- The runtime the website installs (build `5738486`). The release runbook
+  records those checks.
+- `mesh start` with Claude Code, the OpenAI-style path, `mesh dashboard`,
+  `mesh install`, Windows.
+- Any real provider, any real traffic, and creating a Stripe draft (that needs
+  the operator's own test key).

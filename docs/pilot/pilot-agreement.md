@@ -1,9 +1,10 @@
 # Pilot agreement + onboarding email (draft)
 
-> **Draft material.** Nothing here has been sent. Sending is the founder's act,
-> not an agent's. This is a deliberately minimal, plain-language understanding
-> for **design partners only** — see "Still needed before general availability"
-> at the end. Have a lawyer review before relying on it beyond a pilot.
+> **Draft material. Not sent, and not reviewed by a lawyer.** Sending is the
+> founder's act, not an agent's. This is a deliberately minimal,
+> plain-language understanding for **design partners only** — see "Still
+> needed before general availability" at the end. Have a lawyer review it
+> before relying on it. Updated 2026-11-16 for the MESH 0.2.1 setup path.
 
 ---
 
@@ -17,21 +18,24 @@
 > you — short version: a few minutes of setup, no infrastructure change, and you
 > pay us nothing unless we verifiably save you money.
 >
-> **Setup (about five minutes).** You run one local command that starts a MESH
-> proxy on your own machine, and point your app's base URL at it. That's it —
-> any language, any OpenAI- or Anthropic-compatible client. Step-by-step:
-> [onboarding.md]. Your API key never leaves your process; it passes straight
-> through to your provider.
+> **Setup (about five minutes).** You install MESH on your own machine with one
+> command, then run `mesh start` if you use Claude Code, or `mesh proxy` and
+> point your app's base URL at it. That's it — any language, any OpenAI- or
+> Anthropic-compatible client. Step-by-step: [the tester guide]. Your API key
+> is not stored; it passes straight through to your provider.
 >
-> **What runs for ~2 weeks.** Normal traffic. MESH reduces each request before it
-> reaches your provider (losslessly by default), and writes a local, tamper-
-> evident ledger of usage numbers — never your prompts or responses.
+> **What runs for two weeks.** Normal traffic. MESH reduces each request before
+> it reaches your provider (losslessly by default), and writes a local,
+> tamper-evident ledger of usage numbers — never your prompts or responses.
+> With a short kickoff before and a debrief after, the whole pilot is about
+> four weeks.
 >
 > **How you're billed.** At the end we recompute, from your own ledger, the net
-> amount MESH saved you, and bill **1% of that**. If MESH saved you nothing, the
-> invoice is **$0** — and you can recompute our number yourself to the cent with
-> a tiny open-source tool. During the pilot every invoice is a draft we review by
-> hand and send you as an invoice; nothing is ever auto-charged.
+> amount MESH saved you, and the fee is **1% of that**. If MESH saved you
+> nothing, the invoice is **$0** — and you can recompute our number yourself
+> with one command, `mesh verify`. During the pilot any invoice is drafted,
+> checked by a person and agreed with you before it is issued; nothing is ever
+> charged automatically.
 >
 > If that's fair, reply "yes" and I'll send the one-pager to get you started.
 >
@@ -48,15 +52,20 @@ This sets out how a MESH pilot works between **[MESH operator]** ("we") and
 
 MESH runs as a proxy **on your own machines**. Your provider API key passes
 through to your provider (Anthropic, OpenAI, or an OpenAI-compatible host)
-**verbatim**. We do not read, store, log, or transmit your keys. *(Enforced in
+**verbatim**. We do not store, log, or transmit your keys. *(Enforced in
 code: the proxy forwards your auth header untouched and holds no credential —
-verified 2026-11-07, see [VERIFICATION.md].)*
+checked against a stand-in provider on 2026-11-07 and again on 2026-11-16, see
+[VERIFICATION.md](./VERIFICATION.md).)*
 
 ### 2. Your prompts and responses — we never see them
 
-MESH analyses requests **in your process** to reduce them, and never writes
-prompt or completion **content** anywhere. There is no MESH telemetry endpoint
-and no hosted service in the request path.
+MESH analyses requests **on your machine** to reduce them, and sends them to
+your provider and nowhere else. It does not write prompt or completion
+**content** to the ledger. There is no MESH telemetry endpoint and no hosted
+MESH service in the request path. The one exception is yours to switch on:
+request capture (`--capture <file>`), off by default, writes copies of your
+own requests to a file you name on your own disk so that a proposed change can
+be tested against your provider under your key.
 
 ### 3. What data is kept, and where
 
@@ -66,36 +75,52 @@ token counts (as your provider reports them), price-catalogue hashes, dollar
 figures, and the names of the reduction levers applied. **There is no field for
 prompt or completion content.**
 
-- **Where:** on **your** disk — `./mesh-ledger/` (proxy mode) or `~/.mesh/ledger`
-  (the Claude Code launcher). You choose; it never leaves your machine unless you
-  send us a copy for billing.
+- **Where:** on **your** disk, in `~/.mesh/ledger/`. It never leaves your
+  machine unless you send us a copy for billing.
+- **Beside it:** files ending `.features.jsonl` hold counts and keyed hashes
+  that MESH uses to tune itself. They contain no content, stay on your machine
+  and are not needed for billing.
 - **What we retain:** nothing structurally — all artifacts (ledger, invoice) live
-  on your side. For billing you send us ledger spools (usage + hashes only); we
+  on your side. For billing you send us the ledger files (usage + hashes only); we
   keep those with the invoice as the audit trail.
-- Full detail, sourced to the code paths that enforce it: [data-handling.md].
+- Full detail, sourced to the code paths that enforce it: [data-handling.md](./data-handling.md).
 
 ### 4. The fee — a share of *verified* savings, billed by hand
 
 - The fee is **1% of net verified savings** for the billing period. "Verified"
   means recomputed from your own hash-chained ledger — a pure function you can
-  run yourself (`npx -y -p @harrym1707/verify mesh-verify <your spools>`).
+  run yourself with `mesh verify`, which makes no network calls. For a
+  recompute that does not use the installed program at all, the MIT-licensed
+  `@harrym1707/verify` package does the same on one ledger file at a time:
+  `npx -y -p @harrym1707/verify mesh-verify ~/.mesh/ledger/proxy-anthropic.jsonl`.
 - **No savings → no charge.** If savings are zero, negative, below a cent of fee,
   or your stack was already optimised, the verdict is **`do_not_charge`** and the
   invoice is **$0**.
 - **If your recomputation disagrees with ours, yours wins.**
-- During the pilot, **every invoice is created as a draft, reviewed by a human,
-  and sent to you as an invoice** — never an automatic direct-debit pull.
+- During the pilot, **any invoice is drafted, checked by a person and agreed
+  with you before it is issued.** Nothing is ever charged automatically.
 
 ### 5. No lock-in, no risk to your app
 
 MESH sits in front of your provider and may reduce a request, but returns your
-provider's response unchanged, and a failure in MESH never breaks your request
-path. Stop any time by pointing your base URL back at your provider.
+provider's response unchanged, and a failure in its metering never reaches
+your request path. Stop any time: Ctrl+C in the MESH window (with `mesh start`,
+Claude Code is put back as it was), or point your base URL back at your
+provider.
 
-### 6. Term
+### 6. What MESH changes on its own
 
-The pilot runs for **[~4 weeks]** from setup, or until either side ends it with a
-short note. Either party may stop at any time.
+By default only lossless levers are on. Theo, the part of MESH that studies
+your traffic, stays at his default setting (`recommend`) for the whole pilot:
+he proposes any change that alters what is sent and waits for your yes. We
+will not ask you to switch on automatic adoption (`--autonomy optimise`)
+during a pilot, and ask that you do not.
+
+### 7. Term
+
+The pilot runs for **[about 4 weeks]** from kickoff, of which **[14 days]** is
+the measuring window, or until either side ends it with a short note. Either
+party may stop at any time.
 
 ---
 
@@ -104,15 +129,19 @@ short note. Either party may stop at any time.
 This document is a pilot stand-in, **not** production legal paper. Before MESH is
 sold generally we still need:
 
-- **Real Terms of Service** and a proper **Data Processing Agreement (DPA)**,
-  reviewed by counsel. The current honest position is that MESH's architecture
-  (no prompt data ingress, keys never held) makes most DPA questions moot — but
-  that argument is not a signed DPA.
+- **Terms reviewed by counsel** and a proper **Data Processing Agreement
+  (DPA)**. The website has carried [Terms of use](../site/terms.md) and a
+  [Privacy policy](../site/privacy.md) since 12 November 2026; they are first
+  drafts that no lawyer has reviewed, and there is no DPA. The current honest
+  position is that MESH's architecture (no prompt data ingress, keys never
+  held) makes most DPA questions moot — but that argument is not a signed DPA.
 - **Security/compliance posture:** there is no SOC 2 / ISO certification yet
   (pre-revenue). Guarantees today are "code you can read," not an auditor's
   report.
-- A defined liability, warranty, and indemnity position (deliberately omitted
-  here to keep the pilot light).
+- A liability, warranty, and indemnity position agreed for pilots. This
+  document deliberately states none; the website Terms contain one, unreviewed.
+  How this understanding and those Terms fit together is an open question for
+  a lawyer.
 
 Until those exist, treat this as a good-faith understanding between a founder and
 an early design partner, nothing more.
