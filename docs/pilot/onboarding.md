@@ -3,7 +3,8 @@
 Since release 0.2.1 (2026-11-16) there is one way to set MESH up: install it
 from the website, then run `mesh start` (Claude Code) or `mesh proxy` (any
 other app or agent). Every design partner is set up this way, so every ledger
-lands in the same place.
+lands in the same place. The current release is 0.2.2 (also 2026-11-16); it
+does not change the path.
 
 The step-by-step for the person at the keyboard is the
 [tester guide](./TESTER-GUIDE.md). This page does not repeat it. It says what a
@@ -19,8 +20,9 @@ customer's real traffic; a pilot is the first time it will.
 
 ## What a partner does
 
-Needs Node.js 22 or newer, on macOS or Linux. The Windows path has not been
-walked with anyone yet.
+Needs Node.js 22 or newer, on macOS or Linux. On Windows the installer runs
+inside WSL only (native PowerShell is not supported), and that path has not
+been walked with anyone yet.
 
 ### 1. Install
 
@@ -28,7 +30,8 @@ walked with anyone yet.
 curl -fsSL https://www.mesh-technology.com/install.sh | sh
 ```
 
-`mesh version` should print `mesh 0.2.1` or later. `mesh doctor` checks Node,
+`mesh version` should print `mesh 0.2.1` or later (0.2.2 on a fresh install
+as of 2026-11-16). `mesh doctor` checks Node,
 the proxy, the Claude Code wiring, the background service and the ledger.
 
 ### 2. Connect — one of two commands
@@ -117,7 +120,11 @@ Record these in the [engagement list](./engagement-list.md):
    real traffic.
 4. **Levers.** A fresh install enforces three lossless levers: tool-schema
    compaction, duplicate-context removal and cache-prefix repair. A lossy
-   lever runs only if the partner accepts a proposal for it.
+   lever runs only if the partner accepts a proposal for it. Release 0.2.2
+   adds one opt-in lever, JSON tool-result compaction. It is off by default,
+   Theo does not adopt it, and it stays off in a pilot unless agreed; on
+   0.2.2 a lever added by hand is removed again by Theo's next background
+   cycle ([configure guide](../guide/configure.md#optional-compact-json-tool-results)).
 5. **How the ledger reaches us** at the end of the window: the partner sends
    the ledger files from `~/.mesh/ledger/` (not the `.features.jsonl` files)
    after looking at them.
@@ -189,5 +196,5 @@ The commands on this page were checked against the code on `main` on
 2026-11-16, and the `mesh proxy` path was run from source that day against a
 stand-in provider, with no real provider key. The details are in the dated
 section at the end of [VERIFICATION.md](./VERIFICATION.md). The release's own
-checks on the installed 0.2.1 build are in
+checks on the installed 0.2.1 and 0.2.2 builds are in
 [the release runbook](../ops/release-0.2.0-runbook.md).

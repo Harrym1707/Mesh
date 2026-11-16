@@ -5,7 +5,8 @@ draft material: nothing here has been posted or sent, and sending is the
 founder's act, not an agent's.** No partner has been approached, and MESH has
 not yet run on a customer's real traffic.
 
-Updated 2026-11-16 for MESH 0.2.1 and its one setup path: install from the
+Updated 2026-11-16 for the one setup path that MESH 0.2.1 introduced (the
+current release, 0.2.2 of the same day, keeps it): install from the
 website, then `mesh start` (Claude Code) or `mesh proxy` (any other app), with
 the ledger in `~/.mesh/ledger/`.
 

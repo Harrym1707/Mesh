@@ -19,7 +19,7 @@ requests to MESH's own addresses are downloads of the software itself.
 
 MESH is published: the installer and runtime are on
 `https://www.mesh-technology.com`, and `@harrym1707/mesh` and
-`@harrym1707/sdk` (0.2.1, 2026-11-16) and `@harrym1707/verify` (0.1.0) are on
+`@harrym1707/sdk` (0.2.2, 2026-11-16) and `@harrym1707/verify` (0.1.0) are on
 the public npm registry. The source is public at
 `https://github.com/Harrym1707/Mesh`.
 

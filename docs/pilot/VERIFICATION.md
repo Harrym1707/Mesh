@@ -9,7 +9,9 @@
 >
 > - the release's own checks on the installed 0.2.1 build:
 >   [docs/ops/release-0.2.0-runbook.md](../ops/release-0.2.0-runbook.md),
->   section "Update 2026-11-16 (later)";
+>   section "Update 2026-11-16 (later)"; release 0.2.2, which followed the
+>   same day and is what the website and npm serve now, is the section
+>   "Update 2026-11-16 (evening)" of the same file;
 > - what the 0.2.1 path was and was not tested with: the tester guide's
 >   ["Known limits"](./TESTER-GUIDE.md#known-limits-2026-11-16);
 > - the smaller set of checks run for this document refresh:
@@ -134,8 +136,11 @@ against the stand-in; they are not savings figures.
 
 ## Not checked here
 
-- The runtime the website installs (build `5738486`). The release runbook
-  records those checks.
+- The runtime the website installs: build `5738486` (0.2.1) when these checks
+  were run, build `d83ee89` (0.2.2) by the end of the same day. The release
+  runbook records the checks on both. The source these checks ran on predates
+  the 0.2.2 version bump; it already contained 0.2.2's one new lever, which
+  is off by default.
 - `mesh start` with Claude Code, the OpenAI-style path, `mesh dashboard`,
   `mesh install`, Windows.
 - Any real provider, any real traffic, and creating a Stripe draft (that needs
