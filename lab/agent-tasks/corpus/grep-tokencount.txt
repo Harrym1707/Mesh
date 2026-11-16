@@ -1,0 +1,66 @@
+Binary file packages/core/src/traffic.ts matches
+packages/core/src/tool-schema.ts:1:import { approximateTokenCount, type TokenCounter } from "./token-reduction.js";
+packages/core/src/tool-schema.ts:161:  const countTokens = options.countTokens ?? approximateTokenCount;
+packages/core/src/tool-schema.ts:321:  const countTokens = options.countTokens ?? approximateTokenCount;
+packages/core/src/output-diagnostics.ts:1:import { approximateTokenCount, type TokenCounter } from "./token-reduction.js";
+packages/core/src/output-diagnostics.ts:66:  countTokens: TokenCounter = approximateTokenCount,
+packages/core/src/token-reduction.ts:35:export const approximateTokenCount: TokenCounter = (text) => {
+packages/core/src/token-reduction.ts:96:  countTokens: TokenCounter = approximateTokenCount,
+packages/core/src/token-reduction.ts:203:  countTokens: TokenCounter = approximateTokenCount,
+packages/core/src/token-reduction.ts:236:  countTokens: TokenCounter = approximateTokenCount,
+packages/core/src/token-reduction.ts:344:  countTokens: TokenCounter = approximateTokenCount,
+packages/core/src/token-reduction.ts:411:  const countTokens = options.countTokens ?? approximateTokenCount;
+packages/core/src/cache-simulator.ts:3:import { approximateTokenCount, type TokenCounter } from "./token-reduction.js";
+packages/core/src/cache-simulator.ts:158:  const countTokens = options.countTokens ?? approximateTokenCount;
+packages/core/src/cache-simulator.ts:444:  const countTokens = options.countTokens ?? approximateTokenCount;
+packages/core/src/cache-simulator.ts:462:  const countTokens = options.countTokens ?? approximateTokenCount;
+packages/core/src/token-reduction.test.ts:6:  approximateTokenCount,
+packages/core/src/token-reduction.test.ts:35:    expect(approximateTokenCount("")).toBe(0);
+packages/core/src/token-reduction.test.ts:39:    const short = approximateTokenCount("hello world");
+packages/core/src/token-reduction.test.ts:40:    const long = approximateTokenCount("hello world ".repeat(20));
+packages/core/src/token-reduction.test.ts:46:    const ratio = prose.length / approximateTokenCount(prose);
+packages/core/src/token-reduction.test.ts:54:    expect(approximateTokenCount(json)).toBeGreaterThan(approximateTokenCount(prose));
+packages/core/src/token-reduction.test.ts:262:    const before = approximateTokenCount(text);
+packages/core/src/token-reduction.test.ts:264:    expect(approximateTokenCount(result.text)).toBeLessThanOrEqual(before);
+packages/sdk-js/src/semantic-compaction.ts:1:import { approximateTokenCount, type TokenCounter } from "../../core/dist/src/index.js";
+packages/sdk-js/src/semantic-compaction.ts:254:  const countTokens = config.countTokens ?? approximateTokenCount;
+packages/sdk-js/src/semantic-compaction.ts:353:  const countTokens = config.countTokens ?? semantic.countTokens ?? approximateTokenCount;
+Binary file packages/sdk-js/src/blind-features.ts matches
+packages/sdk-js/src/reduce-request.ts:3:import { approximateTokenCount, dedupeRepeatedBlocks, dedupeRepeatedLeadingBlock, type TokenCounter } from "../../core/dist/src/token-reduction.js";
+packages/sdk-js/src/reduce-request.ts:976:  const countTokens = config.countTokens ?? approximateTokenCount;
+packages/sdk-js/src/reduce-request.test.ts:2:import { approximateTokenCount } from "../../core/dist/src/index.js";
+packages/sdk-js/src/reduce-request.test.ts:294:    const capped = capToolResultBody(oversizedResult(), 600, approximateTokenCount);
+packages/sdk-js/src/reduce-request.test.ts:305:    expect(capToolResultBody(small, 600, approximateTokenCount)).toBe(small);
+packages/sdk-js/src/reduce-request.test.ts:307:    expect(capToolResultBody(body, approximateTokenCount(body), approximateTokenCount)).toBe(body);
+packages/sdk-js/src/reduce-request.test.ts:311:    const once = capToolResultBody(oversizedResult(), 600, approximateTokenCount);
+packages/sdk-js/src/reduce-request.test.ts:312:    expect(capToolResultBody(once, 600, approximateTokenCount)).toBe(once);
+packages/sdk-js/src/reduce-request.test.ts:316:    expect(capToolResultBody(oversizedResult(), 600, approximateTokenCount))
+packages/sdk-js/src/reduce-request.test.ts:317:      .toBe(capToolResultBody(oversizedResult(), 600, approximateTokenCount));
+packages/sdk-js/src/reduce-request.test.ts:321:    const capped = capToolResultBody(oversizedResult(), 600, approximateTokenCount);
+packages/sdk-js/src/reduce-request.test.ts:326:    expect(() => capToolResultBody(oversizedResult(), 10, approximateTokenCount)).toThrow(/at least 64/);
+packages/sdk-js/src/reduce-request.test.ts:327:    expect(() => capToolResultBody(oversizedResult(), 600.5, approximateTokenCount)).toThrow(/at least 64/);
+lab/agent-tasks/broken-example.ts:5:import { approximateTokenCount } from "../../packages/core/src/token-reduction.js";
+lab/agent-tasks/broken-example.ts:17:const tokens = approximateTokenCount(order);
+lab/live-study.ts:27:import { approximateTokenCount } from "../packages/core/src/token-reduction.js";
+lab/live-study.ts:208:    const total = approximateTokenCount(content);
+lab/live-study.ts:218:    const read = approximateTokenCount(content.slice(0, readChars));
+lab/live-study.ts:219:    const write = lastSpanChars > readChars ? approximateTokenCount(content.slice(readChars, lastSpanChars)) : 0;
+lab/live-study.ts:391:    spans.spans.length > 0 ? approximateTokenCount(spans.spans[0]!) / approximateTokenCount(spans.content) : 0;
+lab/paying-shape.ts:31:import { approximateTokenCount } from "../packages/core/src/token-reduction.js";
+lab/paying-shape.ts:218:  const result = simulateCache(simulated, policy, price.price, { countTokens: approximateTokenCount });
+lab/registry.ts:15:  approximateTokenCount,
+lab/registry.ts:39:  const result = applyReducers(input, reducers, approximateTokenCount);
+lab/registry.ts:83:        const tokens = approximateTokenCount(input);
+lab/registry.ts:87:        const tokens = approximateTokenCount(input);
+lab/registry.ts:95:        tokensBefore: approximateTokenCount(input),
+lab/registry.ts:96:        tokensAfter: approximateTokenCount(candidateText),
+lab/registry.ts:117:      const prefixTokens = approximateTokenCount(prefix);
+lab/registry.ts:118:      const suffixTokens = approximateTokenCount(suffix);
+lab/browsing-shape.ts:30:import { approximateTokenCount } from "../packages/core/src/token-reduction.js";
+lab/browsing-shape.ts:391:    outputTokens.push(approximateTokenCount(JSON.stringify(assistant.content)));
+lab/browsing-shape.ts:393:    snapshotTokens.push(approximateTokenCount(snapshot));
+lab/browsing-shape.ts:400:  outputTokens.push(approximateTokenCount("The order is placed. Order number NG-48213; the total was £32.94 including next-day delivery."));
+lab/browsing-shape.ts:457:    const total = approximateTokenCount(content);
+lab/browsing-shape.ts:463:    const read = approximateTokenCount(content.slice(0, readChars));
+lab/browsing-shape.ts:464:    const write = lastBreakpoint > readChars ? approximateTokenCount(content.slice(readChars, lastBreakpoint)) : 0;
+lab/browsing-shape.ts:473:      if (approximateTokenCount(prefix) >= MINIMUM_CACHEABLE_TOKENS && !written.includes(prefix)) written.push(prefix);

@@ -1,0 +1,178 @@
+     1	import { createHash } from "node:crypto";
+     2	
+     3	/**
+     4	 * Cross-turn volatility guard for the Anthropic cache stamp.
+     5	 *
+     6	 * The second live export measured the failure this prevents: an agent whose
+     7	 * system prompt carried a per-turn clock was stamped every turn, so every
+     8	 * turn paid the cache-write premium and no turn ever read — a real loss,
+     9	 * honestly ledgered against MESH, but better never made. Prompt caching is a
+    10	 * prefix match: content that changes between the turns of one conversation
+    11	 * can never be read back, so stamping it only buys write premiums.
+    12	 *
+    13	 * The guard watches conversations across requests (something the pure
+    14	 * per-request reducer cannot do) and answers one question before each stamp:
+    15	 * has this conversation's prefix actually been stable so far?
+    16	 *
+    17	 * - A conversation is identified by its model and FIRST message, which a
+    18	 *   multi-turn client re-sends verbatim every turn.
+    19	 * - The watched prefix is {tools, system}: if it changes between turns, the
+    20	 *   provider's cache misses from position zero and every breakpoint behind
+    21	 *   it is worthless.
+    22	 * - The message history must EXTEND turn over turn (prior messages a prefix
+    23	 *   of current messages). A client-side framework that rewrites history also
+    24	 *   invalidates the provider cache every turn.
+    25	 *
+    26	 * The two breakpoints MESH places fail independently, so they are decided
+    27	 * independently (the 2026-10-26 live coding-agent spool measured the cost of
+    28	 * treating them as one: three turns billed a 2,267-token prefix at full price
+    29	 * that the provider had read from cache one turn earlier):
+    30	 *
+    31	 * - The SYSTEM breakpoint covers tools + the stamped part of the system
+    32	 *   prompt. It is withheld only while that span itself changes between turns.
+    33	 *   A rewritten history cannot hurt it: the history comes after it.
+    34	 * - The MESSAGE breakpoint covers everything up to the newest message. It is
+    35	 *   withheld while either the span or the history churns.
+    36	 *
+    37	 * Suppression is not permanent: after two consecutive stable observations
+    38	 * (e.g. a one-off history compaction followed by normal growth) the withheld
+    39	 * breakpoint resumes, so a single disturbance does not forfeit a long
+    40	 * conversation's cache earnings. A prefix that churns every turn — the
+    41	 * per-turn clock — never produces two stable observations and stays
+    42	 * suppressed.
+    43	 *
+    44	 * WHAT is compared for the system span: the bytes the breakpoint would
+    45	 * actually cover, after MESH's deterministic levers, when the reducer supplies
+    46	 * them (`context.stampedPrefix`). The provider matches on those bytes, not on
+    47	 * what the client sent — so a clock that prefix repair has already moved
+    48	 * behind the breakpoint is not churn. Without that context the guard falls
+    49	 * back to the client's raw {tools, system}, which is strictly more cautious.
+    50	 * The history check always uses the RAW incoming messages, so MESH's own
+    51	 * levers are never mistaken for a client rewriting its history.
+    52	 */
+    53	
+    54	type AnyObject = Record<string, unknown>;
+    55	
+    56	const isPlainObject = (value: unknown): value is AnyObject =>
+    57	  typeof value === "object" && value !== null && !Array.isArray(value);
+    58	
+    59	const digest = (value: unknown): string =>
+    60	  createHash("sha256").update(JSON.stringify(value ?? null) ?? "null").digest("hex").slice(0, 32);
+    61	
+    62	export type CacheStampDecision = {
+    63	  /** False withholds every breakpoint. */
+    64	  stamp: boolean;
+    65	  /**
+    66	   * False withholds only the breakpoint on the newest message; the system
+    67	   * breakpoint may still be placed. Absent means the same as `stamp`.
+    68	   */
+    69	  messageBreakpoint?: boolean;
+    70	  /** Present when anything is withheld: why. */
+    71	  reason?: string;
+    72	};
+    73	
+    74	export type CacheStampContext = {
+    75	  /**
+    76	   * The content the system breakpoint would cover on this request, after
+    77	   * MESH's levers and without any cache_control markers. Only hashed.
+    78	   */
+    79	  stampedPrefix?: unknown;
+    80	};
+    81	
+    82	type Track = { volatile: boolean; stableStreak: number };
+    83	
+    84	type ConversationEntry = {
+    85	  prefixHash: string;
+    86	  messageHashes: string[];
+    87	  prefix: Track;
+    88	  history: Track;
+    89	};
+    90	
+    91	/** Advance one track; returns whether its breakpoint may be placed this turn. */
+    92	function advance(prior: Track, churned: boolean): { track: Track; ok: boolean; proving: boolean } {
+    93	  if (churned) return { track: { volatile: true, stableStreak: 0 }, ok: false, proving: false };
+    94	  if (!prior.volatile) return { track: prior, ok: true, proving: false };
+    95	  const stableStreak = prior.stableStreak + 1;
+    96	  if (stableStreak >= 2) return { track: { volatile: false, stableStreak: 0 }, ok: true, proving: false };
+    97	  return { track: { volatile: true, stableStreak }, ok: false, proving: true };
+    98	}
+    99	
+   100	const PROVING = "this conversation's prefix changed on an earlier turn; waiting for it to prove stable before stamping again";
+   101	
+   102	export class CachePrefixVolatilityGuard {
+   103	  /** Insertion-ordered; re-inserted on touch, so the first key is the LRU. */
+   104	  private readonly conversations = new Map<string, ConversationEntry>();
+   105	
+   106	  constructor(private readonly maxConversations = 1000) {
+   107	    if (!Number.isInteger(maxConversations) || maxConversations < 1) {
+   108	      throw new Error("maxConversations must be a positive integer.");
+   109	    }
+   110	  }
+   111	
+   112	  /**
+   113	   * Record this request and decide which cache breakpoints its conversation
+   114	   * has earned. Call once per request, with the raw (unreduced) request and,
+   115	   * when known, the content the system breakpoint would cover.
+   116	   */
+   117	  observe(request: unknown, context: CacheStampContext = {}): CacheStampDecision {
+   118	    if (!isPlainObject(request) || !Array.isArray(request.messages) || request.messages.length === 0) {
+   119	      return { stamp: true };
+   120	    }
+   121	    const key = digest([request.model ?? null, request.messages[0]]);
+   122	    const prefixHash = context.stampedPrefix !== undefined
+   123	      ? `span:${digest(context.stampedPrefix)}`
+   124	      : `raw:${digest([request.tools ?? null, request.system ?? null])}`;
+   125	    const messageHashes = (request.messages as unknown[]).map(digest);
+   126	
+   127	    const prior = this.conversations.get(key);
+   128	    if (prior !== undefined) this.conversations.delete(key);
+   129	
+   130	    if (prior === undefined) {
+   131	      this.conversations.set(key, {
+   132	        prefixHash,
+   133	        messageHashes,
+   134	        prefix: { volatile: false, stableStreak: 0 },
+   135	        history: { volatile: false, stableStreak: 0 },
+   136	      });
+   137	      this.evict();
+   138	      return { stamp: true };
+   139	    }
+   140	
+   141	    const prefixChanged = prior.prefixHash !== prefixHash;
+   142	    const historyExtends =
+   143	      messageHashes.length >= prior.messageHashes.length &&
+   144	      prior.messageHashes.every((hash, index) => messageHashes[index] === hash);
+   145	
+   146	    const prefix = advance(prior.prefix, prefixChanged);
+   147	    const history = advance(prior.history, !historyExtends);
+   148	    this.conversations.set(key, { prefixHash, messageHashes, prefix: prefix.track, history: history.track });
+   149	
+   150	    if (!prefix.ok) {
+   151	      return {
+   152	        stamp: false,
+   153	        messageBreakpoint: false,
+   154	        reason: prefixChanged
+   155	          ? "tools/system changed between turns of this conversation, so a cached prefix could never be read back"
+   156	          : PROVING,
+   157	      };
+   158	    }
+   159	    if (!history.ok) {
+   160	      return {
+   161	        stamp: true,
+   162	        messageBreakpoint: false,
+   163	        reason: history.proving
+   164	          ? "this conversation's history was rewritten on an earlier turn; waiting for it to prove stable before stamping the newest message again"
+   165	          : "the conversation history was rewritten between turns, so a breakpoint on the newest message could never be read back",
+   166	      };
+   167	    }
+   168	    return { stamp: true };
+   169	  }
+   170	
+   171	  private evict(): void {
+   172	    while (this.conversations.size > this.maxConversations) {
+   173	      const oldest = this.conversations.keys().next().value;
+   174	      if (oldest === undefined) return;
+   175	      this.conversations.delete(oldest);
+   176	    }
+   177	  }
+   178	}

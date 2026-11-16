@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Get started in five minutes</title>
+<meta name="description" content="MESH sits between your app and your AI provider, removes the tokens you were about to pay for twice, and writes every request into a tamper-evident ledger you can audit yourself. No signup, no account, no key handover: your API key passes through to the provider and is never stored. Works with Claud">
+<link rel="canonical" href="https://www.mesh-technology.com/start.html">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="mesh">
+<meta property="og:title" content="Get started in five minutes">
+<meta property="og:description" content="MESH sits between your app and your AI provider, removes the tokens you were about to pay for twice, and writes every request into a tamper-evident ledger you can audit yourself. No signup, no account, no key handover: your API key passes through to the provider and is never stored. Works with Claud">
+<meta property="og:url" content="https://www.mesh-technology.com/start.html">
+<meta property="og:image" content="https://www.mesh-technology.com/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://www.mesh-technology.com/og.png">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>:root{
+  /* MESH brand: Off White ground, Deep Graphite ink, Mesh Blue accent, Frost tone-step */
+  --bg:#FAFAF9;
+  --surface:#ffffff;
+  --fg:#0B0F14;
+  --muted:#5B6472;
+  --line:#E5E7EB;
+  --brand:#2563EB;
+  --signal:#2563EB;
+  --signal-soft:#EEF2FE;
+  --code:#F1F3F5;
+}
+@media (prefers-color-scheme: dark){:root{
+  --bg:#0B0F14;
+  --surface:#14181F;
+  --fg:#FAFAF9;
+  --muted:#9AA3B2;
+  --line:#262B33;
+  --brand:#6B93FF;
+  --signal:#6B93FF;
+  --signal-soft:#17202E;
+  --code:#161B22;
+}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.7 Manrope,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+main{max-width:46rem;margin:0 auto;padding:1.5rem 1.25rem 4rem}
+nav{background:var(--surface);border-bottom:1px solid var(--line);padding:.8rem 1.25rem;display:flex;flex-wrap:wrap;gap:1rem;align-items:baseline;font-size:.92rem}
+nav a{color:var(--muted);text-decoration:none;font-weight:600}
+nav a.active,nav a:hover{color:var(--brand)}
+nav .brand{font-weight:800;font-size:1.25rem;color:var(--brand);letter-spacing:-.02em}
+nav .tagline{color:var(--muted);font-weight:400;margin-right:.5rem}
+h1{font-size:1.8rem;line-height:1.2;margin:1.4rem 0 .6rem;font-weight:800;letter-spacing:-.02em}
+h2{font-size:1.25rem;margin:2.2rem 0 .5rem;font-weight:800;letter-spacing:-.01em}
+h3{font-size:1.05rem;font-weight:700}
+a{color:var(--brand)}
+strong{color:var(--fg)}
+code{background:var(--code);padding:.1em .35em;border-radius:5px;font-size:.88em}
+pre.block{background:#E7E5E4;color:#0B0F14;border-radius:10px;padding:1rem 1.1rem;overflow-x:auto;font-size:.85rem;line-height:1.6}
+pre.block code{background:none;padding:0;font-size:inherit;color:inherit}
+@media (prefers-color-scheme: dark){pre.block{background:#14181F;color:#FAFAF9;border:1px solid var(--line)}}
+.table-wrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px;margin:1rem 0}
+table{border-collapse:collapse;width:100%;font-size:.95rem}
+th,td{border-bottom:1px solid var(--line);padding:.6rem .75rem;text-align:left;vertical-align:top}
+tr:last-child td{border-bottom:none}
+th{background:var(--signal-soft);font-weight:700}
+ul{padding-left:1.2rem}
+li{margin:.3rem 0}
+footer{border-top:2px solid var(--signal);margin-top:3rem;padding-top:1rem;font-size:.85rem;color:var(--muted)}</style>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"HowTo","name":"Cut your LLM API bill with MESH in five minutes","description":"Run the MESH proxy with one npx command, point your app's baseURL at it, and recompute the verified-savings invoice yourself from the hash-chained ledger you hold.","totalTime":"PT5M","tool":[{"@type":"HowToTool","name":"@harrym1707/sdk (npm)"}],"step":[{"@type":"HowToStep","name":"Run the proxy","text":"npx -y -p @harrym1707/sdk mesh-proxy — starts a local proxy on http://127.0.0.1:8787 with a hash-chained ledger in ./mesh-ledger. No signup; your API key passes through and is never stored."},{"@type":"HowToStep","name":"Point your app at it","text":"Change one line: new Anthropic({ baseURL: \"http://127.0.0.1:8787\" }) or new OpenAI({ baseURL: \"http://127.0.0.1:8787/v1\" }). Any language and any OpenAI-compatible endpoint work."},{"@type":"HowToStep","name":"Run traffic as normal","text":"Responses return byte-identical, streaming included. Reduction is lossless-only by default; each request appends one hash-chained event recording usage numbers and lever names, never prompt content."},{"@type":"HowToStep","name":"Recompute the invoice yourself","text":"Use verifyLedgerChain and recomputeInvoice from @harrym1707/sdk on your own ledger file. If MESH saved nothing the verdict reads do_not_charge. The fee is 1% of verified savings, monthly, nothing else."}]}</script>
+</head>
+<body>
+<nav><a class="brand" href="index.html">mesh</a><span class="tagline">Less in. More out.</span><a href="index.html">Home</a><a href="start.html" class="active">Get started</a><a href="overview.html">Overview</a><a href="segments.html">Savings by segment</a><a href="methodology.html">Methodology</a><a href="evidence.html">Evidence</a><a href="comparison.html">Honest comparison</a><a href="faq.html">FAQ</a></nav>
+<main>
+<h1>Get started in five minutes</h1>
+<p>MESH sits between your app and your AI provider, removes the tokens you were about to pay for twice, and writes every request into a tamper-evident ledger you can audit yourself. No signup, no account, no key handover: your API key passes through to the provider and is never stored. Works with Claude (Anthropic), OpenAI, and any OpenAI-compatible endpoint.</p>
+<h2>Claude Code — one command</h2>
+<p>Install the <code>mesh</code> command (needs Node 22+, which Claude Code already uses):</p>
+<pre class="block"><code>curl -fsSL https://www.mesh-technology.com/install.sh | sh</code></pre>
+<p>Then start it:</p>
+<pre class="block"><code>mesh start</code></pre>
+<p>That points Claude Code at MESH and runs <strong>Theo</strong> — your token engineer — alongside you. Use Claude Code exactly as normal; press Ctrl+C to stop and Claude Code reverts cleanly. Check your own verified number any time with <code>mesh verify</code>.</p>
+<p>The installer drops one tiny launcher that fetches and checksum-verifies the runtime; it never touches your API key. Read it first if you like: <code>curl -fsSL https://www.mesh-technology.com/install.sh | less</code>.</p>
+<p><strong>Other ways in:</strong> once <code>@harrym1707/mesh</code> is published, <code>npx @harrym1707/mesh start</code> works with no install. Or grab the launcher directly: <code>curl -fsSL https://www.mesh-technology.com/mesh -o mesh &amp;&amp; chmod +x mesh &amp;&amp; ./mesh start</code>.</p>
+<p>The rest of this page is the manual setup for any other app or language.</p>
+<h2>Step 1 — run the proxy</h2>
+<p>One command, nothing to clone:</p>
+<pre class="block"><code>npx -y -p @harrym1707/sdk mesh-proxy</code></pre>
+<p>You'll see:</p>
+<pre class="block"><code>MESH proxy listening on http://127.0.0.1:8787
+Ledger spools: ./mesh-ledger</code></pre>
+<p>To switch on the Claude prompt-cache lever too (our single biggest measured saver, 37.9% on multi-turn traffic), start it as <code>MESH_PROXY_CACHE_TTL=5m npx -y -p @harrym1707/sdk mesh-proxy</code>.</p>
+<h2>Step 2 — point your app at it</h2>
+<p>Change one line. Keep your own API key — MESH passes it through verbatim.</p>
+<pre class="block"><code>// Anthropic SDK
+const anthropic = new Anthropic({ baseURL: &quot;http://127.0.0.1:8787&quot; });
+
+// OpenAI SDK — also any OpenAI-compatible endpoint
+const openai = new OpenAI({ baseURL: &quot;http://127.0.0.1:8787/v1&quot; });</code></pre>
+<p>Any language works — it's just a base URL. Python, Go, curl, LangChain, whatever you run today.</p>
+<h2>Step 3 — run your traffic as normal</h2>
+<p>Responses come back byte-identical, streaming included. Reduction is <strong>lossless-only by default</strong>: compacted tool schemas decode identically, removed duplicates are exact, and if anything fails your request goes through untouched. Each request appends one hash-chained event to <code>./mesh-ledger/&lt;your-app&gt;-&lt;provider&gt;.jsonl</code> — usage numbers, lever names and hashes. Never your prompts.</p>
+<h2>Step 4 — check our maths yourself</h2>
+<p>This is the part no other cost tool offers: the invoice is a pure function of a ledger file <strong>you</strong> hold. Verify the chain and recompute it with the same published package:</p>
+<pre class="block"><code>node -e '
+const { readFileSync } = require(&quot;node:fs&quot;);
+const { verifyLedgerChain, recomputeInvoice } = require(&quot;@harrym1707/sdk&quot;);
+const records = readFileSync(process.argv[1], &quot;utf8&quot;).trim().split(/\n/).map(JSON.parse);
+const chain = verifyLedgerChain(records);
+if (!chain.ok) throw new Error(&quot;chain broken at seq &quot; + chain.seq);
+console.log(&quot;chain verified:&quot;, chain.length, &quot;records&quot;);
+console.log(JSON.stringify(recomputeInvoice(records.map(r =&gt; r.event)), null, 2));
+' mesh-ledger/proxy-anthropic.jsonl</code></pre>
+<p>If MESH saved you nothing, the verdict line literally reads <code>&quot;verdict&quot;: &quot;do_not_charge&quot;</code> — that is the honest outcome on traffic that is already lean, and we publish it as such.</p>
+<h2>Already measuring with LiteLLM, Helicone or Langfuse?</h2>
+<p>You don't need to route any traffic to get a quote. Export your existing logs and run them through the quote tool — the verdict can be &quot;do not pay us&quot;:</p>
+<pre class="block"><code>npx -y -p @harrym1707/sdk mesh-quote your-export.jsonl --format litellm</code></pre>
+<h2>What it costs</h2>
+<p><strong>1% of verified savings, monthly — nothing else.</strong> No subscription, no seats, no minimum. Savings are measured per completed task from the provider's own reported usage; a month that saved nothing bills nothing. The measurement rules are published in full in the <a href="methodology.html">methodology</a>, and every number we quote traces to a command and a commit on the <a href="evidence.html">evidence</a> page.</p>
+<h2>What MESH never does</h2>
+<ul>
+<li>Never sends your prompts anywhere — analysis runs entirely on your machine.</li>
+<li>Never stores or forwards your API key beyond the provider you chose.</li>
+<li>Never claims savings you already had: your own cache hits are itemised and excluded.</li>
+<li>Never hides a loss: a lever that cost you money counts against us on the invoice.</li>
+</ul>
+<h2>Want a guided pilot?</h2>
+<p>Open a <a href="https://github.com/Harrym1707/Mesh/blob/main/docs/pilot/runbook.md">pilot request</a> — bring an export from your existing gateway and leave with a per-segment quote from your own traffic, including the honest band for your workload shape.</p>
+<footer><strong>mesh</strong> — spend tokens where they matter. Every number on this site traces to a
+command and a commit — <a href="evidence.html">evidence</a>. Savings are measured per completed task;
+estimates are always labelled. <a href="https://github.com/Harrym1707/Mesh">Source</a> · <a href="llms.txt">llms.txt</a> ·
+<a href="terms.html">Terms</a> · <a href="privacy.html">Privacy</a></footer>
+</main>
+</body>
+</html>

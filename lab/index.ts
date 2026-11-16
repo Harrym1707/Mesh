@@ -15,6 +15,8 @@ export * from "./live-study.js";
 export * from "./experiments/span-keyed-stamp.js";
 export * from "./experiments/page-snapshots.js";
 export * from "./browsing-shape.js";
+export * from "./experiments/tool-result-codecs.js";
+export * from "./agent-tasks.js";
 export * from "./numbers.js";
 export * from "./ledger.js";
 export * from "./orchestrator.js";

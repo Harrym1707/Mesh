@@ -27,6 +27,19 @@ pnpm lab:verify    # verify the hash-chained audit trail
 pnpm test lab      # the lab test suite
 ```
 
+The measurement harnesses, each printing its own basis label:
+
+```bash
+pnpm lab:live      # where the bill still sits after Mesh, on the LIVE run's usage
+pnpm lab:tasks     # agent sessions by kind of task, on real recorded tool outputs
+pnpm lab:browse    # browsing agents (synthetic pages)
+pnpm lab:sweep     # session length and turn cadence
+```
+
+`lab:tasks` reads the tool outputs in `lab/agent-tasks/corpus`, recorded from
+this repository by `bash lab/agent-tasks/capture.sh`. They are this project's
+own files, logs, pages and public GitHub metadata: no customer content.
+
 ## The agent team
 
 Each agent has a narrow responsibility and a narrow set of capabilities

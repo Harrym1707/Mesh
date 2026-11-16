@@ -1,0 +1,11 @@
+
+> mesh@0.1.0 build:cli /workspace/mesh
+> node --import tsx scripts/build-cli-package.ts
+
+built CLI artifacts  (build ca73b64, v0.2.0)
+  mesh (bootstrap)   3KB  → the download
+  mesh-runtime       326KB  sha256 4a06a2a5fe46…
+  mesh-version.json  update manifest
+  smoke test: mesh-runtime verify — All checks passed
+  smoke test: mesh-runtime theo --help — command present
+  publish npm with:  (cd packages/cli/pkg && npm publish --access public)

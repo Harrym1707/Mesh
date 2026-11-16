@@ -1,0 +1,304 @@
+
+ RUN  v4.1.12 /workspace/mesh
+
+ ❯ packages/core/src/tool-schema.test.ts (28 tests | 7 failed) 18ms
+     × keeps $defs, so every $ref still resolves 3ms
+     × keeps a definition nothing points to 0ms
+     × keeps nested $defs and references with escaped pointers 1ms
+     × keeps $id when the tool uses a reference, and still removes it when it does not 1ms
+     × treats the keys of properties as names, not keywords 1ms
+     × copies default, const, enum and examples through untouched 1ms
+     × still removes $schema and $comment inside a definition 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  packages/core/src/tool-schema.test.ts > minifyToolSchemas: references, names and data survive the lossless tier > keeps $defs, so every $ref still resolves
+AssertionError: expected undefined to deeply equal { …(2) }
+
+- Expected:
+{
+  "Address": {
+    "properties": {
+      "city": {
+        "type": "string",
+      },
+    },
+    "type": "object",
+  },
+  "Customer": {
+    "properties": {
+      "address": {
+        "$ref": "#/$defs/Address",
+      },
+      "id": {
+        "type": "string",
+      },
+    },
+    "required": [
+      "id",
+    ],
+    "type": "object",
+  },
+}
+
++ Received:
+undefined
+
+ ❯ packages/core/src/tool-schema.test.ts:238:24
+    236|     const result = minifyToolSchemas([anthropicTool(nested)]);
+    237|     const sent = inputSchemaOf(result);
+    238|     expect(sent.$defs).toEqual(nested.$defs);
+       |                        ^
+    239|     const references = referencesIn(sent);
+    240|     expect(references).toEqual(["#/$defs/Customer", "#/$defs/Address"]…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+ FAIL  packages/core/src/tool-schema.test.ts > minifyToolSchemas: references, names and data survive the lossless tier > keeps a definition nothing points to
+AssertionError: expected undefined to deeply equal { …(3) }
+
+- Expected:
+{
+  "Address": {
+    "properties": {
+      "city": {
+        "type": "string",
+      },
+    },
+    "type": "object",
+  },
+  "Customer": {
+    "properties": {
+      "address": {
+        "$ref": "#/$defs/Address",
+      },
+      "id": {
+        "type": "string",
+      },
+    },
+    "required": [
+      "id",
+    ],
+    "type": "object",
+  },
+  "Orphan": {
+    "type": "string",
+  },
+}
+
++ Received:
+undefined
+
+ ❯ packages/core/src/tool-schema.test.ts:251:77
+    249|     // take. The lossless tier does not take that bet.
+    250|     const schema = { ...nested, $defs: { ...nested.$defs, Orphan: { ty…
+    251|     expect(inputSchemaOf(minifyToolSchemas([anthropicTool(schema)])).$…
+       |                                                                             ^
+    252|   });
+    253|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/7]⎯
+
+ FAIL  packages/core/src/tool-schema.test.ts > minifyToolSchemas: references, names and data survive the lossless tier > keeps nested $defs and references with escaped pointers
+AssertionError: expected { Object (type, properties) } to deeply equal { Object (type, properties) }
+
+- Expected
++ Received
+
+@@ -1,17 +1,8 @@
+  {
+    "properties": {
+      "item": {
+-       "$defs": {
+-         "Size/Unit": {
+-           "enum": [
+-             "cm",
+-             "in",
+-           ],
+-           "type": "string",
+-         },
+-       },
+        "properties": {
+          "size": {
+            "$ref": "#/properties/item/$defs/Size~1Unit",
+          },
+        },
+
+ ❯ packages/core/src/tool-schema.test.ts:281:18
+    279|     };
+    280|     const sent = inputSchemaOf(minifyToolSchemas([anthropicTool(schema…
+    281|     expect(sent).toEqual(schema);
+       |                  ^
+    282|     for (const reference of referencesIn(sent)) expect(resolvePointer(…
+    283|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/7]⎯
+
+ FAIL  packages/core/src/tool-schema.test.ts > minifyToolSchemas: references, names and data survive the lossless tier > keeps $id when the tool uses a reference, and still removes it when it does not
+AssertionError: expected { Object (type, properties) } to deeply equal { …(4) }
+
+- Expected
++ Received
+
+@@ -1,13 +1,6 @@
+  {
+-   "$defs": {
+-     "Line": {
+-       "$id": "line.json",
+-       "type": "object",
+-     },
+-   },
+-   "$id": "https://example.com/schemas/order.json",
+    "properties": {
+      "line": {
+        "$ref": "line.json",
+      },
+    },
+
+ ❯ packages/core/src/tool-schema.test.ts:293:18
+    291|     };
+    292|     const sent = inputSchemaOf(minifyToolSchemas([anthropicTool(withRe…
+    293|     expect(sent).toEqual(withReference);
+       |                  ^
+    294|
+    295|     const withoutReference = { $id: "https://example.com/schemas/order…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/7]⎯
+
+ FAIL  packages/core/src/tool-schema.test.ts > minifyToolSchemas: references, names and data survive the lossless tier > treats the keys of properties as names, not keywords
+AssertionError: expected { type: 'object', …(2) } to deeply equal { type: 'object', …(2) }
+
+- Expected
++ Received
+
+@@ -1,21 +1,7 @@
+  {
+    "properties": {
+-     "$comment": {
+-       "type": "string",
+-     },
+-     "$defs": {
+-       "type": "object",
+-     },
+-     "$id": {
+-       "description": "Identifier of the document.",
+-       "type": "string",
+-     },
+-     "$schema": {
+-       "description": "Schema URL of the document.",
+-       "type": "string",
+-     },
+      "default": {
+        "type": "string",
+      },
+      "description": {
+        "type": "string",
+@@ -24,16 +10,12 @@
+        "items": {
+          "type": "string",
+        },
+        "type": "array",
+      },
+-     "properties": {
+      "properties": {
+-         "$id": {
+-           "type": "string",
+-         },
+-       },
++       "properties": {},
+        "type": "object",
+      },
+      "title": {
+        "type": "string",
+      },
+
+ ❯ packages/core/src/tool-schema.test.ts:325:18
+    323|     };
+    324|     const sent = inputSchemaOf(minifyToolSchemas([anthropicTool(schema…
+    325|     expect(sent).toEqual(schema);
+       |                  ^
+    326|     const parameters = Object.keys(sent.properties as Record<string, u…
+    327|     for (const name of sent.required as string[]) expect(parameters).t…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/7]⎯
+
+ FAIL  packages/core/src/tool-schema.test.ts > minifyToolSchemas: references, names and data survive the lossless tier > copies default, const, enum and examples through untouched
+AssertionError: expected { Object (type, properties) } to deeply equal { Object (type, properties) }
+
+- Expected
++ Received
+
+@@ -1,31 +1,24 @@
+  {
+    "properties": {
+      "document": {
+        "default": {
+-         "$comment": "the caller's",
+-         "$id": "urn:example:1",
+          "title": "document",
+        },
+        "examples": [
+          {
+-           "$schema": "https://example.com/s.json",
+            "description": "an example",
+          },
+        ],
+        "type": "object",
+      },
+      "kind": {
+-       "const": {
+-         "$id": 7,
+-       },
++       "const": {},
+      },
+      "mode": {
+        "enum": [
+-         {
+-           "$comment": "a",
+-         },
++         {},
+          "b",
+        ],
+      },
+    },
+    "type": "object",
+
+ ❯ packages/core/src/tool-schema.test.ts:354:18
+    352|     };
+    353|     const sent = inputSchemaOf(minifyToolSchemas([anthropicTool(schema…
+    354|     expect(sent).toEqual(schema);
+       |                  ^
+    355|     // A copy, not the caller's own object.
+    356|     const sentDocument = (sent.properties as Record<string, { default:…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/7]⎯
+
+ FAIL  packages/core/src/tool-schema.test.ts > minifyToolSchemas: references, names and data survive the lossless tier > still removes $schema and $comment inside a definition
+AssertionError: expected undefined to deeply equal { Customer: { type: 'object' } }
+
+- Expected:
+{
+  "Customer": {
+    "type": "object",
+  },
+}
+
++ Received:
+undefined
+
+ ❯ packages/core/src/tool-schema.test.ts:367:41
+    365|     };
+    366|     const result = minifyToolSchemas([anthropicTool(schema)]);
+    367|     expect(inputSchemaOf(result).$defs).toEqual({ Customer: { type: "o…
+       |                                         ^
+    368|     expect(result.changes.every((change) => change.kind === "plumbing"…
+    369|     expect(result.changes).toHaveLength(2);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/7]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  7 failed | 21 passed (28)
+   Start at  06:45:59
+   Duration  151ms (transform 33ms, setup 0ms, import 43ms, tests 18ms, environment 0ms)
+

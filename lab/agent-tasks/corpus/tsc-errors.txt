@@ -1,0 +1,13 @@
+lab/agent-tasks/broken-example.ts(10,71): error TS2339: Property 'price' does not exist on type '{ sku: string; quantity: number; }'.
+lab/agent-tasks/broken-example.ts(13,24): error TS2322: Type 'number' is not assignable to type 'string'.
+lab/agent-tasks/broken-example.ts(13,54): error TS2322: Type 'string' is not assignable to type 'number'.
+lab/agent-tasks/broken-example.ts(13,72): error TS2322: Type 'string' is not assignable to type 'number'.
+lab/agent-tasks/broken-example.ts(15,34): error TS2345: Argument of type 'string' is not assignable to parameter of type 'unknown[]'.
+lab/agent-tasks/broken-example.ts(16,7): error TS2322: Type 'number' is not assignable to type 'string'.
+lab/agent-tasks/broken-example.ts(17,38): error TS2345: Argument of type 'Order' is not assignable to parameter of type 'string'.
+lab/agent-tasks/broken-example.ts(18,44): error TS18046: 'tool' is of type 'unknown'.
+lab/agent-tasks/broken-example.ts(23,38): error TS2554: Expected 1 arguments, but got 2.
+lab/agent-tasks/broken-example.ts(24,18): error TS2339: Property 'customer' does not exist on type 'Order'.
+lab/agent-tasks/broken-example.ts(24,37): error TS2339: Property 'length' does not exist on type 'number'.
+lab/agent-tasks/broken-example.ts(26,10): error TS2552: Cannot find name 'summery'. Did you mean 'summary'?
+lab/agent-tasks/broken-example.ts(29,44): error TS2339: Property 'price' does not exist on type '{ sku: string; quantity: number; }'.

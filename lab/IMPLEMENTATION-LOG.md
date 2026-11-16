@@ -19,6 +19,18 @@ log it here · commit locally only when green · do not push (left for review).
 3a. ~~Wire the tiers into the pipeline~~ — **Done — iteration 5.**
 3b. ~~Long-session variant~~ and 5. ~~Cache-TTL sensitivity~~ — **Done — iteration 4.**
 
+**Added 2026-11-16 (iteration 8), ahead of the list below:**
+- **Tool-result JSON whitespace removal into the product**, lossless, as an
+  opt-in lever first. The only new lever that needs no quality gate. Harry's call.
+- **A real quality gate for the tool-result reducers**, starting with the two
+  that act on the commonest agent work: a re-read file as its changes (coding)
+  and JSON columns with repeated sub-objects as pointers (API and MCP tools).
+  Needs a provider key and tasks with checkable answers.
+- **Fix `minifyJsonBlocks` in `packages/core`** so it keeps number lexemes.
+- **A real tokenizer** for the lab, so the line-number gutter of a file read and
+  JSON indentation can be measured instead of estimated.
+- **Longer sessions and non-GitHub API responses** in the task corpus.
+
 **Added 2026-11-14 (iteration 7), ahead of the list below:**
 - **One small live run** on the corrected cache guard, to turn the
   DERIVED-FROM-LIVE figure for the coding agent (20.7% of its bill, 6.1% of the
@@ -54,6 +66,132 @@ log it here · commit locally only when green · do not push (left for review).
 6. **Red-team hardening.** Property tests for every reducer: never increases
    tokens, idempotent, preserves fenced code, byte-identical on clean input.
 7. README + floorplan refresh; final report at 24h.
+
+### Iteration 8 — 2026-11-16 · agent tasks: where the tokens go, and what Mesh can take out
+
+Harry (relayed by the release-staging session): "I also want the engineering
+lab to focus today on reducing agent token usage across different tasks."
+
+**Why this, and why now.** The people waiting to use Mesh run Claude Code,
+which caches for itself. On that traffic the cache is not Mesh's to claim, and
+the release-staging session measured the default tool-schema lever on the real
+Claude Code CLI at about 1.7% of one request's bytes (30 tools, only `$schema`
+to remove). So the question is what is left.
+
+**Built** (lab-only; no product code)
+- `lab/agent-tasks/capture.sh` + `lab/agent-tasks/corpus/` — 22 REAL tool
+  outputs recorded from this repository: file reads, search hits, a directory
+  listing, git log and diff, passing and failing test runs (one inside a
+  pseudo-terminal), compiler errors, an install log, a build log, three GitHub
+  API responses for this repository and three pages of the project's own site.
+  Paths are normalised. No customer content.
+- `lab/agent-tasks.ts` (+ `pnpm lab:tasks`) — five scripted agent sessions over
+  those outputs (fix a bug, explore a codebase, answer from API responses,
+  triage a failing build, research from web pages), each priced for a client
+  that already caches and for one that does not.
+- `lab/experiments/tool-result-codecs.ts` — reducers that act on a tool result
+  before it is first sent. Each is a pure function of the text, so a result is
+  rewritten identically on every turn and a client's cached prefix is unaffected
+  (tested: history is byte-identical from one model call to the next).
+
+**Basis for every figure below: SIMULATOR.** Real tool outputs; scripted
+sessions; the system prompt, tool definitions and the agent's own words are
+ESTIMATES; tokens estimated (no provider tokenizer, about ±15%); documented
+cache multipliers. No model ran: quality is unmeasured. Not in `docs/NUMBERS.md`.
+
+**Finding 1 — an agent's input is its tool results.** 74.6%–93.2% of the input
+these sessions send is tool results. For a client that caches, 64%–87% of the
+bill is cache WRITES: each new result is written once at 1.25x. So every token
+taken out of a result before it is first sent saves at least 1.25 tokens, plus
+0.1 for each later turn that would have re-read it.
+
+**Finding 2 — Mesh's built-in policy saves 0.0% on these sessions**, cached or
+not. The tool definitions here are hand-written and already clean, so read that
+as "close to nothing", in line with 0.06% on the wire captures and the Claude
+Code measurement above. For a client with no cache, turning the cache on is
+worth 32.8%–71.2%; that is still the first thing to get right for such a client.
+
+**Finding 3 — which reducer matters depends on the task.** Whole-bill saving
+against the same client with no reducer; each line includes the ones above it.
+
+| Task | Tier reached | Client caches | No caching |
+|---|---|---|---|
+| Answer from API responses | parse-equal (JSON layout whitespace) | 7.7% | 7.2% |
+| | + reversible (columns, repeated sub-objects) | 58.3% | 58.8% |
+| | + repeated result as a pointer | 63.7% | 60.8% |
+| Fix a bug | + reversible (grouped search hits) | 3.2% | 4.3% |
+| | + a re-read file shows only what changed | 15.3% | 13.3% |
+| | + lossy (passing-test lines folded) | 19.3% | 15.6% |
+| Explore a codebase | + reversible (grouped search hits) | 4.5% | 5.2% |
+| | + repeated result as a pointer | 13.7% | 10.6% |
+| Triage a failing build | everything short of lossy | 0.0% | 0.0% |
+| | + lossy (passing-test lines folded) | 8.2% | 4.4% |
+| Research from web pages | everything short of lossy | 0.0% | 0.0% |
+| | + lossy (HTML as readable text) | 52.6% | 47.1% |
+
+Per output (tokens before → after, applied alone): the pull-request list
+23,427 → 7,674 with repeated sub-objects as pointers (-67.2%: GitHub repeats the
+whole repository object on every row); check runs 7,289 → 2,818 (-61.3%);
+branches 3,658 → 2,835 as columns (-22.5%); search hits -26.7% and -29.3%;
+pages -60.0% to -69.6% as text; a verbose passing test run -93.8% folded. File
+reads, the directory listing, git output, the failing test run and the compiler
+errors: no reducer here applies.
+
+**Finding 4 — rewriting old history is the wrong tool for a client that
+caches.** Trimming the OLDER copy of a re-read file saves 13.7% with no cache
+and RAISES a caching client's bill by 11.1% (-14.3 points against the rung
+below it): the rewrite invalidates everything cached after it. The mirror
+image, which leaves history alone and shrinks only the newest read, saves 15.3%
+and 13.3%. Both are in the pipeline; the first is recorded as failed.
+
+**Finding 5 — two honest negatives.** Stripping terminal colour codes found
+nothing: the pseudo-terminal recording of a real test run carries 9 escape
+sequences and no colour codes. Runs of identical lines: none of the 22 outputs
+has one long enough to be worth a marker.
+
+**Finding 6 — a flaw in an earlier lab reducer.** `minifyJsonBlocks` in
+`packages/core` (added by this lab, promoted here as lossless, called by no
+product path) goes through `JSON.parse`, so it rewrites numbers: `1.0` → `1`,
+`1e3` → `1000`, and `12345678901234567890` → `12345678901234567000`. The new
+`json-minify` codec keeps every lexeme as written. The core reducer needs the
+same fix before anything uses it; raised as its own change.
+
+**Tiers, and what the lab will and will not claim**
+- parse-equal: the same JSON document (tested: equal after parsing, every
+  number and string as written). Promoted as lossless. **1 lever.**
+- reversible: an exact inverse exists and is tested on every recorded output
+  (columns, repeated sub-objects, grouped search hits). Nothing is lost, but the
+  model reads a different layout → `needs_gate`.
+- content-preserving (pointer, re-read as changes): the content stays verbatim
+  elsewhere in the transcript → `needs_gate`.
+- lossy (HTML as text, folded test lines) → `needs_gate`.
+
+**Qualification**
+- Output is 2%–9% of these scripted bills, because the agent's own words are
+  short here. On the LIVE run output was 57.7% of the remaining bill. An
+  input reducer's whole-bill saving shrinks in proportion: at the live share
+  these figures would be a little under half their size.
+- With a tool catalogue of ~9,124 tokens instead of ~1,564 the
+  content-preserving figures read 11.2% / 8.7% (bug fix), 9.7% / 6.2%
+  (exploration) and 53.4% / 47.6% (API responses).
+- Sessions are 3 to 10 tool calls. Longer sessions re-read each result more
+  often, which favours every reducer here; not measured.
+- The API responses are GitHub's, which repeat sub-objects heavily. Other APIs
+  will differ; the columns figure (22.5% on a plain list) is the safer guide.
+- The web-page figure assumes a fetch tool that returns raw HTML. Many return
+  Markdown already, and then there is nothing to take.
+- The estimator counts indentation as free, so the JSON whitespace figure is
+  likely understated.
+
+**Pipeline.** 9 new leads (40 on a fresh ledger): `tool-result-json-minify`
+promoted (lossless, 7.7%); six at `needs_gate` with quality unmeasured (JSON
+columns and repeats 50.6 points, HTML as text 52.6, re-read as changes 12.2,
+repeated-result pointer 9.2, folded test lines 8.2, grouped search hits 3.2);
+two failed (older-read trimming, terminal codes). Totals: 17 promoted, 10
+`needs_gate`, 7 failed or rejected, 6 inconclusive.
+
+**Verification:** `tsc -b` and `typecheck:lab` clean; 987 tests in 67 files at
+default timeouts (16 new).
 
 ### Iteration 7 — 2026-11-14 · the cache guard fix ships; browsing agents
 
