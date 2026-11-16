@@ -250,6 +250,17 @@ describe("minifyJsonBlocks", () => {
     expect(result.text.length).toBeLessThan(pretty.length);
   });
 
+  it("keeps every number and string exactly as written", () => {
+    // A JSON.parse round trip would turn 1.0 into 1, 1e3 into 1000 and round
+    // the 20-digit identifier: a changed value, in a reducer labelled lossless.
+    const pretty = '```json\n{\n  "price": 1.0,\n  "id": 12345678901234567890,\n  "big": 1e3,\n  "neg": -0,\n  "note": "two  spaces, a \\"quote\\" and a \\\\ backslash",\n  "tags": [ "a b", "c" ]\n}\n```';
+    const result = minifyJsonBlocks().reduce(pretty);
+    expect(result.text).toBe(
+      '```json\n{"price":1.0,"id":12345678901234567890,"big":1e3,"neg":-0,"note":"two  spaces, a \\"quote\\" and a \\\\ backslash","tags":["a b","c"]}\n```',
+    );
+    expect(JSON.stringify(JSON.parse('{"id":12345678901234567890}'))).not.toContain("12345678901234567890");
+  });
+
   it("leaves invalid JSON and non-json fences byte-identical", () => {
     const notJson = "```json\nthis is not json\n```";
     expect(minifyJsonBlocks().reduce(notJson).text).toBe(notJson);

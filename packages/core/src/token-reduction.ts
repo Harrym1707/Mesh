@@ -199,6 +199,34 @@ export function collapseWhitespace(): Reducer {
  * form, not a byte-identity transform — it is applied where the JSON's values,
  * not its layout, are what the model needs.
  */
+/**
+ * Remove the whitespace between JSON tokens and nothing else. Every string and
+ * number is kept exactly as it was written. A `JSON.parse` round trip is not
+ * the same thing: it re-types numbers, so 1.0 becomes 1, 1e3 becomes 1000 and
+ * an integer past 2^53 (a 64-bit identifier) loses its last digits.
+ */
+function stripJsonWhitespace(json: string): string {
+  let out = "";
+  let inString = false;
+  for (let at = 0; at < json.length; at += 1) {
+    const character = json[at]!;
+    if (inString) {
+      out += character;
+      if (character === "\\") {
+        at += 1;
+        out += json[at] ?? "";
+      } else if (character === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (character === '"') inString = true;
+    else if (character === " " || character === "\n" || character === "\t" || character === "\r") continue;
+    out += character;
+  }
+  return out;
+}
+
 export function minifyJsonBlocks(
   countTokens: TokenCounter = approximateTokenCount,
 ): Reducer {
@@ -210,13 +238,14 @@ export function minifyJsonBlocks(
       const notes: string[] = [];
       let tokensSaved = 0;
       const out = text.replace(/```json[ \t]*\n([\s\S]*?)\n?```/g, (match, body: string) => {
-        let parsed: unknown;
         try {
-          parsed = JSON.parse(body);
+          JSON.parse(body);
         } catch {
           return match; // not valid JSON — never touch it
         }
-        const minified = JSON.stringify(parsed);
+        // Validity is checked by parsing; the output is NOT rebuilt from the
+        // parsed value, which would rewrite numbers.
+        const minified = stripJsonWhitespace(body);
         const rebuilt = `\`\`\`json\n${minified}\n\`\`\``;
         if (rebuilt.length >= match.length) return match;
         tokensSaved += Math.max(0, countTokens(body) - countTokens(minified));
