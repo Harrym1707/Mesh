@@ -1,0 +1,240 @@
+{
+  "fetchedAt": "2026-11-16T15:58:27Z",
+  "views": {
+    "count": 55,
+    "uniques": 4,
+    "views": [
+      {
+        "timestamp": "2026-11-01T00:00:00Z",
+        "count": 0,
+        "uniques": 0
+      },
+      {
+        "timestamp": "2026-11-02T00:00:00Z",
+        "count": 0,
+        "uniques": 0
+      },
+      {
+        "timestamp": "2026-11-03T00:00:00Z",
+        "count": 0,
+        "uniques": 0
+      },
+      {
+        "timestamp": "2026-11-04T00:00:00Z",
+        "count": 3,
+        "uniques": 1
+      },
+      {
+        "timestamp": "2026-11-05T00:00:00Z",
+        "count": 16,
+        "uniques": 1
+      },
+      {
+        "timestamp": "2026-11-06T00:00:00Z",
+        "count": 0,
+        "uniques": 0
+      },
+      {
+        "timestamp": "2026-11-07T00:00:00Z",
+        "count": 17,
+        "uniques": 3
+      },
+      {
+        "timestamp": "2026-11-08T00:00:00Z",
+        "count": 0,
+        "uniques": 0
+      },
+      {
+        "timestamp": "2026-11-09T00:00:00Z",
+        "count": 3,
+        "uniques": 2
+      },
+      {
+        "timestamp": "2026-11-10T00:00:00Z",
+        "count": 6,
+        "uniques": 1
+      },
+      {
+        "timestamp": "2026-11-11T00:00:00Z",
+        "count": 0,
+        "uniques": 0
+      },
+      {
+        "timestamp": "2026-11-12T00:00:00Z",
+        "count": 10,
+        "uniques": 2
+      },
+      {
+        "timestamp": "2026-11-13T00:00:00Z",
+        "count": 0,
+        "uniques": 0
+      },
+      {
+        "timestamp": "2026-11-14T00:00:00Z",
+        "count": 0,
+        "uniques": 0
+      }
+    ]
+  },
+  "clones": {
+    "count": 1373,
+    "uniques": 290,
+    "clones": [
+      {
+        "timestamp": "2026-11-01T00:00:00Z",
+        "count": 76,
+        "uniques": 23
+      },
+      {
+        "timestamp": "2026-11-02T00:00:00Z",
+        "count": 28,
+        "uniques": 7
+      },
+      {
+        "timestamp": "2026-11-03T00:00:00Z",
+        "count": 71,
+        "uniques": 28
+      },
+      {
+        "timestamp": "2026-11-04T00:00:00Z",
+        "count": 116,
+        "uniques": 36
+      },
+      {
+        "timestamp": "2026-11-05T00:00:00Z",
+        "count": 161,
+        "uniques": 41
+      },
+      {
+        "timestamp": "2026-11-06T00:00:00Z",
+        "count": 59,
+        "uniques": 26
+      },
+      {
+        "timestamp": "2026-11-07T00:00:00Z",
+        "count": 177,
+        "uniques": 35
+      },
+      {
+        "timestamp": "2026-11-08T00:00:00Z",
+        "count": 59,
+        "uniques": 17
+      },
+      {
+        "timestamp": "2026-11-09T00:00:00Z",
+        "count": 103,
+        "uniques": 21
+      },
+      {
+        "timestamp": "2026-11-10T00:00:00Z",
+        "count": 176,
+        "uniques": 32
+      },
+      {
+        "timestamp": "2026-11-11T00:00:00Z",
+        "count": 54,
+        "uniques": 25
+      },
+      {
+        "timestamp": "2026-11-12T00:00:00Z",
+        "count": 138,
+        "uniques": 20
+      },
+      {
+        "timestamp": "2026-11-13T00:00:00Z",
+        "count": 78,
+        "uniques": 31
+      },
+      {
+        "timestamp": "2026-11-14T00:00:00Z",
+        "count": 77,
+        "uniques": 28
+      }
+    ]
+  },
+  "referrers": [
+    {
+      "referrer": "github.com",
+      "count": 3,
+      "uniques": 1
+    },
+    {
+      "referrer": "mesh-technology.com",
+      "count": 3,
+      "uniques": 1
+    }
+  ],
+  "paths": [
+    {
+      "path": "/Harrym1707/Mesh",
+      "title": "Overview",
+      "count": 5,
+      "uniques": 2
+    },
+    {
+      "path": "/Harrym1707/Mesh/compare/integration/trunk...theo/autonomous-agent",
+      "title": "/compare/integration/trunk...theo/autonomous-agent",
+      "count": 3,
+      "uniques": 2
+    },
+    {
+      "path": "/Harrym1707/Mesh/compare/theo/readiness-loop...claude/self-serve-billing-ad4518",
+      "title": "/compare/theo/readiness-loop...claude/self-serve-billing-ad4518",
+      "count": 3,
+      "uniques": 2
+    },
+    {
+      "path": "/Harrym1707/Mesh/actions",
+      "title": "/actions",
+      "count": 3,
+      "uniques": 1
+    },
+    {
+      "path": "/Harrym1707/Mesh/compare/main...claude/stage-6-router-522e30",
+      "title": "/compare/main...claude/stage-6-router-522e30",
+      "count": 3,
+      "uniques": 1
+    },
+    {
+      "path": "/Harrym1707/Mesh/compare/main...claude/pilot-prep-e258fb",
+      "title": "/compare/main...claude/pilot-prep-e258fb",
+      "count": 2,
+      "uniques": 2
+    },
+    {
+      "path": "/Harrym1707/Mesh/compare/integration/trunk...claude/billing-test-mode-88a1c1",
+      "title": "/compare/integration/trunk...claude/billing-test-mode-88a1c1",
+      "count": 2,
+      "uniques": 1
+    },
+    {
+      "path": "/Harrym1707/Mesh/pull/33",
+      "title": "/pull/33",
+      "count": 2,
+      "uniques": 1
+    },
+    {
+      "path": "/Harrym1707/Mesh/pull/33/checks",
+      "title": "/pull/33/checks",
+      "count": 2,
+      "uniques": 1
+    },
+    {
+      "path": "/Harrym1707/Mesh/pull/34",
+      "title": "/pull/34",
+      "count": 2,
+      "uniques": 1
+    }
+  ],
+  "repo": {
+    "stargazers_count": 0,
+    "forks_count": 0,
+    "subscribers_count": 0
+  },
+  "npmLastWeek": {
+    "downloads": 53,
+    "start": "2026-11-09",
+    "end": "2026-11-15",
+    "package": "@harrym1707/sdk"
+  }
+}
