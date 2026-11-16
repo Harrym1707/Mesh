@@ -30,9 +30,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
-  ANTHROPIC_CACHE_5M,
   ANTHROPIC_NO_CACHE,
   OPENAI_CACHE,
+  anthropicCachePolicyFor,
   simulateCache,
   type CachePolicy,
   type SimulatedRequest,
@@ -152,9 +152,14 @@ function qualifySession(capture: string, rows: CaptureRow[], spacingSeconds: num
   const anthropic = isAnthropic(path);
   const rawBodies = rows.map((r) => r.body);
 
+  // A stamped Anthropic stream caches at the captured model's own minimum
+  // (Haiku-class needs 2,048 tokens, not 1,024).
+  const model = typeof rawBodies[0]?.model === "string" ? rawBodies[0].model : "";
+  const stampedPolicy = anthropicCachePolicyFor(model, "5m");
+
   // The customer's own counterfactual.
   const customerStamped = anthropic && rawBodies.every(carriesCacheControl);
-  const baselinePolicy = anthropic ? (customerStamped ? ANTHROPIC_CACHE_5M : ANTHROPIC_NO_CACHE) : OPENAI_CACHE;
+  const baselinePolicy = anthropic ? (customerStamped ? stampedPolicy : ANTHROPIC_NO_CACHE) : OPENAI_CACHE;
   const baselineCostUsd = sessionCost(rawBodies, baselinePolicy, spacingSeconds);
 
   const arms = {} as SessionQualification["arms"];
@@ -172,7 +177,7 @@ function qualifySession(capture: string, rows: CaptureRow[], spacingSeconds: num
     // at the customer's own policy rather than assumed cached.
     const policy = anthropic
       ? reduced.every(carriesCacheControl)
-        ? ANTHROPIC_CACHE_5M
+        ? stampedPolicy
         : baselinePolicy
       : OPENAI_CACHE;
     const costUsd = sessionCost(reduced, policy, spacingSeconds);

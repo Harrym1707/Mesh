@@ -1,4 +1,5 @@
 import { estimateTokenCost, type TokenPrice } from "./cost.js";
+import { anthropicCacheableMinimumTokens } from "./model-prices.js";
 
 /**
  * Composable cost-reduction model.
@@ -300,6 +301,28 @@ export const PUBLISHED_LEVERS: Record<string, Lever> = {
 };
 
 /**
+ * The minimum cacheable prefix assumed when the caller names no model:
+ * OpenAI's floor, and Anthropic's for Sonnet- and Opus-class models.
+ */
+const DEFAULT_MINIMUM_CACHEABLE_TOKENS = 1024;
+
+/**
+ * The minimum cacheable prefix, in tokens, for a known provider and model.
+ *
+ * `projectSavings` takes a `TokenPrice`, which does not say which model it
+ * prices, so on its own it assumes 1,024 tokens. Anthropic's Haiku-class
+ * models cache nothing below 2,048 (`anthropicCacheableMinimumTokens`, the
+ * rule the production cache stamp follows), so a caller that knows the
+ * provider and model should pass this as `minimumCacheableTokens`; otherwise a
+ * Haiku-class projection credits caching to a stable prefix between 1,024 and
+ * 2,048 tokens that the provider would not cache. `model` may be the id as
+ * logged or the catalogue key it resolved to; both name the model class.
+ */
+export function minimumCacheableTokensFor(provider: string, model: string): number {
+  return provider === "anthropic" ? anthropicCacheableMinimumTokens(model) : DEFAULT_MINIMUM_CACHEABLE_TOKENS;
+}
+
+/**
  * Project the cost of a workload after a set of levers.
  *
  * Caching is applied last and only to stable segments that remain contiguous
@@ -327,7 +350,7 @@ export function projectSavings(
       throw new Error(`Lever ${lever.id} roundTripMultiplier must be a positive finite number.`);
     }
   }
-  const minimumCacheable = options.minimumCacheableTokens ?? 1024;
+  const minimumCacheable = options.minimumCacheableTokens ?? DEFAULT_MINIMUM_CACHEABLE_TOKENS;
   const warnings: string[] = [];
 
   const remaining: Record<WorkloadSegment, number> = { ...profile.segments };

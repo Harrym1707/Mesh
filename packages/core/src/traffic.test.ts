@@ -156,6 +156,36 @@ describe("traffic measurement", () => {
     expect(measurement.workloads[0]!.baselineCostUsd).toBeGreaterThan(0);
   });
 
+  it("applies the model's own cacheable minimum to the shared prefix", () => {
+    // About 1,500 tokens: above the 1,024 Sonnet/Opus minimum, below Haiku's 2,048.
+    const system = Array.from({ length: 750 }, (_, index) => `word${index}`).join(" ");
+    const rowsFor = (model: string): Record<string, unknown>[] => Array.from({ length: 3 }, (_, index) => ({
+      id: `r${index}`,
+      at: AT,
+      request: { model, system, messages: [{ role: "user", content: `Question ${index}` }] },
+      response: {
+        usage: { input_tokens: 1_600, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: 50 },
+      },
+    }));
+    const cachingFor = (model: string) => {
+      const workload = measureTraffic(ingestTraffic(rowsFor(model), AT).records, publishedModelPrices).workloads[0]!;
+      expect(workload.provider).toBe("anthropic");
+      return workload.caching!;
+    };
+
+    const sonnet = cachingFor("claude-sonnet-5-5-latest");
+    expect(sonnet.sharedPrefixTokens).toBeGreaterThan(1_024);
+    expect(sonnet.sharedPrefixTokens).toBeLessThan(2_048);
+    expect(sonnet.cacheablePrefixShare).toBeGreaterThan(0);
+    expect(sonnet.projection.status === "priced" && sonnet.projection.savingUsd > 0).toBe(true);
+
+    const haiku = cachingFor("claude-haiku-5-5-latest");
+    // The same prefix is measured, but the provider would not cache it.
+    expect(haiku.sharedPrefixTokens).toBe(sonnet.sharedPrefixTokens);
+    expect(haiku.cacheablePrefixShare).toBe(0);
+    expect(haiku.projection.status === "priced" && haiku.projection.savingUsd === 0).toBe(true);
+  });
+
   it("needs at least one record", () => {
     expect(() => measureTraffic([], publishedModelPrices)).toThrow(/at least one record/);
   });

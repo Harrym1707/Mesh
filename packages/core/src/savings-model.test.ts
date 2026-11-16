@@ -4,6 +4,7 @@ import {
   PUBLISHED_LEVERS,
   WORKLOAD_ARCHETYPES,
   leversFor,
+  minimumCacheableTokensFor,
   projectSavings,
   type Lever,
   type WorkloadProfile,
@@ -108,6 +109,50 @@ describe("projectSavings", () => {
     );
     expect(result.cachedInputTokens).toBe(0);
     expect(result.warnings.some((warning) => /cacheable minimum/.test(warning))).toBe(true);
+  });
+
+  it("resolves the cacheable minimum from the provider and the model class", () => {
+    // Haiku-class, by logged id or by catalogue key.
+    expect(minimumCacheableTokensFor("anthropic", "claude-haiku-5-5-latest")).toBe(2_048);
+    expect(minimumCacheableTokensFor("anthropic", "claude-haiku-5-5-20260514")).toBe(2_048);
+    expect(minimumCacheableTokensFor("anthropic", "Haiku 5.5")).toBe(2_048);
+    // Every other Anthropic model.
+    expect(minimumCacheableTokensFor("anthropic", "claude-sonnet-5-5")).toBe(1_024);
+    expect(minimumCacheableTokensFor("anthropic", "Sonnet 5.5")).toBe(1_024);
+    expect(minimumCacheableTokensFor("anthropic", "claude-opus-5-5-latest")).toBe(1_024);
+    expect(minimumCacheableTokensFor("anthropic", "some-unlisted-model")).toBe(1_024);
+    // Other providers keep 1,024 whatever the model is called.
+    expect(minimumCacheableTokensFor("openai", "gpt-5")).toBe(1_024);
+    expect(minimumCacheableTokensFor("openai", "gpt-4o-mini")).toBe(1_024);
+    expect(minimumCacheableTokensFor("openai", "haiku-lookalike")).toBe(1_024);
+    expect(minimumCacheableTokensFor("some-other-provider", "claude-haiku-5-5")).toBe(1_024);
+  });
+
+  it("projects no caching saving for a Haiku-class stable prefix between 1,024 and 2,048 tokens", () => {
+    const haikuMinimum = { minimumCacheableTokens: minimumCacheableTokensFor("anthropic", "claude-haiku-5-5-latest") };
+    const sonnetMinimum = { minimumCacheableTokens: minimumCacheableTokensFor("anthropic", "claude-sonnet-5-5") };
+    const stablePrefix = (tokens: number): WorkloadProfile => profile({
+      segments: { ...profile().segments, toolSchemas: tokens },
+      stableSegments: ["toolSchemas"],
+    });
+
+    for (const tokens of [1_024, 1_500, 2_047]) {
+      // With no model named, and for a Sonnet-class model, the prefix caches.
+      expect(projectSavings(stablePrefix(tokens), [], cachingPrice).cachedInputTokens).toBeGreaterThan(0);
+      expect(projectSavings(stablePrefix(tokens), [], cachingPrice, sonnetMinimum).cachedInputTokens)
+        .toBeGreaterThan(0);
+
+      const haiku = projectSavings(stablePrefix(tokens), [], cachingPrice, haikuMinimum);
+      expect(haiku.cachedInputTokens).toBe(0);
+      expect(haiku.savingUsd).toBe(0);
+      expect(haiku.contributions.some((contribution) => contribution.lever === "prefix-caching")).toBe(false);
+      expect(haiku.warnings.some((warning) => /2048-token cacheable minimum/.test(warning))).toBe(true);
+    }
+
+    // At the Haiku minimum the prefix caches again.
+    const atMinimum = projectSavings(stablePrefix(2_048), [], cachingPrice, haikuMinimum);
+    expect(atMinimum.cachedInputTokens).toBeGreaterThan(0);
+    expect(atMinimum.savingUsd).toBeGreaterThan(0);
   });
 
   it("projects no caching saving when the price has no cached rate", () => {

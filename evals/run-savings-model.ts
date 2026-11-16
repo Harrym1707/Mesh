@@ -1,6 +1,7 @@
 import {
   WORKLOAD_ARCHETYPES,
   leversFor,
+  minimumCacheableTokensFor,
   projectSavings,
   publishedModelPrices,
   lookupPrice,
@@ -50,7 +51,9 @@ for (const { provider, model } of MODELS) {
   console.log(`\n=== ${provider}/${model} (input $${lookup.price.inputPerMillion}/M, ` +
     `cached $${lookup.price.cachedInputPerMillion ?? "n/a"}/M, output $${lookup.price.outputPerMillion}/M) ===`);
   for (const profile of Object.values(WORKLOAD_ARCHETYPES)) {
-    const projection = projectSavings(profile, leversFor(profile), lookup.price);
+    const projection = projectSavings(profile, leversFor(profile), lookup.price, {
+      minimumCacheableTokens: minimumCacheableTokensFor(provider, model),
+    });
     console.log(summarise(projection));
     for (const warning of projection.warnings) console.log(`${" ".repeat(36)}note: ${warning}`);
   }

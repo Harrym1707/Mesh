@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import type { TokenPrice } from "./cost.js";
 import type { BillableEvent } from "./savings-ledger.js";
 import {
+  ANTHROPIC_CACHE_1H,
   ANTHROPIC_CACHE_5M,
   ANTHROPIC_NO_CACHE,
   OPENAI_CACHE,
+  anthropicCachePolicyFor,
   buildAgentSession,
   estimateCompactionEconomics,
   estimateCompactionFromLedger,
@@ -14,6 +16,7 @@ import {
   type CompactionSpec,
   type SimulatedRequest,
 } from "./cache-simulator.js";
+import { approximateTokenCount } from "./token-reduction.js";
 
 // Base rates only, so the simulator derives cached and write rates from the
 // policy's multipliers rather than from a catalogue entry.
@@ -140,6 +143,51 @@ describe("cache simulator", () => {
     const result = simulateCache(out, OPENAI_CACHE, price);
     expect(result.calls[0]!.atSeconds).toBe(0);
     expect(result.calls[1]!.atSeconds).toBe(60);
+  });
+
+  it("gives a Haiku-class model the 2,048-token minimum and every other id 1,024", () => {
+    for (const id of ["claude-haiku-5-5-latest", "claude-haiku-5-5-20260514", "Haiku 5.5"]) {
+      expect(anthropicCachePolicyFor(id, "5m").minimumCacheableTokens).toBe(2_048);
+      expect(anthropicCachePolicyFor(id, "1h").minimumCacheableTokens).toBe(2_048);
+    }
+    for (const id of ["claude-sonnet-5-5", "claude-opus-5-5-latest", "claude-fable-5-1", "some-unlisted-model"]) {
+      expect(anthropicCachePolicyFor(id, "5m").minimumCacheableTokens).toBe(1_024);
+      expect(anthropicCachePolicyFor(id, "1h").minimumCacheableTokens).toBe(1_024);
+    }
+    // Only the minimum depends on the model; the TTL picks the rest of the policy.
+    expect(anthropicCachePolicyFor("claude-sonnet-5-5", "5m")).toEqual(ANTHROPIC_CACHE_5M);
+    expect(anthropicCachePolicyFor("claude-sonnet-5-5", "1h")).toEqual(ANTHROPIC_CACHE_1H);
+    expect(anthropicCachePolicyFor("claude-haiku-5-5-latest", "5m"))
+      .toEqual({ ...ANTHROPIC_CACHE_5M, minimumCacheableTokens: 2_048 });
+    expect(anthropicCachePolicyFor("claude-haiku-5-5-latest", "1h"))
+      .toEqual({ ...ANTHROPIC_CACHE_1H, minimumCacheableTokens: 2_048 });
+    // The flat constants stay the default for a caller with no model id.
+    expect(ANTHROPIC_CACHE_5M.minimumCacheableTokens).toBe(1_024);
+    expect(ANTHROPIC_CACHE_1H.minimumCacheableTokens).toBe(1_024);
+  });
+
+  it("caches a ~1,500-token prefix for a Sonnet-class model and not for a Haiku-class one", () => {
+    const prefix = filler(750);
+    const prefixTokens = approximateTokenCount(prefix);
+    // Between the two minimums: above 1,024, below 2,048.
+    expect(prefixTokens).toBeGreaterThan(1_024);
+    expect(prefixTokens).toBeLessThan(2_048);
+    const prompts = Array.from({ length: 3 }, (_, index) => `${prefix}\nQuestion ${index}`);
+    for (const prompt of prompts) expect(approximateTokenCount(prompt)).toBeLessThan(2_048);
+
+    const sonnet = simulateCache(stream(prompts, 30), anthropicCachePolicyFor("claude-sonnet-5-5", "5m"), price);
+    expect(sonnet.hitRate).toBeGreaterThan(0);
+    expect(sonnet.missReasons["below-minimum"]).toBeUndefined();
+    expect(sonnet.calls[1]!.cachedInputTokens).toBeGreaterThanOrEqual(1_024);
+
+    const haiku = simulateCache(stream(prompts, 30), anthropicCachePolicyFor("claude-haiku-5-5-latest", "5m"), price);
+    expect(haiku.hitRate).toBe(0);
+    expect(haiku.calls[1]!.missReason).toBe("below-minimum");
+    expect(haiku.calls[2]!.missReason).toBe("below-minimum");
+    expect(haiku.missReasons["below-minimum"]).toBe(2);
+    expect(haiku.calls.every((call) => call.cachedInputTokens === 0 && call.writtenInputTokens === 0)).toBe(true);
+    // Nothing is written or read, so the run costs exactly what it does uncached.
+    expect(haiku.totalCostUsd).toBeCloseTo(haiku.uncachedCostUsd, 12);
   });
 
   it("validates its inputs", () => {

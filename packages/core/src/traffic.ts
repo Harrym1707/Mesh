@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { lookupPrice, priceUsage, resolveModelId, type PriceCatalogue } from "./price-catalogue.js";
-import { PUBLISHED_LEVERS, type Lever, type WorkloadProfile } from "./savings-model.js";
+import { PUBLISHED_LEVERS, minimumCacheableTokensFor, type Lever, type WorkloadProfile } from "./savings-model.js";
 import { auditToolCatalogue, type ToolCatalogueAudit } from "./tool-schema.js";
 import {
   analysePromptCaching,
@@ -444,6 +444,8 @@ export function measureTraffic(
       }
       caching = analysePromptCaching(sample, {
         countTokens,
+        // The floor depends on the model class (Haiku needs 2,048 tokens).
+        minimumCacheableTokens: minimumCacheableTokensFor(first.provider, resolvedModel ?? first.model),
         ...(lookup.status === "priced" ? { price: lookup.price } : {}),
       });
     }

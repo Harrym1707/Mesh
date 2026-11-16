@@ -1,4 +1,5 @@
 import { estimateTokenCost, type TokenPrice } from "./cost.js";
+import { anthropicCacheableMinimumTokens } from "./model-prices.js";
 import type { BillableEvent } from "./savings-ledger.js";
 import { approximateTokenCount, type TokenCounter } from "./token-reduction.js";
 
@@ -91,6 +92,22 @@ export const ANTHROPIC_CACHE_1H: CachePolicy = {
   writeMultiplier: 2,
   readMultiplier: 0.1,
 };
+
+/**
+ * The Anthropic policy for a known model id and TTL.
+ *
+ * `ANTHROPIC_CACHE_5M` and `ANTHROPIC_CACHE_1H` carry the 1,024-token minimum,
+ * which is right for Sonnet- and Opus-class models and is the default for a
+ * caller with no model id. A Haiku-class model caches nothing below 2,048
+ * tokens, so simulating it under the flat constants overstates caching for a
+ * prefix between the two. This takes the minimum from
+ * `anthropicCacheableMinimumTokens`, the same rule the production cache stamp
+ * follows, and changes nothing else about the policy.
+ */
+export function anthropicCachePolicyFor(modelId: string, ttl: "5m" | "1h"): CachePolicy {
+  const base = ttl === "1h" ? ANTHROPIC_CACHE_1H : ANTHROPIC_CACHE_5M;
+  return { ...base, minimumCacheableTokens: anthropicCacheableMinimumTokens(modelId) };
+}
 
 export type SimulatedRequest = {
   /** Seconds since the run began. Drives TTL expiry. */

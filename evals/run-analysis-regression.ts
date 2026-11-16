@@ -4,6 +4,7 @@ import {
   ingestTraffic,
   leversFromMeasurement,
   measureTraffic,
+  minimumCacheableTokensFor,
   profileFromMeasurement,
   projectSavings,
   publishedModelPrices,
@@ -51,10 +52,16 @@ function analyse(records: Parameters<typeof measureTraffic>[0]): Omit<Row, "fixt
     });
     if (price.status === "unpriced") continue;
     const levers = leversFromMeasurement(workload);
-    projections.set(workload.workload, projectSavings(profileFromMeasurement(workload), levers, price.price));
+    const cacheOptions = {
+      minimumCacheableTokens: minimumCacheableTokensFor(workload.provider, workload.resolvedModel),
+    };
+    projections.set(
+      workload.workload,
+      projectSavings(profileFromMeasurement(workload), levers, price.price, cacheOptions),
+    );
     repairs.set(
       workload.workload,
-      projectSavings(profileFromMeasurement(workload, { repairPrefix: true }), levers, price.price),
+      projectSavings(profileFromMeasurement(workload, { repairPrefix: true }), levers, price.price, cacheOptions),
     );
   }
   return { measurement, projections, repairs };
@@ -214,9 +221,17 @@ const agentPrice = lookupPrice(publishedModelPrices, {
 });
 if (agentPrice.status === "priced") {
   const profile = profileFromMeasurement(agentProfileWorkload);
-  const cachingOnly = projectSavings(profile, [], agentPrice.price).savingPercent;
-  const disclosure = projectSavings(profile, [PUBLISHED_LEVERS.progressiveDisclosure!], agentPrice.price);
-  const code = projectSavings(profile, [PUBLISHED_LEVERS.codeMode!], agentPrice.price);
+  const cacheOptions = {
+    minimumCacheableTokens: minimumCacheableTokensFor(
+      agentProfileWorkload.provider,
+      agentProfileWorkload.resolvedModel ?? agentProfileWorkload.model,
+    ),
+  };
+  const cachingOnly = projectSavings(profile, [], agentPrice.price, cacheOptions).savingPercent;
+  const disclosure = projectSavings(
+    profile, [PUBLISHED_LEVERS.progressiveDisclosure!], agentPrice.price, cacheOptions,
+  );
+  const code = projectSavings(profile, [PUBLISHED_LEVERS.codeMode!], agentPrice.price, cacheOptions);
   gates.push({
     name: "round trips priced, not ignored",
     pass: disclosure.savingPercent < cachingOnly && code.savingPercent > cachingOnly &&

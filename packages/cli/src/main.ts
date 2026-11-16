@@ -4,6 +4,7 @@ import {
   ingestTraffic,
   leversFromMeasurement,
   measureTraffic,
+  minimumCacheableTokensFor,
   profileFromMeasurement,
   projectSavings,
   publishedModelPrices,
@@ -351,10 +352,14 @@ for (const workload of measurement.workloads) {
   const levers = leversFromMeasurement(workload);
   // Measured levers only: see leversFromMeasurement on why published factors
   // must not be applied blind to a customer's traffic.
+  // The cacheable floor depends on the model class (Haiku needs 2,048 tokens).
+  const cacheOptions = {
+    minimumCacheableTokens: minimumCacheableTokensFor(workload.provider, workload.resolvedModel),
+  };
   const profile = profileFromMeasurement(workload as WorkloadMeasurement);
-  projections.set(workload.workload, projectSavings(profile, levers, price.price));
+  projections.set(workload.workload, projectSavings(profile, levers, price.price, cacheOptions));
   const repaired = profileFromMeasurement(workload as WorkloadMeasurement, { repairPrefix: true });
-  repairs.set(workload.workload, projectSavings(repaired, levers, price.price));
+  repairs.set(workload.workload, projectSavings(repaired, levers, price.price, cacheOptions));
 }
 
 const fingerprint = trafficFingerprint(ingested.records);
