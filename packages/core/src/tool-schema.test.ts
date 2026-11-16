@@ -115,6 +115,166 @@ describe("minifyToolSchemas", () => {
   });
 });
 
+/** Follow a same-document JSON pointer (`#/a/b`) from the root schema. */
+function resolvePointer(root: unknown, reference: string): unknown {
+  let node = root;
+  for (const part of reference.replace(/^#\/?/, "").split("/").filter((piece) => piece !== "")) {
+    const key = decodeURIComponent(part).replace(/~1/g, "/").replace(/~0/g, "~");
+    if (typeof node !== "object" || node === null) return undefined;
+    node = (node as Record<string, unknown>)[key];
+  }
+  return node;
+}
+
+/** Every `$ref` string anywhere in a schema. */
+function references(node: unknown, found: string[] = []): string[] {
+  if (Array.isArray(node)) node.forEach((item) => references(item, found));
+  else if (typeof node === "object" && node !== null) {
+    for (const [key, value] of Object.entries(node)) {
+      if (key === "$ref" && typeof value === "string") found.push(value);
+      else references(value, found);
+    }
+  }
+  return found;
+}
+
+// The shape a nested model compiles to (Pydantic, zod, most MCP servers): the
+// parameter refers to a definition, and one definition refers to another.
+function nestedModelTool(definitionsKey: "$defs" | "definitions" = "$defs"): Record<string, unknown> {
+  return {
+    name: "create_order",
+    description: "Create an order for a customer.",
+    input_schema: {
+      $schema: "https://json-schema.org/draft/2020-12/schema",
+      type: "object",
+      properties: {
+        customer: { $ref: `#/${definitionsKey}/Customer` },
+        quantity: { type: "integer" },
+      },
+      required: ["customer"],
+      [definitionsKey]: {
+        Customer: {
+          type: "object",
+          properties: { name: { type: "string" }, address: { $ref: `#/${definitionsKey}/Address` } },
+          required: ["name"],
+        },
+        Address: { type: "object", properties: { postcode: { type: "string" } } },
+      },
+    },
+  };
+}
+
+describe("minifyToolSchemas — references and definitions", () => {
+  it("keeps the definitions a $ref points into", () => {
+    const original = nestedModelTool();
+    const [minified] = minifyToolSchemas([original]).tools as Array<Record<string, unknown>>;
+    const schema = minified!.input_schema as Record<string, unknown>;
+    const { $schema: _dropped, ...expected } = original.input_schema as Record<string, unknown>;
+    expect(schema).toEqual(expected);
+    for (const reference of references(schema)) {
+      expect(resolvePointer(schema, reference), `${reference} must still resolve`).toBeDefined();
+    }
+  });
+
+  it("keeps draft-07 `definitions` too", () => {
+    const [minified] = minifyToolSchemas([nestedModelTool("definitions")]).tools as Array<Record<string, unknown>>;
+    const schema = minified!.input_schema as Record<string, unknown>;
+    expect(references(schema).length).toBe(2);
+    for (const reference of references(schema)) expect(resolvePointer(schema, reference)).toBeDefined();
+  });
+
+  it("keeps $id in a tool that contains a reference, because a relative reference is read against it", () => {
+    const original = {
+      name: "lookup",
+      input_schema: {
+        $id: "https://tools.example.com/lookup.json",
+        type: "object",
+        properties: { customer: { $ref: "customer.json" } },
+      },
+    };
+    const [minified] = minifyToolSchemas([original]).tools;
+    expect(minified).toEqual(original);
+  });
+
+  it("still removes $defs and $id from a tool that refers to nothing, and decides tool by tool", () => {
+    const unreferenced = {
+      name: "plain",
+      input_schema: {
+        $id: "urn:plain",
+        type: "object",
+        properties: { id: { type: "string" } },
+        $defs: { Unused: { type: "object" } },
+      },
+    };
+    const result = minifyToolSchemas([nestedModelTool(), unreferenced]);
+    const [withReference, without] = result.tools as Array<Record<string, unknown>>;
+    expect(JSON.stringify(withReference)).toContain('"$defs"');
+    expect(without).toEqual({ name: "plain", input_schema: { type: "object", properties: { id: { type: "string" } } } });
+    expect(result.changes.filter((change) => change.at.startsWith("plain")).map((change) => change.at).sort())
+      .toEqual(["plain.input_schema.$defs", "plain.input_schema.$id"]);
+  });
+
+  it("still tidies inside the definitions it keeps", () => {
+    const original = nestedModelTool();
+    const definitions = (original.input_schema as Record<string, Record<string, Record<string, unknown>>>).$defs!;
+    definitions.Customer!.title = "Customer";
+    definitions.Customer!.$comment = "generated";
+    const [minified] = minifyToolSchemas([original]).tools as Array<Record<string, unknown>>;
+    const kept = (minified!.input_schema as Record<string, Record<string, Record<string, unknown>>>).$defs!.Customer!;
+    expect(kept.title).toBeUndefined();
+    expect(kept.$comment).toBeUndefined();
+    expect(kept.required).toEqual(["name"]);
+  });
+
+  it("never removes a parameter because its name looks like a keyword", () => {
+    const original = {
+      name: "upsert",
+      input_schema: {
+        type: "object",
+        properties: {
+          $id: { type: "string" },
+          $schema: { type: "string" },
+          $defs: { type: "object" },
+          $comment: { type: "string" },
+          title: { type: "string" },
+          examples: { type: "array" },
+        },
+        required: ["$id", "title"],
+      },
+    };
+    const result = minifyToolSchemas([original], { dropExamples: true });
+    expect(result.tools[0]).toEqual(original);
+    expect(result.changes).toEqual([]);
+  });
+
+  it("leaves data values alone: defaults, enums and constants are not schema", () => {
+    const original = {
+      name: "configure",
+      input_schema: {
+        type: "object",
+        properties: {
+          options: {
+            type: "object",
+            default: { $id: "abc", title: "default", $defs: { a: 1 } },
+            enum: [{ $schema: "x", title: "0" }],
+            const: { $comment: "kept" },
+          },
+        },
+      },
+    };
+    const result = minifyToolSchemas([original]);
+    expect(result.tools[0]).toEqual(original);
+    expect(result.changes).toEqual([]);
+  });
+
+  it("is stable: minifying the output again changes nothing", () => {
+    const once = minifyToolSchemas([nestedModelTool(), tool("lookup", LONG)]);
+    const twice = minifyToolSchemas(once.tools);
+    expect(twice.tools).toEqual(once.tools);
+    expect(twice.changes).toEqual([]);
+  });
+});
+
 describe("auditToolCatalogue", () => {
   it("separates what is free from what needs verifying", () => {
     const audit = auditToolCatalogue([tool("a", LONG), tool("b", LONG), tool("c", LONG)]);

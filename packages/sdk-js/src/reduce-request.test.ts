@@ -55,6 +55,28 @@ describe("reduceRequest", () => {
     expect(JSON.stringify(reduced)).not.toContain("$schema");
   });
 
+  it("keeps a tool's shared definitions when the tool refers to them (default lossless levers)", () => {
+    const inputSchema = {
+      type: "object",
+      properties: { customer: { $ref: "#/$defs/Customer" }, quantity: { type: "integer" } },
+      required: ["customer"],
+      $defs: { Customer: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } },
+    };
+    const original = {
+      model: "claude-sonnet-5-5",
+      max_tokens: 64,
+      tools: [{ name: "create_order", description: "Create an order.", input_schema: inputSchema }],
+      messages: [{ role: "user", content: "Order two for Ada." }],
+    };
+    const { request: reduced } = reduceRequest(structuredClone(original), {
+      toolSchemas: true,
+      duplicateContext: true,
+      repairCachePrefix: true,
+    });
+    const tools = (reduced as { tools: Array<Record<string, unknown>> }).tools;
+    expect(tools[0]!.input_schema).toEqual(inputSchema);
+  });
+
   it("trims descriptions only when explicitly asked, and reports it as lossy", () => {
     const { summary } = reduceRequest(request(), {
       toolSchemas: { descriptions: "truncate", maximumDescriptionTokens: 8 },

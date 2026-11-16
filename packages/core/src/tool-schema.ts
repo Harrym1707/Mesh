@@ -9,8 +9,10 @@ import { approximateTokenCount, type TokenCounter } from "./token-reduction.js";
  *
  * Minification is split into two tiers and the distinction is not cosmetic.
  *
- *   Lossless (billable): schema plumbing the model does not read ($schema, $id,
- *   $comment) and `title` fields that only restate the property name — content
+ *   Lossless (billable): schema plumbing the model does not read ($schema,
+ *   $comment; $id and $defs only in a tool that contains no reference, because
+ *   a reference resolves against them) and `title` fields that only restate the
+ *   property name — content
  *   the provider tokenises, so removing it is a real saving, billable without a
  *   quality gate. Whitespace / JSON formatting is NOT in this tier: the provider
  *   tokenises the PARSED structure, not the byte formatting (verified against
@@ -29,7 +31,41 @@ import { approximateTokenCount, type TokenCounter } from "./token-reduction.js";
  */
 
 /** Keys the provider's schema validator reads but the model never sees as prose. */
-const PLUMBING_KEYS = new Set(["$schema", "$id", "$comment", "$defs"]);
+const PLUMBING_KEYS = new Set(["$schema", "$comment"]);
+
+/**
+ * What a reference resolves against: `$defs` holds the shared definitions and
+ * `$id` sets the base a relative reference is read from. They are removable
+ * only from a tool that refers to nothing. An earlier version removed them
+ * unconditionally, which left `{"$ref": "#/$defs/Customer"}` pointing at a
+ * block that was no longer there — a changed request, not a compacted one.
+ * Nested models (Pydantic, zod, most MCP servers) compile to exactly that shape.
+ */
+const REFERENCE_TARGET_KEYS = new Set(["$id", "$defs"]);
+const REFERENCE_KEYS = new Set(["$ref", "$dynamicRef", "$recursiveRef"]);
+
+/**
+ * Keywords whose value is a map from a caller-chosen NAME to a schema. The keys
+ * inside are names, not keywords: a parameter called `$id` or `title` is a
+ * parameter, and removing it would change what the tool accepts.
+ */
+const NAME_MAP_KEYS = new Set([
+  "properties", "patternProperties", "$defs", "definitions", "dependentSchemas", "dependencies",
+]);
+
+/** Keywords whose value is data, not schema. Copied through untouched. */
+const DATA_KEYS = new Set(["enum", "const", "default", "examples"]);
+
+/**
+ * Whether anything in this tool refers to something else. Deliberately broad:
+ * any reference keyword anywhere counts, so a doubtful case keeps the targets.
+ */
+function containsReference(node: unknown): boolean {
+  if (Array.isArray(node)) return node.some(containsReference);
+  if (typeof node !== "object" || node === null) return false;
+  return Object.entries(node as Record<string, unknown>).some(([key, value]) =>
+    (REFERENCE_KEYS.has(key) && typeof value === "string") || containsReference(value));
+}
 
 export type MinifyOptions = {
   /**
@@ -123,6 +159,7 @@ export function minifyToolSchemas(tools: unknown[], options: MinifyOptions = {})
 
   const keep = options.keepTools === undefined ? undefined : new Set(options.keepTools);
   const retained: unknown[] = [];
+  let keepReferenceTargets = false;
 
   tools.forEach((tool, index) => {
     const name = toolNameOf(tool, index);
@@ -137,22 +174,30 @@ export function minifyToolSchemas(tools: unknown[], options: MinifyOptions = {})
       });
       return;
     }
-    retained.push(prune(tool, name));
+    // Decided per tool: a reference only ever resolves inside its own schema.
+    keepReferenceTargets = containsReference(tool);
+    retained.push(prune(tool, name, false));
   });
 
-  function prune(node: unknown, path: string): unknown {
-    if (Array.isArray(node)) return node.map((item, index) => prune(item, `${path}[${index}]`));
+  function prune(node: unknown, path: string, keysAreNames: boolean): unknown {
+    if (Array.isArray(node)) return node.map((item, index) => prune(item, `${path}[${index}]`, false));
     if (typeof node !== "object" || node === null) return node;
     const row = node as Record<string, unknown>;
     const output: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(row)) {
-      if (PLUMBING_KEYS.has(key)) {
+      if (keysAreNames) {
+        output[key] = prune(value, `${path}.${key}`, false);
+        continue;
+      }
+      if (PLUMBING_KEYS.has(key) || (REFERENCE_TARGET_KEYS.has(key) && !keepReferenceTargets)) {
         changes.push({
           kind: "plumbing",
           lossless: true,
           at: `${path}.${key}`,
           tokensSaved: countTokens(JSON.stringify({ [key]: value })),
-          detail: `Removed ${key}, which the model never reads.`,
+          detail: REFERENCE_TARGET_KEYS.has(key)
+            ? `Removed ${key}: nothing in this tool refers to it.`
+            : `Removed ${key}, which the model never reads.`,
         });
         continue;
       }
@@ -204,7 +249,13 @@ export function minifyToolSchemas(tools: unknown[], options: MinifyOptions = {})
         output[key] = trimmed;
         continue;
       }
-      output[key] = prune(value, `${path}.${key}`);
+      if (DATA_KEYS.has(key)) {
+        output[key] = value;
+        continue;
+      }
+      const isNameMap = NAME_MAP_KEYS.has(key) && typeof value === "object" && value !== null &&
+        !Array.isArray(value);
+      output[key] = prune(value, `${path}.${key}`, isNameMap);
     }
     return output;
   }
