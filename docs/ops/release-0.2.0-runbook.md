@@ -5,15 +5,19 @@ Staged 2026-11-12 on `theo/autonomous-agent`. It reaches `main` through
 to `main`, deployed or published.** Every step below that changes what the
 public gets is the founder's to take.
 
-## Update 2026-11-16 (night): release 0.2.3, Theo keeps hand-added levers, hosted runtime `a2d2d87`
+## Update 2026-11-16 (night): release 0.2.3, Theo keeps hand-added levers, hosted runtime `65dcbec`
 
 Written on branch `release/0.2.3`. **Not merged, not deployed, not published.**
 The sections below describe 0.2.2 and earlier as they stood.
 
 - **Where things stand.** Release 0.2.2 is out on both channels: the website
   serves build `d83ee89` and npm has both packages at 0.2.2 (tag `v0.2.2` at
-  `e620dd4`). After that tag, `main` gained one change, PR #50; this branch
-  starts from `main` at `0fc1bf5`.
+  `e620dd4`). After that tag, `main` gained three changes: PR #50 (the Theo
+  fix), PR #52 (website pages) and PR #51 (a token-count memo in
+  `reduce-request.ts`). This branch was cut at `0fc1bf5`, before the last
+  two, and first built at `a2d2d87`; it was then merged up to `main` at
+  `5780cbf` (`65dcbec`) and rebuilt, so the build below is made from a tree
+  that contains all three.
 - **The defect in 0.2.2.** Theo's policy lives in his own memory. `mesh start`,
   `mesh proxy` and the installed service run him with apply on, at startup and
   every 15 minutes, and once the ledger has any traffic each cycle writes that
@@ -28,16 +32,25 @@ The sections below describe 0.2.2 and earlier as they stood.
   lever gives way to one of Theo's from the same either-or group. A new route
   starts with the default's hand-added levers. A kept lossy lever is still
   withheld without a proof inside the ceiling. `mesh theo --accept` and
-  `--apply` print which levers they kept. Nothing else changed.
+  `--apply` print which levers they kept.
+- **Also in 0.2.3, from other pull requests.** PR #51: the reducer counts
+  each distinct string once per request instead of every time it is seen (a
+  speed change; its own tests assert the same output). PR #52: the landing,
+  start and FAQ pages teach one integration path. Neither is this branch's
+  work; both were already on `main`.
 - **What changes for a user who added nothing by hand.** Nothing.
 - **Not changed.** A default lever a user removed by hand comes back on
   Theo's next write. A lever from Theo's own six added by hand does not last.
-- **Version.** Both packages are 0.2.3 (`a2d2d87`).
-- **The hosted runtime** is rebuilt at `a2d2d87`, from a clean worktree.
-  Manifest: build `a2d2d87`, sha256
-  `ac00322344f99005f45055880d378b4c9813419cfeca8527da97c5f5086b397b`. Only
-  `mesh-runtime` and `mesh-version.json` changed in `docs/site/dist`.
-- **Checked on the built artifact** (2026-11-16, macOS arm64, Node 24):
+- **Version.** Both packages are 0.2.3 (bumped in `a2d2d87`).
+- **The hosted runtime** is rebuilt at `65dcbec`, from a clean worktree.
+  Manifest: build `65dcbec`, sha256
+  `a6b039e89bb1d58da5fed048cc39721e6cff9ebe5f853743cc81e5874e12c6c6`.
+  Against `main` at `5780cbf`, only `mesh-runtime` and `mesh-version.json`
+  differ in `docs/site/dist`: the site build regenerated PR #52's pages
+  byte for byte. (The first build of this branch, `a2d2d87`, sha256
+  `ac003223...b397b`, is superseded and was never deployed.)
+- **Checked on the built artifact** (2026-11-16, macOS arm64, Node 24; all
+  repeated on build `65dcbec` after the merge from `main`):
   - `mesh proxy` from the built runtime with **Theo running** (2-second
     interval), in an empty home, against a stand-in provider, with
     `tool-result-json-compaction` added to the policy file by hand. First
@@ -48,10 +61,10 @@ The sections below describe 0.2.2 and earlier as they stood.
   - With the default policy the same result is forwarded byte-identical (this
     run had Theo off).
   - A clean install from the rebuilt `docs/site/dist` into an empty home gives
-    `mesh 0.2.3 (build a2d2d87)`; `mesh verify` passes.
+    `mesh 0.2.3 (build 65dcbec)`; `mesh verify` passes.
   - A copy installed from the live site (`mesh 0.2.2 (build d83ee89)`) updates
-    itself to `a2d2d87` with `mesh update`; `mesh verify` passes after it.
-  - The release workflow's steps short of publishing: `pnpm build`, 1,050
+    itself to `65dcbec` with `mesh update`; `mesh verify` passes after it.
+  - The release workflow's steps short of publishing: `pnpm build`, 1,061
     tests in 70 files at default timeouts, the SDK package and its smoke test,
     the CLI package and its two smoke tests. Both built packages say 0.2.3.
   - Not checked: any real provider; Theo at his default 15-minute interval
@@ -59,11 +72,15 @@ The sections below describe 0.2.2 and earlier as they stood.
     `mesh update --rollback` on this build.
 - **To release 0.2.3** (each step is the founder's):
   1. Merge this branch's pull request into `main` with **"Create a merge
-     commit"** (the runtime is stamped with `a2d2d87`, which a squash or
+     commit"** (the runtime is stamped with `65dcbec`, which a squash or
      rebase would remove from `main`). `pages.yml` then deploys the site, and
      installed copies update within 24 hours.
   2. Push the tag `v0.2.3` from `main`. That publishes both npm packages.
-  3. In the checks below expect `"version": "a2d2d87"` and the sha256 above.
+  3. In the checks below expect `"version": "65dcbec"` and the sha256 above.
+  4. If anything else that touches `docs/site/dist` or product code merges
+     into `main` before this does, this branch has to be merged up and
+     rebuilt again first, or the site would serve a runtime that was not
+     built from `main`'s tree.
 - **A user on 0.2.2 who already lost the lever** has to add it to the policy
   file once more after updating. The update cannot know it was there.
 
