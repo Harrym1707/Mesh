@@ -1,9 +1,21 @@
 # MESH pilot kit
 
-Everything a design-partner conversation needs, in one directory. **All of it is
-draft material: nothing here has been posted or sent, and sending is the
-founder's act, not an agent's.** No partner has been approached, and MESH has
-not yet run on a customer's real traffic.
+Everything a pilot conversation needs, in one directory.
+
+**MESH is open to everyone:** no signup, no account, no waiting list. Anyone
+can install and use it today without asking anyone
+([Get started](../site/start.md)). **A pilot is optional.** It is for a team
+that wants an agreed measuring window, hands-on help and an invoice checked
+by hand. It is not a condition of using MESH, and nothing in this directory
+is needed in order to use it.
+
+**All of it is draft material: nothing here has been posted or sent, and
+sending is the founder's act, not an agent's.** No partner has been
+approached, and MESH has not yet run on a customer's real traffic.
+
+The price is the one on the website: 1% of verified savings, monthly, nothing
+else. This kit describes how that is measured and invoiced by hand inside a
+pilot. It does not set out how billing works outside one.
 
 Updated 2026-11-16 for the one setup path that MESH 0.2.1 introduced (the
 current release, 0.2.2 of the same day, keeps it): install from the
@@ -12,11 +24,11 @@ the ledger in `~/.mesh/ledger/`.
 
 | File | What it is |
 |---|---|
-| [TESTER-GUIDE.md](./TESTER-GUIDE.md) | What to hand a tester: install, connect Claude Code or their own app, check it works, what to expect, what to send back, how to remove it. Written 2026-11-16 for MESH 0.2.1. |
-| [onboarding.md](./onboarding.md) | **Start here.** What a design partner does on the one setup path, what to agree at kickoff, where the ledger is, and the no-install alternative. Points to the tester guide for the steps. |
+| [TESTER-GUIDE.md](./TESTER-GUIDE.md) | The setup guide for anyone running MESH on their own traffic, in a pilot or not: install, connect Claude Code or their own app, check it works, what to expect, what to send back, how to remove it. Written 2026-11-16 for MESH 0.2.1. |
+| [onboarding.md](./onboarding.md) | **Start here.** What a team in a pilot does on the one setup path (the same path as everyone else), what to agree at kickoff, where the ledger is, and the no-install alternative. Points to the tester guide for the steps. |
 | [runbook.md](./runbook.md) | The one-page partner runbook (day 0 → day 14) **and** the step-by-step [Operator playbook](./runbook.md#operator-playbook--manual-billing) for drafting an invoice by hand in Stripe test mode. |
-| [PILOT_PLAN.md](./PILOT_PLAN.md) | The pilot plan: target customer, cohort size (3–5), success metric, timeline (about four weeks, 14 days of it measuring), and what we measure. |
-| [pilot-agreement.md](./pilot-agreement.md) | Draft lightweight pilot agreement + onboarding email (keys never held, data kept and where, fee basis, no charge if no savings). Not sent and not reviewed by a lawyer. |
+| [PILOT_PLAN.md](./PILOT_PLAN.md) | The pilot plan: who a pilot suits, how many are run by hand at once (3–5), success metric, timeline (about four weeks, 14 days of it measuring), and what we measure. |
+| [pilot-agreement.md](./pilot-agreement.md) | Draft lightweight pilot agreement + onboarding email (keys never held, data kept and where, fee basis, no charge if no savings). Covers a pilot only; nobody needs it to use MESH. Not sent and not reviewed by a lawyer. |
 | [VERIFICATION.md](./VERIFICATION.md) | A dated record: the happy-path checks run on 2026-11-07 against the build of that day, kept as written, plus the checks run on 2026-11-16 for this refresh. |
 | [data-handling.md](./data-handling.md) | The data-handling answer, verbatim-usable, sourced to the code paths it describes. |
 | [outreach-litellm.md](./outreach-litellm.md) | Draft letter 1: LiteLLM proxy operator (spend logs ready to triage). Written 2026-10-13; savings figures refreshed 2026-11-16. |

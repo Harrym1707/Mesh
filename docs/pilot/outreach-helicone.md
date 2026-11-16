@@ -45,9 +45,13 @@ https://github.com/Harrym1707/Mesh/blob/main/docs/NUMBERS.md. Not
 promises — your export produces your number, with every caveat printed in the
 report.
 
-If you'd run it on one export and tell me where it's wrong, you'd be one of the
-3–5 design partners I'm looking for. Five minutes, one JSON file out, full
-methodology shared.
+If you'd run it on one export and tell me where it's wrong, that is the most
+useful thing you could do for it. Five minutes, one JSON file out, full
+methodology shared. You don't need anything from me first: MESH is open to
+everyone, with no signup and no waiting list, and you can install it today
+(https://www.mesh-technology.com/start.html). If you would rather have a hand, I
+can run it with you as a hands-on pilot: an agreed measuring window, help
+with setup and an invoice you can check yourself.
 
 [sign-off]
 
@@ -74,7 +78,8 @@ free and stays on your machine regardless.
 | 45.5% one-shot templated | SIMULATOR | docs/NUMBERS.md, SIMULATOR table: arm H of arms H/I, `7b08666` (commit of 2026-10-12). The other arm, 72.8%, is left out of the letter |
 | 57.7% net async | SIMULATOR | docs/NUMBERS.md, SIMULATOR table: arm K, `4e51734` (commit of 2026-10-13), served-tier priced. Net of assumed fallback rates; the 64.3% ceiling is never quoted on its own. OpenAI-priced |
 | The quote is "not a gateway"; MESH itself is a local proxy | code | `mesh-quote` reads an export file (`packages/core/src/quote-report.ts`); the pilot path is `mesh start` / `mesh proxy` ([onboarding.md](./onboarding.md)) |
-| "3–5 design partners" | plan | [PILOT_PLAN.md](./PILOT_PLAN.md), Cohort |
+| "open to everyone, no signup, no waiting list", install today | site | `docs/site/start.md` and `docs/site/faq.md` on `main`; the link is the built start page |
+| "hands-on pilots: measuring window, help with setup, an invoice you can check" | plan | [PILOT_PLAN.md](./PILOT_PLAN.md). Optional; no number of places is stated in the letter |
 | "no upload, your machine" | code-enforced | quote-report.ts + packaged local bin, no network path |
 | Helicone export parsing works | implemented, fixture-tested | packages/core/src/helicone.ts; gateway-triage gate 9/9 |
 | 1% of verified savings / $0 verdict | implemented | savings-ledger.ts recomputeInvoice, do_not_charge verdict |

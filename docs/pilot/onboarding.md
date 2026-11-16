@@ -2,16 +2,21 @@
 
 Since release 0.2.1 (2026-11-16) there is one way to set MESH up: install it
 from the website, then run `mesh start` (Claude Code) or `mesh proxy` (any
-other app or agent). Every design partner is set up this way, so every ledger
-lands in the same place. The current release is 0.2.2 (also 2026-11-16); it
-does not change the path.
+other app or agent). Everyone sets it up this way, in a pilot or not, so every
+ledger lands in the same place. The current release is 0.2.2 (also
+2026-11-16); it does not change the path.
+
+**MESH is open to everyone:** no signup, no account, no waiting list. Nobody
+needs to ask before installing or using it ([Get started](../site/start.md)).
+**A pilot is optional.** It adds three things for a team that wants them: an
+agreed measuring window, hands-on help, and an invoice checked by hand under
+the [pilot agreement](./pilot-agreement.md).
 
 The step-by-step for the person at the keyboard is the
-[tester guide](./TESTER-GUIDE.md). This page does not repeat it. It says what a
-design partner does, what to agree at kickoff, and the details the operator
-needs. A pilot partner follows the same steps as any tester; what a pilot adds
-is the [agreement](./pilot-agreement.md), an agreed measuring window and an
-invoice the partner can check at the end.
+[tester guide](./TESTER-GUIDE.md). This page does not repeat it. It says what
+a team in a pilot does, what to agree at kickoff, and the details the
+operator needs. The steps are the same ones anyone follows; a team may well
+have installed MESH before a pilot is ever discussed.
 
 **Draft.** Nothing here has been sent to anyone. MESH has not yet run on a
 customer's real traffic; a pilot is the first time it will.
@@ -19,6 +24,8 @@ customer's real traffic; a pilot is the first time it will.
 ---
 
 ## What a partner does
+
+"Partner" on this page means a team that has chosen to run a pilot.
 
 Needs Node.js 22 or newer, on macOS or Linux. On Windows the installer runs
 inside WSL only (native PowerShell is not supported), and that path has not
@@ -29,6 +36,8 @@ been walked with anyone yet.
 ```bash
 curl -fsSL https://www.mesh-technology.com/install.sh | sh
 ```
+
+Prefer npm? `npm install -g @harrym1707/mesh` gives the same `mesh` command.
 
 `mesh version` should print `mesh 0.2.1` or later (0.2.2 on a fresh install
 as of 2026-11-16). `mesh doctor` checks Node,
@@ -108,7 +117,8 @@ else is not covered by it.
 
 ## What to agree at kickoff
 
-Record these in the [engagement list](./engagement-list.md):
+These are agreed for a pilot. None of them is needed to use MESH. Record them
+in the [engagement list](./engagement-list.md):
 
 1. **Which command:** `mesh start` or `mesh proxy`, and on which machine.
 2. **The window.** A pilot is about four weeks end to end; 14 days of that is
@@ -122,15 +132,17 @@ Record these in the [engagement list](./engagement-list.md):
    compaction, duplicate-context removal and cache-prefix repair. A lossy
    lever runs only if the partner accepts a proposal for it. Release 0.2.2
    adds one opt-in lever, JSON tool-result compaction. It is off by default,
-   Theo does not adopt it, and it stays off in a pilot unless agreed; on
-   0.2.2 a lever added by hand is removed again by Theo's next background
-   cycle ([configure guide](../guide/configure.md#optional-compact-json-tool-results)).
+   Theo does not adopt it, and it is left off in a pilot: on 0.2.2 a lever
+   added by hand to the policy file is removed again by Theo's next
+   background cycle (fixed on `main`, not yet released; see the
+   [configure guide](../guide/configure.md#optional-compact-json-tool-results)).
 5. **How the ledger reaches us** at the end of the window: the partner sends
    the ledger files from `~/.mesh/ledger/` (not the `.features.jsonl` files)
    after looking at them.
-6. **The build can change during the window.** The installed `mesh` keeps
-   itself up to date from the website (each runtime is checked against its
-   published checksum before it runs). Note what `mesh version` prints at
+6. **The build can change during the window.** A `mesh` installed from the
+   website keeps itself up to date from it (each runtime is checked against
+   its published checksum before it runs). How an npm install is updated was
+   not checked. Note what `mesh version` prints at
    kickoff and at the end. `mesh update --rollback` goes back to the previous
    runtime.
 

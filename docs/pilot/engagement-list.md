@@ -37,11 +37,14 @@ the proof-of-pain and the audience list.
 - Reporter reconciled 40 requests against OpenAI billing: 65,304 cached tokens
   billed by OpenAI vs 49,563 recorded by LiteLLM; ~8.5% spend overstatement.
 - Relevance: this reporter did, by hand, exactly what `mesh-quote`'s
-  reconciliation section automates. The most qualified design-partner profile
-  on this list.
+  reconciliation section automates. Of the profiles on this list, the one a
+  hands-on pilot would suit best.
 
 ## Engagement rules (all three threads are closed)
 
+- MESH is open to everyone, so nothing here invites anyone into something
+  closed: a reporter can install it without hearing from us. What outreach
+  offers is the quote tool and, for a team that wants one, a hands-on pilot.
 - **Do not necropost a pitch into a closed issue.** The honest, useful moves:
   1. Reach the reporters directly (GitHub profile → listed contact) with the
      LiteLLM letter ([outreach-litellm.md](./outreach-litellm.md)), referencing

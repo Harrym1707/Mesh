@@ -1,7 +1,8 @@
 # MESH tester guide
 
-For the first people using MESH on their own traffic. Written 2026-11-16 for
-MESH 0.2.1. It takes about five minutes to set up.
+For anyone running MESH on their own traffic. MESH is open to everyone: no
+signup, no account, no waiting list, and nobody to ask before you start.
+Written 2026-11-16 for MESH 0.2.1. It takes about five minutes to set up.
 
 **Draft.** This has not been sent to anyone. Sending it is the founder's act.
 
@@ -21,8 +22,10 @@ saving can be checked by you and not only by us.
 ## Before you start
 
 - Node.js 22 or newer (`node --version`). Claude Code already uses it.
-- macOS or Linux. On Windows, tell us first; the installer below is a shell
-  script and we have not walked the Windows path with a tester yet.
+- macOS or Linux. On Windows, run the installer below inside WSL: MESH
+  installs as a Linux program, and native PowerShell is not supported yet.
+  Nobody has walked the Windows path yet, so expect rough edges and say what
+  you find.
 
 ## 1. Install
 
@@ -126,10 +129,15 @@ After a few days of normal use:
 1. What `mesh status` prints.
 2. What `mesh verify` prints.
 3. Anything that broke, slowed down or surprised you, with the time it happened.
-4. If you are willing: the files in `~/.mesh/ledger/`. They contain no prompts
-   or answers; open one and look before you send it.
+4. If you are willing, and only by arrangement: the files in
+   `~/.mesh/ledger/`. They contain no prompts or answers; open one and look
+   before you share it.
 
-Send them to whoever gave you this guide.
+Put items 1 to 3 in an [issue on GitHub](https://github.com/Harrym1707/Mesh/issues/new):
+what you ran and what you saw. `mesh status` and `mesh verify` print request
+counts, dollar totals and the build, nothing from your prompts. An issue is
+public, so do not attach ledger files to it. If you are willing to share
+them, say so in the issue and we will arrange how.
 
 ## Stopping and removing
 
@@ -151,7 +159,7 @@ Send them to whoever gave you this guide.
 | Your app gets `Upstream unreachable` | MESH could not reach your provider | Check your network; the provider may be down |
 | An error from your provider (rate limit, bad key) | The provider's own answer, passed through unchanged | Handle it as you would without MESH |
 | Claude Code cannot connect after a crash | It still points at a MESH that is gone | `mesh restore` |
-| Anything else | | `mesh doctor`, and send us the output |
+| Anything else | | `mesh doctor`, and [open an issue](https://github.com/Harrym1707/Mesh/issues/new) with the output |
 
 To take MESH out of the picture while you investigate, stop it and remove the
 base URL setting. Your app then talks to the provider directly, as before.

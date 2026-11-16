@@ -2,9 +2,14 @@
 
 > **Draft material. Not sent, and not reviewed by a lawyer.** Sending is the
 > founder's act, not an agent's. This is a deliberately minimal,
-> plain-language understanding for **design partners only** — see "Still
-> needed before general availability" at the end. Have a lawyer review it
-> before relying on it. Updated 2026-11-16 for the MESH 0.2.1 setup path.
+> plain-language understanding for a **pilot** — see "Still needed before
+> general availability" at the end. Have a lawyer review it before relying on
+> it. Updated 2026-11-16 for the MESH 0.2.1 setup path.
+>
+> **Nobody needs this document to use MESH.** MESH is open to everyone: no
+> signup, no account, no waiting list ([Get started](../site/start.md)). A
+> pilot is optional. This understanding covers only what a pilot adds: an
+> agreed measuring window, hands-on help and an invoice checked by hand.
 
 ---
 
@@ -14,9 +19,13 @@
 >
 > Hi [name],
 >
-> Thanks for trying MESH. Here's exactly what a pilot involves and what it costs
-> you — short version: a few minutes of setup, no infrastructure change, and you
-> pay us nothing unless we verifiably save you money.
+> Thanks for trying MESH. You don't need this email, or anything from me, to
+> use it: MESH is open to everyone and you can install it today. A pilot is
+> the hands-on version, for a team that wants an agreed measuring window, help
+> with setup and an invoice checked by hand. Here's exactly what one involves
+> and what it costs you — short version: a few minutes of setup, no
+> infrastructure change, and you pay us nothing unless we verifiably save you
+> money.
 >
 > **Setup (about five minutes).** You install MESH on your own machine with one
 > command, then run `mesh start` if you use Claude Code, or `mesh proxy` and
@@ -37,7 +46,8 @@
 > checked by a person and agreed with you before it is issued; nothing is ever
 > charged automatically.
 >
-> If that's fair, reply "yes" and I'll send the one-pager to get you started.
+> If you'd like to run it as a pilot, reply "yes" and I'll send the one-pager
+> and agree the dates with you.
 >
 > [founder]
 
@@ -47,6 +57,11 @@
 
 This sets out how a MESH pilot works between **[MESH operator]** ("we") and
 **[partner]** ("you"). It is intentionally short.
+
+It is optional. MESH is open to everyone, and you can install and use it
+without agreeing to anything here; the website's
+[Terms of use](../site/terms.md) cover that. Your "yes" to this understanding
+is what starts a pilot: the measuring window and any invoice at the end of it.
 
 ### 1. Your API keys — we never hold them
 
@@ -144,4 +159,4 @@ sold generally we still need:
   a lawyer.
 
 Until those exist, treat this as a good-faith understanding between a founder and
-an early design partner, nothing more.
+a team in an early pilot, nothing more.

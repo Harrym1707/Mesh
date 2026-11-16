@@ -45,9 +45,14 @@ these is a promise about your traffic — the entire point of the tool is that
 your number comes from your logs, caveats included.
 
 Would you be open to running it on one export? It's a single Node binary, takes
-about five minutes, and the output is a JSON report you keep. I'm looking for
-3–5 design partners whose real traffic can confirm (or kill) these simulator
-figures, and I'll share the full methodology either way.
+about five minutes, and the output is a JSON report you keep. You don't need
+anything from me to do it: MESH is open to everyone, with no signup and no
+waiting list, and you can install it today (https://www.mesh-technology.com/start.html).
+If you would rather have a hand, I can run it with you as a hands-on pilot:
+an agreed measuring window, help with setup and an invoice you can check
+yourself. Real
+traffic is what will confirm (or kill) these simulator figures, and I'll share
+the full methodology either way.
 
 [sign-off]
 
@@ -68,7 +73,8 @@ run is free and local either way.
 | 25.9–29.4% busy interactive agents | SIMULATOR | docs/NUMBERS.md, SIMULATOR table: arm J, `4e51734` (commit of 2026-10-13) |
 | 45.5% one-shot templated | SIMULATOR | docs/NUMBERS.md, SIMULATOR table: arm H of arms H/I, `7b08666` (commit of 2026-10-12). The other arm, 72.8%, is left out of the letter |
 | 57.7% net async | SIMULATOR | docs/NUMBERS.md, SIMULATOR table: arm K, `4e51734` (commit of 2026-10-13), served-tier priced. Net of assumed fallback rates; the 64.3% ceiling is never quoted on its own. OpenAI-priced, hence the label in the letter |
-| "3–5 design partners" | plan | [PILOT_PLAN.md](./PILOT_PLAN.md), Cohort |
+| "open to everyone, no signup, no waiting list", install today | site | `docs/site/start.md` and `docs/site/faq.md` on `main`; the link is the built start page |
+| "hands-on pilots: measuring window, help with setup, an invoice you can check" | plan | [PILOT_PLAN.md](./PILOT_PLAN.md). Optional; no number of places is stated in the letter |
 | "no network calls, nothing uploaded" | code-enforced | quote-report.ts pure function; packaged bin makes no fetch |
 | 1% of verified savings, do_not_charge | implemented | savings-ledger.ts recomputeInvoice |
 | 34.3% sparse interactive, 1h TTL | **omitted deliberately** | SIMULATOR (docs/NUMBERS.md, arm L, `6f08b72`). Left out of outreach on 2026-10-13 because per-model cacheable minimums were not enforced; that reason was not re-checked on 2026-11-16 |

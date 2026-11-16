@@ -1,6 +1,12 @@
 # MESH pilot runbook (one page)
 
-> Two parts. The first is what a design partner does, day 0 to day 14. The
+> **MESH is open to everyone:** no signup, no account, no waiting list. You
+> can install and use it today without asking anyone
+> ([Get started](../site/start.md)), and the day-0 quote below is free to run
+> on its own. A pilot is optional: an agreed measuring window, hands-on help
+> and an invoice checked by hand, for a team that wants them.
+>
+> Two parts. The first is what a team in a pilot does, day 0 to day 14. The
 > second, the [Operator playbook](#operator-playbook--manual-billing), is the
 > founder's side: onboarding a partner, collecting and checking their ledger,
 > and drafting an invoice by hand. Setup follows the one path in
@@ -149,7 +155,10 @@ what was only read, is in [VERIFICATION.md](./VERIFICATION.md).
 - A local checkout built once: `corepack pnpm install && corepack pnpm build`
   (`mesh-bill` reads the compiled `packages/core/dist`).
 
-## 1. Onboard a design partner
+## 1. Start a pilot
+
+The team may already be using MESH; installing and using it needs nobody's
+go-ahead. These steps are what turns that into a pilot.
 
 1. Agree the kickoff points in [onboarding.md](./onboarding.md#what-to-agree-at-kickoff)
    and record them in [engagement-list.md](./engagement-list.md): which
@@ -157,7 +166,8 @@ what was only read, is in [VERIFICATION.md](./VERIFICATION.md).
    ledger is in `~/.mesh/ledger/` on their machine.
 2. Send the pilot agreement and onboarding email
    ([pilot-agreement.md](./pilot-agreement.md)) and get a plain-text "yes" back
-   before any traffic flows. Sending is the founder's act.
+   before the measuring window starts and before any invoice is drafted. The
+   yes is for the pilot, not for using MESH. Sending is the founder's act.
 3. Create their Stripe **customer** in test mode and note the `cus_…` id. No
    payment method is needed to create and review a draft.
 
