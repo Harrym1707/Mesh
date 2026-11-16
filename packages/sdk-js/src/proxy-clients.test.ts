@@ -301,6 +301,13 @@ describe("the integration pathway — real client libraries through the proxy", 
     });
   });
 
+  it("answers its own health check without contacting a provider", async () => {
+    const response = await fetch(`${proxy.url}/mesh/health`);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: "ok", service: "mesh-proxy" });
+    expect(seen.length).toBe(0);
+  });
+
   describe("what is metered", () => {
     it("only generation requests write ledger events; passthrough calls write none", async () => {
       const before = ledgerEvents().length;

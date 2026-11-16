@@ -5,7 +5,7 @@
  * which only `runTheoOnce` writes.
  */
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -61,9 +61,9 @@ describe("mesh start — Theo runs alongside the proxy", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
-  function start(extra: string[]): { output: () => string } {
+  function start(extra: string[], command: string[] = ["start", "--no-install"]): { output: () => string } {
     let text = "";
-    child = spawn(process.execPath, ["--import", "tsx", MAIN, "start", "--port", "0", "--no-install", ...extra], {
+    child = spawn(process.execPath, ["--import", "tsx", MAIN, ...command, "--port", "0", ...extra], {
       env: { ...process.env, HOME: home },
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -122,5 +122,34 @@ describe("mesh start — Theo runs alongside the proxy", () => {
 
     await sleep(2500); // more than two intervals
     expect(existsSync(join(home, ".mesh", "ledger", "theo", "local.json"))).toBe(false);
+  });
+
+  it("mesh proxy serves any app, says how to connect, and leaves Claude Code's settings alone", { timeout: 40_000 }, async () => {
+    provider = await stubProvider();
+    const settingsPath = join(home, ".claude", "settings.json");
+    const settings = `${JSON.stringify({ env: { ANTHROPIC_BASE_URL: "https://example.invalid" }, theme: "dark" }, null, 2)}\n`;
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    writeFileSync(settingsPath, settings);
+
+    const { output } = start(["--anthropic-base", provider.url, "--no-theo"], ["proxy"]);
+    expect(await waitFor(() => /proxy\s+http:\/\/127\.0\.0\.1:\d+/.test(output()))).toBe(true);
+    const proxyUrl = /proxy\s+(http:\/\/127\.0\.0\.1:\d+)/.exec(output())![1]!;
+    expect(await waitFor(() => output().includes("Run your app as normal."))).toBe(true);
+    expect(output()).toContain(`ANTHROPIC_BASE_URL=${proxyUrl}`);
+    expect(output()).toContain(`OPENAI_BASE_URL=${proxyUrl}/v1`);
+    expect(output()).not.toContain("Just use Claude Code");
+
+    const health = await fetch(`${proxyUrl}/mesh/health`);
+    expect(await health.json()).toEqual({ status: "ok", service: "mesh-proxy" });
+
+    // A call MESH does not reduce still reaches the provider.
+    const counted = await fetch(`${proxyUrl}/v1/messages/count_tokens`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": "caller-key", "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({ model: "claude-sonnet-5-5", messages: [{ role: "user", content: "x" }] }),
+    });
+    expect(counted.status).toBe(200);
+
+    expect(readFileSync(settingsPath, "utf8")).toBe(settings);
   });
 });

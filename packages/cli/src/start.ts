@@ -123,7 +123,8 @@ function parseStart(argv: string[]): StartArgs {
           `                          test | optimise (default recommend).\n` +
           `  --theo-interval <dur>   How often Theo runs a cycle (e.g. 15m, 1h; default 15m).\n` +
           `  --no-theo               Don't run Theo alongside the proxy; just serve.\n` +
-          `  --no-install            Don't touch ~/.claude/settings.json; just run the proxy.\n` +
+          `  --no-install            Don't touch ~/.claude/settings.json; just run the proxy\n` +
+          `                          (the same as: mesh proxy).\n` +
           `  --help                  Show this message.`,
       );
       process.exit(0);
@@ -409,7 +410,7 @@ export async function runStart(argv: string[]): Promise<void> {
     } else {
       console.log(`  ${T} — no requests ran through MESH this session.`);
     }
-    console.log(`  Claude Code restored. Bye.`);
+    console.log(args.install ? `  Claude Code restored. Bye.` : `  Bye.`);
     process.exit(0);
   };
   process.on("SIGINT", () => { void shutdown(); });
@@ -433,12 +434,19 @@ export async function runStart(argv: string[]): Promise<void> {
   console.log(`  MESH is running  ·  build ${BUILD_COMMIT}`);
   console.log(`  proxy    ${proxy.url}`);
   console.log(`  ledger   ${args.ledgerDir}  (hash-chained; recompute any time with: mesh verify)`);
-  if (args.install) console.log(`  claude   pointed at MESH via ~/.claude/settings.json  (restored on exit)`);
-  else console.log(`  claude   not configured (--no-install); set ANTHROPIC_BASE_URL=${proxy.url} yourself`);
-  // MESH is not Claude-specific: any OpenAI-style client works by pointing its
-  // base URL here and keeping its own key. The proxy picks the upstream from
-  // the request (Anthropic vs OpenAI-style) and your key passes straight through.
-  console.log(`  openai   point any OpenAI-style client here: OPENAI_BASE_URL=${proxy.url}/v1  (keep your own key)`);
+  // MESH is not Claude-specific: any client works by pointing its base URL here
+  // and keeping its own key. The proxy picks the upstream from the request
+  // (Anthropic vs OpenAI-style) and the key passes straight through.
+  if (args.install) {
+    console.log(`  claude   pointed at MESH via ~/.claude/settings.json  (restored on exit)`);
+    console.log(`  openai   point any OpenAI-style client here: OPENAI_BASE_URL=${proxy.url}/v1  (keep your own key)`);
+  } else {
+    console.log(`  connect  Anthropic clients   ANTHROPIC_BASE_URL=${proxy.url}`);
+    console.log(`           OpenAI-style        OPENAI_BASE_URL=${proxy.url}/v1`);
+    console.log(`           Keep your own API key. Calls MESH does not reduce (embeddings, token`);
+    console.log(`           counting, uploads) pass straight through to your provider.`);
+    console.log(`  claude   left alone (Claude Code's settings were not touched)`);
+  }
   if (args.openaiUpstream) console.log(`  upstream OpenAI-style traffic → ${args.openaiUpstream}`);
   if (args.anthropicUpstream) console.log(`  upstream Anthropic traffic → ${args.anthropicUpstream}`);
   console.log("");
@@ -458,7 +466,9 @@ export async function runStart(argv: string[]): Promise<void> {
     console.log(`  ${T}   may not apply myself, I'll put to you here.`);
   }
   console.log("");
-  console.log(`  Just use Claude Code as normal. Press Ctrl+C to stop (Claude Code reverts cleanly).`);
+  console.log(args.install
+    ? `  Just use Claude Code as normal. Press Ctrl+C to stop (Claude Code reverts cleanly).`
+    : `  Run your app as normal. Check the proxy is up: curl ${proxy.url}/mesh/health   ·   Ctrl+C to stop.`);
   console.log("");
 
   // ---- Theo's monitor: report verified savings as they accrue ----

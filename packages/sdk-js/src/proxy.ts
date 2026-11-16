@@ -420,6 +420,13 @@ export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
 
     const surface = req.method === "POST" ? surfaceOf(path) : undefined;
 
+    // "Is it up?" — answered here, never forwarded. Says nothing about traffic.
+    if (req.method === "GET" && path === "/mesh/health") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ status: "ok", service: "mesh-proxy" }));
+      return;
+    }
+
     // Nothing to forward at the root: say what this server is.
     if (surface === undefined && (path === "/" || path === "")) {
       res.writeHead(404, { "content-type": "application/json" });
