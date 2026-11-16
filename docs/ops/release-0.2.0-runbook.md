@@ -5,7 +5,7 @@ Staged 2026-11-12 on `theo/autonomous-agent`. It reaches `main` through
 to `main`, deployed or published.** Every step below that changes what the
 public gets is the founder's to take.
 
-## Update 2026-11-16 (later): release 0.2.1, the integration pathway, hosted runtime `8366ddc`
+## Update 2026-11-16 (later): release 0.2.1, the integration pathway, hosted runtime `5738486`
 
 Written on branch `integration/tester-pathway`. **Not merged, not deployed, not
 published.** The sections below still describe 0.2.0.
@@ -41,19 +41,30 @@ published.** The sections below still describe 0.2.0.
     `GET /mesh/health`, and a taken port now says what to do.
 - **Version.** Both packages are 0.2.1, because `v0.2.0` points at a commit
   without these fixes and npm will not publish a version twice.
-- **The hosted runtime** is rebuilt at `8366ddc`. Manifest: build `8366ddc`,
-  sha256 `745d05747e8ff82e5c8aa071d3b75db3d2a69dd71bb3e7b5b60d5e0ce76d3f37`.
+- **An independent review** of the passthrough (a separate agent, against
+  stub upstreams) found eight more defects, all fixed in `5738486` with a test
+  each: `Expect: 100-continue` uploads got a 502 (curl sends it for every body
+  over 1 MB); a request naming no provider was forwarded on a guess; redirects
+  were followed inside the proxy, carrying `x-api-key` to the target; a
+  response that broke off upstream looked complete; `HEAD /mesh/health`
+  reached the provider; localhost cookies were forwarded; a streamed upload
+  lost its `Content-Length`; three wrong cases in the taken-port message.
+- **The hosted runtime** is rebuilt at `5738486`. Manifest: build `5738486`,
+  sha256 `fe15e886695cfc27f4ff2e589c8877fb98de9f604bc0120b5d6d426f9c39f8ae`.
 - **Checked on the built artifact** (2026-11-16, macOS arm64, Node 24): a
   clean install from the rebuilt `docs/site/dist` into an empty home gives
-  `mesh 0.2.1 (build 8366ddc)`; `mesh verify` passes; `mesh proxy` answers its
+  `mesh 0.2.1 (build 5738486)`; `mesh verify` passes; `mesh proxy` answers its
   health check; the official Python SDKs (anthropic 2.8.0, openai 3.51.0),
   configured only through `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL`, pass 9 of
   9 calls; a second copy on the same port prints the "already running"
   sentence; `mesh status` and `mesh verify` read the resulting ledger.
-  `corepack pnpm test`: 994 passed. No real provider was called.
+  A copy installed from the live site (`73dcdfe`) updates itself to
+  `5738486`; the real Claude Code tool completes a turn through `mesh start`
+  and its settings are restored on exit; a 2.2 MB `curl` POST returns 200.
+  `corepack pnpm test`: 1002 passed. No real provider was called.
 - **To release 0.2.1** (each step is the founder's):
   1. Merge this branch's pull request into `main` with a merge commit. The
-     website then serves build `8366ddc` and installed copies update within
+     website then serves build `5738486` and installed copies update within
      24 hours.
   2. On npmjs.com, recreate the trusted publisher for both packages with
      **npm publish** allowed.

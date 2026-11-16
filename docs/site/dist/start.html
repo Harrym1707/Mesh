@@ -104,7 +104,7 @@ openai = OpenAI(base_url=&quot;http://127.0.0.1:8787/v1&quot;)</code></pre>
 <p><strong>Is it up?</strong> <code>curl http://127.0.0.1:8787/mesh/health</code> answers <code>{&quot;status&quot;:&quot;ok&quot;,&quot;service&quot;:&quot;mesh-proxy&quot;}</code>. A few seconds after your first request, the <code>mesh proxy</code> window prints <code>1 request seen</code>.</p>
 <p><strong>What goes through MESH.</strong> MESH reduces and meters the three generation endpoints: <code>/v1/messages</code>, <code>/v1/chat/completions</code> and <code>/v1/responses</code>. Everything else your app sends to the same base URL — embeddings, token counting, model lists, batches, file uploads — is forwarded to your provider exactly as it came, and the provider's answer comes back untouched. Pointing an app at MESH does not take a working call away.</p>
 <p><strong>Another provider.</strong> For any OpenAI-compatible host (Grok, DeepSeek, Mistral, a local model server), start with <code>mesh proxy --openai-base https://your-provider.example</code>.</p>
-<p><strong>Port taken?</strong> MESH tells you whether it is already running there (nothing to start) or names a free port: <code>mesh proxy --port 8788</code>.</p>
+<p><strong>Port taken?</strong> MESH tells you whether it is already running there (use that one) or names a free port: <code>mesh proxy --port 8788</code>.</p>
 <p>Checked on 2026-11-16 with the Claude Code command-line tool and the official Anthropic and OpenAI SDKs in TypeScript and Python, against a stand-in provider that records what reaches it: messages, streaming, token counting, embeddings, model lists, batches and file uploads.</p>
 <h2>No install: the proxy from npm</h2>
 <p>If you would rather not install anything:</p>
