@@ -1164,6 +1164,13 @@ var init_model_prices = __esm({
 });
 
 // packages/core/dist/src/tool-schema.js
+function containsReference(node) {
+  if (Array.isArray(node))
+    return node.some(containsReference);
+  if (typeof node !== "object" || node === null)
+    return false;
+  return Object.entries(node).some(([key, value]) => REFERENCE_KEYS.has(key) && typeof value === "string" || containsReference(value));
+}
 function toolNameOf(tool, index) {
   if (typeof tool === "object" && tool !== null) {
     const row = tool;
@@ -1209,6 +1216,7 @@ function minifyToolSchemas(tools, options = {}) {
   const tokensBefore = countTokens(JSON.stringify(tools));
   const keep = options.keepTools === void 0 ? void 0 : new Set(options.keepTools);
   const retained = [];
+  let keepReferenceTargets = false;
   tools.forEach((tool, index) => {
     const name = toolNameOf(tool, index);
     if (keep !== void 0 && !keep.has(name)) {
@@ -1221,23 +1229,28 @@ function minifyToolSchemas(tools, options = {}) {
       });
       return;
     }
-    retained.push(prune(tool, name));
+    keepReferenceTargets = containsReference(tool);
+    retained.push(prune(tool, name, false));
   });
-  function prune(node, path) {
+  function prune(node, path, keysAreNames) {
     if (Array.isArray(node))
-      return node.map((item, index) => prune(item, `${path}[${index}]`));
+      return node.map((item, index) => prune(item, `${path}[${index}]`, false));
     if (typeof node !== "object" || node === null)
       return node;
     const row = node;
     const output = {};
     for (const [key, value] of Object.entries(row)) {
-      if (PLUMBING_KEYS.has(key)) {
+      if (keysAreNames) {
+        output[key] = prune(value, `${path}.${key}`, false);
+        continue;
+      }
+      if (PLUMBING_KEYS.has(key) || REFERENCE_TARGET_KEYS.has(key) && !keepReferenceTargets) {
         changes.push({
           kind: "plumbing",
           lossless: true,
           at: `${path}.${key}`,
           tokensSaved: countTokens(JSON.stringify({ [key]: value })),
-          detail: `Removed ${key}, which the model never reads.`
+          detail: REFERENCE_TARGET_KEYS.has(key) ? `Removed ${key}: nothing in this tool refers to it.` : `Removed ${key}, which the model never reads.`
         });
         continue;
       }
@@ -1288,7 +1301,12 @@ function minifyToolSchemas(tools, options = {}) {
         output[key] = trimmed;
         continue;
       }
-      output[key] = prune(value, `${path}.${key}`);
+      if (DATA_KEYS.has(key)) {
+        output[key] = value;
+        continue;
+      }
+      const isNameMap = NAME_MAP_KEYS.has(key) && typeof value === "object" && value !== null && !Array.isArray(value);
+      output[key] = prune(value, `${path}.${key}`, isNameMap);
     }
     return output;
   }
@@ -1303,12 +1321,23 @@ function minifyToolSchemas(tools, options = {}) {
     changes
   };
 }
-var PLUMBING_KEYS;
+var PLUMBING_KEYS, REFERENCE_TARGET_KEYS, REFERENCE_KEYS, NAME_MAP_KEYS, DATA_KEYS;
 var init_tool_schema = __esm({
   "packages/core/dist/src/tool-schema.js"() {
     "use strict";
     init_token_reduction();
-    PLUMBING_KEYS = /* @__PURE__ */ new Set(["$schema", "$id", "$comment", "$defs"]);
+    PLUMBING_KEYS = /* @__PURE__ */ new Set(["$schema", "$comment"]);
+    REFERENCE_TARGET_KEYS = /* @__PURE__ */ new Set(["$id", "$defs"]);
+    REFERENCE_KEYS = /* @__PURE__ */ new Set(["$ref", "$dynamicRef", "$recursiveRef"]);
+    NAME_MAP_KEYS = /* @__PURE__ */ new Set([
+      "properties",
+      "patternProperties",
+      "$defs",
+      "definitions",
+      "dependentSchemas",
+      "dependencies"
+    ]);
+    DATA_KEYS = /* @__PURE__ */ new Set(["enum", "const", "default", "examples"]);
   }
 });
 
@@ -6674,7 +6703,7 @@ var init_start = __esm({
     init_claude_wiring();
     init_cta();
     init_update();
-    BUILD_COMMIT = true ? "df70f3f" : process.env.MESH_BUILD_COMMIT ?? "dev";
+    BUILD_COMMIT = true ? "69cae32" : process.env.MESH_BUILD_COMMIT ?? "dev";
     MESH_HOME = join5(homedir3(), ".mesh");
     CLAUDE_SETTINGS = join5(homedir3(), ".claude", "settings.json");
     WIRING_STATE = join5(MESH_HOME, "claude-wiring.json");
