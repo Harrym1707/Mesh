@@ -43,6 +43,28 @@ import { CachePrefixVolatilityGuard } from "../packages/sdk-js/src/cache-volatil
 import { isTerminal } from "./types.js";
 import { readLiveNumbers } from "./numbers.js";
 import type { OptimisationLead } from "./types.js";
+import {
+  agentArm,
+  agentSessions,
+  agentTask,
+  applyAgentArm,
+  corpus,
+  corpusAvailable,
+  qualifyAgentTasks,
+  type AgentArmId,
+} from "./agent-tasks.js";
+import {
+  TEXT_CODECS,
+  dedupeStaleFileReads,
+  grepHeading,
+  jsonMinify,
+  jsonRepeats,
+  jsonTable,
+  pointToEarlierIdenticalResult,
+  rereadAsChanges,
+  runLength,
+  terminalRender,
+} from "./experiments/tool-result-codecs.js";
 
 // These tests run the real pipeline end to end, not mocks. The continuous-loop
 // test takes about 5.5 s on a laptop, which is over vitest's 5 s default, and
@@ -925,3 +947,272 @@ describe("orchestrator stepping", () => {
 function summaryPromotedCount(ledger: LabLedger): number {
   return ledger.listRecords({ status: "promoted" }).length;
 }
+
+describe("agent tasks: reducing tool results before they are first sent", () => {
+  const FILES = [
+    "gh-pulls.json", "gh-check-runs.json", "gh-branches.json",
+    "grep-tokencount.txt", "grep-cachettl.txt", "find-ts.txt", "git-log-stat.txt", "git-diff-fix.txt",
+    "read-tool-schema.txt", "read-tool-schema-before.txt", "read-tool-schema-test.txt", "read-guard.txt",
+    "vitest-pass-verbose.txt", "vitest-pass-verbose-pty.txt", "vitest-fail.txt", "vitest-core-default.txt",
+    "tsc-errors.txt", "pnpm-install.txt", "build-cli.txt",
+    "web-methodology.html", "web-start.html", "web-faq.html",
+  ];
+  const LADDER: AgentArmId[] = ["raw", "parse-equal", "render-equal", "reversible", "pointer", "reread-changes", "lossy"];
+  const messagesOf = (request: unknown): unknown[] => (request as { messages: unknown[] }).messages;
+  const withoutMarkers = (value: unknown): string =>
+    JSON.stringify(value, (key, inner) => (key === "cache_control" ? undefined : inner));
+  const resultTexts = (request: unknown): string[] =>
+    messagesOf(request).flatMap((message) =>
+      (message as { content: Array<{ type: string; content?: string }> }).content
+        .filter((block) => block.type === "tool_result")
+        .map((block) => String(block.content)));
+
+  it("has every recorded tool output, and none is empty", () => {
+    expect(corpusAvailable()).toBe(true);
+    for (const file of FILES) expect(corpus(file).length).toBeGreaterThan(100);
+  });
+
+  it("no reducer ever makes a recorded output longer, and a second pass changes nothing", () => {
+    for (const file of FILES) {
+      for (const codec of TEXT_CODECS) {
+        const once = codec.encode(corpus(file));
+        expect(once.length).toBeLessThanOrEqual(corpus(file).length);
+        expect(codec.encode(once)).toBe(once);
+      }
+    }
+  });
+
+  it("every reversible reducer has an exact inverse on every recorded output", () => {
+    for (const file of FILES) {
+      const text = corpus(file);
+      expect(runLength.decode!(runLength.encode(text))).toBe(text);
+      expect(grepHeading.decode!(grepHeading.encode(text))).toBe(text);
+      // The column form decodes to the same document with layout whitespace removed.
+      const columns = jsonTable.encode(text);
+      if (columns !== text) expect(jsonTable.decode!(columns)).toBe(jsonMinify.encode(text));
+      const repeats = jsonRepeats.encode(text);
+      if (repeats !== text) expect(jsonRepeats.decode!(repeats)).toBe(jsonMinify.encode(text));
+      // And the two together, undone in the opposite order.
+      const both = jsonRepeats.encode(jsonTable.encode(jsonMinify.encode(text)));
+      expect(jsonTable.decode!(jsonRepeats.decode!(both))).toBe(jsonMinify.encode(text));
+    }
+  });
+
+  it("JSON reducers leave the document equal and every number and string as it was written", () => {
+    for (const file of ["gh-pulls.json", "gh-check-runs.json", "gh-branches.json"]) {
+      const text = corpus(file);
+      expect(JSON.parse(jsonMinify.encode(text))).toEqual(JSON.parse(text));
+      expect(JSON.parse(jsonTable.decode!(jsonTable.encode(text)))).toEqual(JSON.parse(text));
+    }
+    // A JSON.parse round trip would turn 1.0 into 1 and round the long integer.
+    const awkward = '{ "price": 1.0, "id": 12345678901234567890, "big": 1e3, "note": "two  spaces", "neg": -0 }';
+    expect(jsonMinify.encode(awkward)).toBe('{"price":1.0,"id":12345678901234567890,"big":1e3,"note":"two  spaces","neg":-0}');
+    expect(JSON.stringify(JSON.parse(awkward))).not.toContain("12345678901234567890");
+    // Not JSON, or JSON-looking but invalid: untouched.
+    expect(jsonMinify.encode("{ not json }")).toBe("{ not json }");
+    expect(jsonMinify.encode("plain text")).toBe("plain text");
+  });
+
+  it("columns and rows: same-shaped objects only, and never a document that already uses the marker", () => {
+    const rows = '[{"id":1,"name":"a","tags":[]},{"id":2,"name":"b","tags":["x"]},{"id":3,"name":"c","tags":[]}]';
+    const encoded = jsonTable.encode(rows);
+    expect(encoded).toBe('{"__cols":["id","name","tags"],"__rows":[[1,"a",[]],[2,"b",["x"]],[3,"c",[]]]}');
+    expect(jsonTable.decode!(encoded)).toBe(rows);
+    // Different keys, different key order, or too few rows: left alone.
+    expect(jsonTable.encode('[{"a":1,"b":2},{"a":1,"c":2},{"a":1,"b":2}]')).toBe('[{"a":1,"b":2},{"a":1,"c":2},{"a":1,"b":2}]');
+    expect(jsonTable.encode('[{"a":1,"b":2},{"b":2,"a":1},{"a":1,"b":2}]')).toBe('[{"a":1,"b":2},{"b":2,"a":1},{"a":1,"b":2}]');
+    expect(jsonTable.encode('[{"a":1},{"a":2}]')).toBe('[{"a":1},{"a":2}]');
+    const clash = '[{"__cols":1,"b":2},{"__cols":1,"b":2},{"__cols":1,"b":2}]';
+    expect(jsonTable.encode(clash)).toBe(clash);
+    // Nested arrays are converted too, and come back exactly.
+    const steps = '[{"number":1,"status":"completed","conclusion":"success"},{"number":2,"status":"completed","conclusion":"success"},{"number":3,"status":"completed","conclusion":"failure"}]';
+    const nested = `{"total":3,"runs":[{"id":1,"name":"test","steps":${steps}},{"id":2,"name":"lint","steps":[]},{"id":3,"name":"build","steps":${steps}}]}`;
+    expect(jsonTable.decode!(jsonTable.encode(nested))).toBe(nested);
+    expect(jsonTable.encode(nested).length).toBeLessThan(nested.length);
+  });
+
+  it("a repeated sub-object becomes a pointer to its first copy, and comes back exactly", () => {
+    const repo = '{"id":7,"full_name":"acme/widgets","description":"A repository object that is long enough to be worth pointing at","owner":{"login":"acme","id":1}}';
+    const document = `[{"number":1,"head":{"ref":"a","repo":${repo}},"base":{"ref":"main","repo":${repo}}},{"number":2,"head":{"ref":"b","repo":${repo}},"base":{"ref":"main","repo":${repo}}}]`;
+    const encoded = jsonRepeats.encode(document);
+    expect(encoded).toBe(
+      `[{"number":1,"head":{"ref":"a","repo":${repo}},"base":{"ref":"main","repo":{"__same":"/0/head/repo"}}},` +
+        '{"number":2,"head":{"ref":"b","repo":{"__same":"/0/head/repo"}},"base":{"__same":"/0/base"}}]',
+    );
+    expect(jsonRepeats.decode!(encoded)).toBe(document);
+    expect(JSON.parse(encoded)).toBeDefined(); // still valid JSON
+    // Keys containing "/" or "~" are escaped in the pointer and still resolve.
+    const odd = `{"a/b":{"x~y":${repo}},"again":${repo}}`;
+    expect(jsonRepeats.decode!(jsonRepeats.encode(odd))).toBe(odd);
+    expect(jsonRepeats.encode(odd)).toContain('{"__same":"/a~1b/x~0y"}');
+    // Short repeats and documents that already use the marker are left alone.
+    expect(jsonRepeats.encode('[{"a":1},{"a":1},{"a":1}]')).toBe('[{"a":1},{"a":1},{"a":1}]');
+    const clash = `{"__same":"/x","x":${repo},"y":${repo}}`;
+    expect(jsonRepeats.encode(clash)).toBe(clash);
+  });
+
+  it("grouped search hits: exact inverse, and input that would be ambiguous is left alone", () => {
+    const hits = "src/a.ts:1:import x\nsrc/a.ts:22:  x()\nBinary file src/b.bin matches\nsrc/c.ts:7:x\nsrc/d.ts:3:y\nsrc/d.ts:4:z";
+    const grouped = grepHeading.encode(hits);
+    expect(grouped).toBe("== src/a.ts ==\n1:import x\n22:  x()\nBinary file src/b.bin matches\nsrc/c.ts:7:x\n== src/d.ts ==\n3:y\n4:z");
+    expect(grepHeading.decode!(grouped)).toBe(hits);
+    for (const ambiguous of ["12:30 build started\nsrc/a.ts:1:x\nsrc/a.ts:2:y", "== heading ==\nsrc/a.ts:1:x\nsrc/a.ts:2:y"]) {
+      expect(grepHeading.encode(ambiguous)).toBe(ambiguous);
+    }
+  });
+
+  it("runs of identical lines: exact inverse, and a text that already holds a marker is left alone", () => {
+    const retry = "warning: retrying the connection to the build cache";
+    const text = ["start", retry, retry, retry, retry, "twice", "twice", "end"].join("\n");
+    const encoded = runLength.encode(text);
+    expect(encoded).toBe(["start", retry, "[previous line repeated 3 more times]", "twice", "twice", "end"].join("\n"));
+    // A run too short to be worth a marker is left exactly as it is.
+    expect(runLength.encode("ok\nok\nok")).toBe("ok\nok\nok");
+    expect(runLength.decode!(encoded)).toBe(text);
+    const marked = ["a", "[previous line repeated 2 more times]", retry, retry, retry, retry].join("\n");
+    expect(runLength.encode(marked)).toBe(marked);
+  });
+
+  it("terminal output as displayed: colour codes go, carriage returns overwrite, cursor movement is left alone", () => {
+    expect(terminalRender.encode("\u001b[32m✓\u001b[0m passed \u001b[1;31m1 failed\u001b[0m")).toBe("✓ passed 1 failed");
+    expect(terminalRender.encode("10%\r50%\r100%\ndone")).toBe("100%\ndone");
+    expect(terminalRender.encode("downloading\rdone")).toBe("doneloading");
+    expect(terminalRender.encode("line one\r\nline two\r\n")).toBe("line one\nline two\n");
+    expect(terminalRender.encode("\u001b[2K\u001b[1A")).toBe("\u001b[2K\u001b[1A");
+  });
+
+  it("a repeated result becomes a pointer; the first copy is never touched", () => {
+    const { session } = agentSessions().find((entry) => entry.id === "repo-exploration")!;
+    const last = session.requests[session.requests.length - 1]!;
+    const before = resultTexts(last);
+    const after = resultTexts(pointToEarlierIdenticalResult(last));
+    const guard = corpus("read-guard.txt");
+    expect(before.filter((text) => text === guard)).toHaveLength(2);
+    expect(after.filter((text) => text === guard)).toHaveLength(1);
+    expect(after.indexOf(guard)).toBe(before.indexOf(guard)); // the EARLIER copy is the one kept
+    expect(after[before.lastIndexOf(guard)]).toMatch(/^\[Same output as an earlier tool result in this conversation \(tool_use_id toolu_04\): \d+ lines, not repeated here\.\]$/);
+    // Everything else is byte-identical.
+    expect(after.filter((text, index) => text !== before[index])).toHaveLength(1);
+  });
+
+  it("a re-read file shows what changed; every line it drops is still in the first read", () => {
+    const { session } = agentSessions().find((entry) => entry.id === "coding-fix")!;
+    const last = session.requests[session.requests.length - 1]!;
+    const before = resultTexts(last);
+    const after = resultTexts(rereadAsChanges(last));
+    const first = corpus("read-tool-schema-before.txt");
+    const second = corpus("read-tool-schema.txt");
+    const reduced = after[before.indexOf(second)]!;
+    expect(after[before.indexOf(first)]).toBe(first); // history untouched
+    expect(reduced.length).toBeLessThan(second.length / 2);
+    expect(reduced).toMatch(/\[lines \d+-\d+ unchanged from the first read of this file \(tool_use_id toolu_02\)\]/);
+    const strip = (line: string): string => line.replace(/^\s*\d+\t/, "");
+    const kept = new Set(reduced.split("\n").map(strip));
+    const inFirst = new Set(first.split("\n").map(strip));
+    for (const line of second.split("\n").map(strip)) expect(kept.has(line) || inFirst.has(line)).toBe(true);
+    // The lines the fix added are all still shown.
+    expect(reduced).toContain("const NAME_MAP_KEYS = new Set([");
+    expect(reduced).toContain("function usesReferences(node: unknown): boolean {");
+    // The file with tests is a different file: not treated as a re-read.
+    expect(after[before.indexOf(corpus("read-tool-schema-test.txt"))]).toBe(corpus("read-tool-schema-test.txt"));
+  });
+
+  it("every step of the ladder leaves history byte-identical from one model call to the next", () => {
+    // What makes a reducer safe under a client's cache: the transcript a call
+    // sends begins with exactly what the previous call sent.
+    for (const { cachedSession } of agentSessions()) {
+      for (const arm of LADDER) {
+        const sent = cachedSession.requests.map((request) => messagesOf(applyAgentArm(arm, request)));
+        for (let call = 1; call < sent.length; call += 1) {
+          const previous = sent[call - 1]!;
+          expect(withoutMarkers(sent[call]!.slice(0, previous.length))).toBe(withoutMarkers(previous));
+        }
+      }
+    }
+  });
+
+  it("trimming the OLDER read rewrites history: it pays without a cache and costs a caching client", () => {
+    const { cachedSession } = agentSessions().find((entry) => entry.id === "coding-fix")!;
+    const sent = cachedSession.requests.map((request) => messagesOf(dedupeStaleFileReads(request)));
+    const rewritten = sent.some((messages, call) =>
+      call > 0 && withoutMarkers(messages.slice(0, sent[call - 1]!.length)) !== withoutMarkers(sent[call - 1]!));
+    expect(rewritten).toBe(true);
+    const task = agentTask(qualifyAgentTasks(), "coding-fix");
+    const stale = agentArm(task, "stale-reads");
+    const pointer = agentArm(task, "pointer");
+    const changes = agentArm(task, "reread-changes");
+    expect(stale.savingWithoutCachePercent).toBeGreaterThan(pointer.savingWithoutCachePercent + 5);
+    expect(stale.savingWhenClientCachesPercent).toBeLessThan(0);
+    // The cache-safe form pays in both.
+    expect(changes.savingWhenClientCachesPercent).toBeGreaterThan(pointer.savingWhenClientCachesPercent + 5);
+    expect(changes.savingWithoutCachePercent).toBeGreaterThan(pointer.savingWithoutCachePercent + 5);
+  });
+
+  it("the ladder never raises the bill, in either caching situation, on any task", () => {
+    const result = qualifyAgentTasks();
+    expect(result.tasks.map((task) => task.id)).toEqual(["coding-fix", "repo-exploration", "api-analysis", "build-triage", "web-research"]);
+    for (const task of result.tasks) {
+      for (let rung = 1; rung < LADDER.length; rung += 1) {
+        const arm = agentArm(task, LADDER[rung]!);
+        const below = agentArm(task, LADDER[rung - 1]!);
+        expect(arm.savingWhenClientCachesPercent).toBeGreaterThanOrEqual(below.savingWhenClientCachesPercent - 1e-9);
+        expect(arm.savingWithoutCachePercent).toBeGreaterThanOrEqual(below.savingWithoutCachePercent - 1e-9);
+      }
+      // Tool results are most of what an agent sends, and a client with no cache gains a great deal from one.
+      expect(task.toolResultSharePercent).toBeGreaterThan(60);
+      expect(task.cacheAloneSavingPercent).toBeGreaterThan(30);
+      // Mesh's built-in policy finds nothing on these sessions: the tool definitions are already clean.
+      expect(task.meshDefaultsSavingPercent.clientCaches).toBeLessThan(1);
+      expect(task.meshDefaultsSavingPercent.withoutCache).toBeLessThan(1);
+    }
+    // For most tasks the cache is worth more than every reversible reducer together. API responses are the
+    // exception: so much of one is repetition that the reducers beat the cache.
+    const beatsCache = result.tasks.filter((task) => agentArm(task, "reversible").savingWithoutCachePercent > task.cacheAloneSavingPercent);
+    expect(beatsCache.map((task) => task.id)).toEqual(["api-analysis"]);
+  });
+
+  it("which reducer matters depends on the task", () => {
+    const result = qualifyAgentTasks();
+    const step = (task: string, arm: AgentArmId, below: AgentArmId): number =>
+      agentArm(agentTask(result, task as never), arm).savingWhenClientCachesPercent -
+      agentArm(agentTask(result, task as never), below).savingWhenClientCachesPercent;
+    // API responses: the JSON reducers. The parse-equal one alone is worth several points.
+    expect(step("api-analysis", "parse-equal", "raw")).toBeGreaterThan(5);
+    expect(step("api-analysis", "reversible", "render-equal")).toBeGreaterThan(40);
+    expect(step("api-analysis", "pointer", "reversible")).toBeGreaterThan(3);
+    expect(step("coding-fix", "parse-equal", "raw")).toBe(0);
+    // Coding: re-reads and search hits.
+    expect(step("coding-fix", "reversible", "render-equal")).toBeGreaterThan(2);
+    expect(step("coding-fix", "reread-changes", "pointer")).toBeGreaterThan(8);
+    // Exploration: the same file read twice.
+    expect(step("repo-exploration", "pointer", "reversible")).toBeGreaterThan(5);
+    // Web pages: only the lossy reducer applies.
+    expect(step("web-research", "reread-changes", "raw")).toBe(0);
+    expect(step("web-research", "lossy", "reread-changes")).toBeGreaterThan(30);
+    // The pseudo-terminal recording has no colour codes: nothing to strip.
+    expect(step("build-triage", "render-equal", "parse-equal")).toBeLessThan(0.5);
+  });
+
+  it("the pipeline promotes only the parse-equal reducer and records the rest honestly", () => {
+    const ledger = new LabLedger(root, { now });
+    runToQuiescence(ledger, { now });
+    const lead = (key: string) => ledger.listRecords().find((record) => record.techniqueKey === key)!;
+    const minify = lead("tool-result-json-minify");
+    expect(minify.evaluation!.lossless).toBe(true);
+    expect(minify.evaluation!.basis).toContain("SIMULATOR");
+    for (const key of [
+      "tool-result-json-columns", "tool-result-grouped-search-hits", "repeated-tool-result-pointer",
+      "reread-as-changes", "fetched-html-to-text", "passing-test-line-fold",
+    ]) {
+      expect(lead(key).status).toBe("needs_gate");
+      expect(lead(key).evaluation!.lossless).toBe(false);
+      expect(lead(key).evaluation!.qualityUnmeasured).toBe(true);
+    }
+    // Two honest negatives: one raises a caching client's bill, one finds nothing to remove.
+    expect(lead("stale-file-read-dedup").status).not.toBe("promoted");
+    expect(lead("stale-file-read-dedup").status).not.toBe("needs_gate");
+    expect(lead("terminal-control-strip").status).not.toBe("promoted");
+    expect(lead("terminal-control-strip").status).not.toBe("needs_gate");
+  });
+});
+

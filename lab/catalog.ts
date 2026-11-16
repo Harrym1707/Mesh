@@ -352,6 +352,177 @@ export const CATALOG: CatalogEntry[] = [
     datasetFixtureId: "browsing-shape",
   },
   {
+    title: "Tool-result JSON without layout whitespace",
+    description:
+      "An agent's transcript is mostly tool results, and each is re-sent on every later turn. A client that already caches (Claude Code does) leaves Mesh nothing to gain from caching, and rewriting old history would break that cache; what is left is the result itself, reduced once, the same way every time. When a whole tool result is a JSON document (an API response), remove the whitespace between tokens. Number and string lexemes are kept exactly as written, unlike a JSON.parse round trip, which re-types 1.0 as 1 and rounds integers past 2^53.",
+    category: "compaction",
+    bucket: "core",
+    techniqueKey: "tool-result-json-minify",
+    hypothesis:
+      "API responses arrive pretty-printed; removing layout whitespace shrinks them without changing the document.",
+    shape: "autonomous-agent",
+    controlSurface: "context-compaction",
+    featureInputs: ["structural-counts", "token-counts"],
+    changesCustomerApplication: false,
+    expectedTokenReductionPercent: 5,
+    // Measured by the agent-task harness (lab/agent-tasks.ts via lab/evidence.ts).
+    techniqueId: "tool-result-json-minify",
+    defaultParams: { keepLexemes: true },
+    datasetFixtureId: "agent-tasks",
+  },
+  {
+    title: "Tool-result JSON as columns, rows and pointers to repeats",
+    description:
+      "An agent's transcript is mostly tool results, and each is re-sent on every later turn. A client that already caches (Claude Code does) leaves Mesh nothing to gain from caching, and rewriting old history would break that cache; what is left is the result itself, reduced once, the same way every time. An API response is usually an array of same-shaped objects, so every key is repeated once per object, and whole sub-objects (the same repository, user or account) are repeated on every row. Send the keys once with one row of values per object, and replace a repeated sub-object with a pointer to its first copy. Still valid JSON, and exactly reversible, but the model reads a different layout, so gate-required.",
+    category: "deduplication",
+    bucket: "core",
+    techniqueKey: "tool-result-json-columns",
+    hypothesis:
+      "Sending each key of a same-shaped JSON array once instead of once per object removes most of an API response's repetition without losing a value.",
+    shape: "autonomous-agent",
+    controlSurface: "deduplication",
+    featureInputs: ["structural-counts", "token-counts"],
+    changesCustomerApplication: false,
+    expectedTokenReductionPercent: 15,
+    // Measured by the agent-task harness (lab/agent-tasks.ts via lab/evidence.ts).
+    techniqueId: "tool-result-json-columns",
+    defaultParams: { minimumRows: 3 },
+    datasetFixtureId: "agent-tasks",
+  },
+  {
+    title: "Search hits grouped under one heading per file",
+    description:
+      "An agent's transcript is mostly tool results, and each is re-sent on every later turn. A client that already caches (Claude Code does) leaves Mesh nothing to gain from caching, and rewriting old history would break that cache; what is left is the result itself, reduced once, the same way every time. A path:line:text search result repeats the path on every hit. Group hits under one heading per file (the layout ripgrep prints with --heading). Exactly reversible; the model reads a different layout, so gate-required.",
+    category: "deduplication",
+    bucket: "core",
+    techniqueKey: "tool-result-grouped-search-hits",
+    hypothesis:
+      "Sending a file path once per file instead of once per hit shrinks search results without removing a hit.",
+    shape: "autonomous-agent",
+    controlSurface: "deduplication",
+    featureInputs: ["structural-counts", "token-counts"],
+    changesCustomerApplication: false,
+    expectedTokenReductionPercent: 4,
+    // Measured by the agent-task harness (lab/agent-tasks.ts via lab/evidence.ts).
+    techniqueId: "tool-result-grouped-search-hits",
+    defaultParams: { minimumHitsPerFile: 2 },
+    datasetFixtureId: "agent-tasks",
+  },
+  {
+    title: "Repeated tool result as a pointer to the first copy",
+    description:
+      "An agent's transcript is mostly tool results, and each is re-sent on every later turn. A client that already caches (Claude Code does) leaves Mesh nothing to gain from caching, and rewriting old history would break that cache; what is left is the result itself, reduced once, the same way every time. When a tool result is byte-identical to an earlier one (a file read twice, a status polled twice), replace the LATER copy with one line naming the earlier call. The earlier copy is untouched, so history and any cached prefix stay identical.",
+    category: "deduplication",
+    bucket: "core",
+    techniqueKey: "repeated-tool-result-pointer",
+    hypothesis:
+      "An agent often fetches the same thing twice; the second copy carries no new information.",
+    shape: "autonomous-agent",
+    controlSurface: "deduplication",
+    featureInputs: ["structural-counts", "token-counts"],
+    changesCustomerApplication: false,
+    expectedTokenReductionPercent: 8,
+    // Measured by the agent-task harness (lab/agent-tasks.ts via lab/evidence.ts).
+    techniqueId: "repeated-tool-result-pointer",
+    defaultParams: { minimumChars: 400 },
+    datasetFixtureId: "agent-tasks",
+  },
+  {
+    title: "A re-read file shows only what changed",
+    description:
+      "An agent's transcript is mostly tool results, and each is re-sent on every later turn. A client that already caches (Claude Code does) leaves Mesh nothing to gain from caching, and rewriting old history would break that cache; what is left is the result itself, reduced once, the same way every time. After an edit an agent reads the file again and gets it whole. Keep the changed lines in the new read and replace each long run the first read already showed with one line naming the range. The first read is never altered, so a client's cache is unaffected. The agent's freshest view becomes the changes plus a pointer, so gate-required.",
+    category: "deduplication",
+    bucket: "core",
+    techniqueKey: "reread-as-changes",
+    hypothesis:
+      "A re-read after a small edit is almost entirely lines the transcript already holds.",
+    shape: "autonomous-agent",
+    controlSurface: "deduplication",
+    featureInputs: ["structural-counts", "token-counts"],
+    changesCustomerApplication: false,
+    expectedTokenReductionPercent: 10,
+    // Measured by the agent-task harness (lab/agent-tasks.ts via lab/evidence.ts).
+    techniqueId: "reread-as-changes",
+    defaultParams: { minimumRunLines: 5, pointTo: "first-read" },
+    datasetFixtureId: "agent-tasks",
+  },
+  {
+    title: "Older read of a re-read file trimmed (rewrites history)",
+    description:
+      "The mirror image of the lever above: keep the newest read whole and trim the OLDER one to the lines that later changed. The agent's freshest view stays complete, but old history is rewritten, which a caching client pays for.",
+    category: "compaction",
+    bucket: "core",
+    techniqueKey: "stale-file-read-dedup",
+    hypothesis:
+      "Trimming the stale copy keeps the fresh one intact and still removes the repetition.",
+    shape: "autonomous-agent",
+    controlSurface: "context-compaction",
+    featureInputs: ["structural-counts", "token-counts"],
+    changesCustomerApplication: false,
+    expectedTokenReductionPercent: 10,
+    // Measured by the agent-task harness (lab/agent-tasks.ts via lab/evidence.ts).
+    techniqueId: "stale-file-read-dedup",
+    defaultParams: { minimumRunLines: 3 },
+    datasetFixtureId: "agent-tasks",
+  },
+  {
+    title: "Fetched HTML as readable text",
+    description:
+      "A fetch tool that returns a page's HTML sends markup, scripts, styles and attributes the agent rarely needs. Send the readable text with link targets kept. Lossy: structure and attributes are gone. The Mesh-side, measured form of the document-to-Markdown idea.",
+    category: "compaction",
+    bucket: "core",
+    techniqueKey: "fetched-html-to-text",
+    hypothesis:
+      "Most of a fetched page's tokens are markup, not content.",
+    shape: "autonomous-agent",
+    controlSurface: "context-compaction",
+    featureInputs: ["structural-counts", "token-counts"],
+    changesCustomerApplication: false,
+    expectedTokenReductionPercent: 40,
+    // Measured by the agent-task harness (lab/agent-tasks.ts via lab/evidence.ts).
+    techniqueId: "fetched-html-to-text",
+    defaultParams: { keepLinkTargets: true },
+    datasetFixtureId: "agent-tasks",
+  },
+  {
+    title: "Passing-test lines folded to a count",
+    description:
+      "A verbose test run prints one line per passing test. Fold runs of passing lines to a count and leave every failure untouched. Lossy: the names of the tests that passed are gone.",
+    category: "compaction",
+    bucket: "core",
+    techniqueKey: "passing-test-line-fold",
+    hypothesis:
+      "An agent acts on failures; the list of passing tests is rarely read.",
+    shape: "autonomous-agent",
+    controlSurface: "context-compaction",
+    featureInputs: ["structural-counts", "token-counts"],
+    changesCustomerApplication: false,
+    expectedTokenReductionPercent: 5,
+    // Measured by the agent-task harness (lab/agent-tasks.ts via lab/evidence.ts).
+    techniqueId: "passing-test-line-fold",
+    defaultParams: { minimumRunLines: 3 },
+    datasetFixtureId: "agent-tasks",
+  },
+  {
+    title: "Terminal control codes stripped",
+    description:
+      "Output captured from a pseudo-terminal carries colour codes and carriage-return redraws. Remove the colour codes and apply the overwrites, leaving what a terminal would display.",
+    category: "compaction",
+    bucket: "core",
+    techniqueKey: "terminal-control-strip",
+    hypothesis:
+      "Colour codes and redrawn progress lines are tokens with no content.",
+    shape: "autonomous-agent",
+    controlSurface: "context-compaction",
+    featureInputs: ["structural-counts", "token-counts"],
+    changesCustomerApplication: false,
+    expectedTokenReductionPercent: 3,
+    // Measured by the agent-task harness (lab/agent-tasks.ts via lab/evidence.ts).
+    techniqueId: "terminal-control-strip",
+    defaultParams: { styleCodes: true, carriageReturns: true },
+    datasetFixtureId: "agent-tasks",
+  },
+  {
     title: "Fresh tool-result cap",
     description:
       "Agentic lever. Cap oversized tool results at injection, before first send — a fresh oversized result bills once at the full input rate and only its cached re-reads are discounted. On the paying shape it is the single largest lossy lever (about 10 points of whole-bill saving) and it subsumes history compaction. Lossy by definition: the headline, errors and paths survive, the rest collapses.",

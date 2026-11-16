@@ -18,6 +18,7 @@ import { qualifyPayingShape } from "./paying-shape.js";
 import { cadenceSweep, sessionLengthSweep } from "./sweeps.js";
 import { guardStudy, liveResidual, liveSpoolsAvailable, stampStudy } from "./live-study.js";
 import { qualifyBrowsingShape } from "./browsing-shape.js";
+import { corpusAvailable, qualifyAgentTasks } from "./agent-tasks.js";
 import { fleetSavings } from "./workloads.js";
 import type { OptimisationRecord } from "./types.js";
 
@@ -337,6 +338,61 @@ switch (command) {
     console.log("The Mesh snapshot arms are lab-only experiments (lab/experiments/page-snapshots.ts) and change what the model reads: gate-required.");
     break;
   }
+  case "tasks": {
+    if (!corpusAvailable()) {
+      console.log("The recorded tool outputs are missing. Record them with: bash lab/agent-tasks/capture.sh");
+      process.exitCode = 2;
+      break;
+    }
+    const result = qualifyAgentTasks();
+    const large = qualifyAgentTasks({ overhead: "large" });
+    const pct = (value: number): string => `${value.toFixed(1)}%`.padStart(7);
+    console.log("AGENT TASKS — SIMULATOR. Real tool outputs recorded from this repository, its site and its public GitHub");
+    console.log("metadata; scripted sessions; tokens ESTIMATED (about ±15%); documented cache multipliers. No model ran,");
+    console.log(`so quality is not measured. Fixed overhead per call (system prompt + tools): ~${result.overheadTokens} tokens, an ESTIMATE.\n`);
+    for (const task of result.tasks) {
+      console.log(`${task.label}  [${task.id}]`);
+      console.log(
+        `  ${task.toolCalls} tool calls, ${task.modelCalls} model calls · tool results are ${task.toolResultSharePercent.toFixed(1)}% of the input sent · ` +
+          `turning the cache on is worth ${task.cacheAloneSavingPercent.toFixed(1)}% to a client that does not cache`,
+      );
+      const share = task.cachedBillSharePercent;
+      console.log(
+        `  a caching client's bill: ${share.cacheWrites.toFixed(0)}% cache writes, ${share.cacheReads.toFixed(0)}% cache reads, ` +
+          `${Math.max(0, share.freshInput).toFixed(0)}% uncached input, ${share.output.toFixed(0)}% output`,
+      );
+      console.log(
+        `  Mesh's default levers today (no cache flag): ${task.meshDefaultsSavingPercent.clientCaches.toFixed(1)}% when the client caches, ` +
+          `${task.meshDefaultsSavingPercent.withoutCache.toFixed(1)}% when it does not`,
+      );
+      console.log(`  ${"what Mesh does to tool results (each line includes the ones above)".padEnd(70)} client caches   no caching   tier`);
+      for (const arm of task.arms.slice(1)) {
+        const label = arm.insteadOf ? `  alternative to "${arm.insteadOf}": ${arm.label}` : arm.label;
+        console.log(
+          `  ${label.padEnd(70)} ${pct(arm.savingWhenClientCachesPercent).padStart(13)}   ${pct(arm.savingWithoutCachePercent).padStart(10)}   ${arm.tier}`,
+        );
+      }
+      const bigger = large.tasks.find((entry) => entry.id === task.id)!;
+      const rung = (entry: typeof task) => entry.arms.find((arm) => arm.id === "reread-changes")!;
+      console.log(
+        `  with a tool catalogue of ~${large.overheadTokens} tokens instead of ~${result.overheadTokens}, the content-preserving line reads ` +
+          `${rung(bigger).savingWhenClientCachesPercent.toFixed(1)}% / ${rung(bigger).savingWithoutCachePercent.toFixed(1)}%`,
+      );
+      console.log("");
+    }
+    console.log("Each figure is the saving on the WHOLE bill (input + output) against the same client with no reducer.");
+    console.log("The agent's own words are short in these scripts, so output is a small share of each bill. On the live run");
+    console.log("output was 57.7% of the remaining bill; an input reducer's whole-bill saving shrinks in proportion to that share.");
+    console.log("\nPER TOOL OUTPUT — tokens before, and after each reducer that changes it (applied alone)");
+    for (const row of result.payloads) {
+      const changes = row.codecs.map((codec) => `${codec.id} ${codec.tokens} (-${codec.savingPercent.toFixed(1)}%, ${codec.tier})`).join(" · ");
+      console.log(`  ${row.file.padEnd(30)} ${String(row.tokens).padStart(6)}   ${changes === "" ? "no reducer applies" : changes}`);
+    }
+    console.log("\nOnly the parse-equal tier is byte-for-byte safe. The reversible tier has an exact inverse (tested on every");
+    console.log("recorded output) but changes the layout the model reads; everything below it needs a real quality gate.");
+    console.log("Lab-only experiments: lab/experiments/tool-result-codecs.ts.");
+    break;
+  }
   case "sweep": {
     // On demand: these re-run the cache simulation many times. --full adds the
     // 20-turn sessions, which take several minutes.
@@ -379,7 +435,7 @@ switch (command) {
   }
   default:
     console.log(
-      "Usage: lab <demo|run|watch|status|live|browse|sweep|verify> [--root <dir>]\n" +
+      "Usage: lab <demo|run|watch|status|live|browse|tasks|sweep|verify> [--root <dir>]\n" +
         "  watch [--interval <ms>] [--idle <n>] [--ticks <n>] [--forever]\n" +
         "  sweep [--tasks <n>] [--full]",
     );

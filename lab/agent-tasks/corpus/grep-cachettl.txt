@@ -1,0 +1,31 @@
+packages/sdk-js/src/theo-policy.test.ts:108:    expect(config.cacheTtl).toBe("5m");
+packages/sdk-js/src/wrap.ts:42:  cacheTtl?: "5m" | "1h";
+packages/sdk-js/src/wrap.ts:91:    ...(options.cacheTtl ? { cacheTtl: options.cacheTtl } : {}),
+packages/sdk-js/src/theo-policy.ts:126:      config.cacheTtl = "5m";
+packages/sdk-js/src/theo-policy.ts:129:      config.cacheTtl = "1h";
+packages/sdk-js/src/openai.ts:157:  const tokenReduction = (options.tokenReduction?.cacheTtl !== undefined &&
+packages/sdk-js/src/cache-volatility-guard.test.ts:132:    cacheTtl: "5m",
+packages/sdk-js/src/cache-volatility-guard.test.ts:244:    const shared = { cacheTtl: "5m", cacheVolatilityGuard: new CachePrefixVolatilityGuard() } as const;
+packages/sdk-js/src/cache-volatility-guard.test.ts:355:      reduceRequest(request, { repairCachePrefix: true, cacheTtl: "5m" }).request as Record<string, unknown>);
+packages/sdk-js/src/reduce-request.ts:217:  cacheTtl?: "5m" | "1h";
+packages/sdk-js/src/reduce-request.ts:224:   * withMesh install one automatically whenever cacheTtl is set; it is
+packages/sdk-js/src/reduce-request.ts:1194:    if (config.cacheTtl === "5m" || config.cacheTtl === "1h") {
+packages/sdk-js/src/reduce-request.ts:1195:      const ttl = config.cacheTtl;
+packages/sdk-js/src/proxy.ts:283:    if (base.cacheTtl !== undefined && base.cacheVolatilityGuard === undefined) {
+packages/sdk-js/src/surfaces.test.ts:166:      tokenReduction: { cacheTtl: "1h" },
+packages/sdk-js/src/surfaces.test.ts:180:    // The cacheTtl lever stamped the STABLE prefix of the request MESH sent:
+packages/sdk-js/src/savings-ledger.test.ts:323:describe("5m cacheTtl stamp billing", () => {
+packages/sdk-js/src/reduce-request.test.ts:500:describe("cacheTtl 1h stamping", () => {
+packages/sdk-js/src/reduce-request.test.ts:517:    const { request: reduced, summary } = reduceRequest(anthropicRequest(), { cacheTtl: "1h" });
+packages/sdk-js/src/reduce-request.test.ts:534:      { cacheTtl: "1h" },
+packages/sdk-js/src/reduce-request.test.ts:549:    const { request: reduced, summary } = reduceRequest(request, { cacheTtl: "1h" });
+packages/sdk-js/src/reduce-request.test.ts:560:    const { request: reduced } = reduceRequest(request, { cacheTtl: "1h" });
+packages/sdk-js/src/reduce-request.test.ts:568:    const { request: reduced, summary } = reduceRequest(anthropicRequest(), { cacheTtl: "5m" });
+packages/sdk-js/src/reduce-request.test.ts:577:    const { request: reduced, summary } = reduceRequest(request, { cacheTtl: "1h" });
+packages/sdk-js/src/reduce-request.test.ts:590:    const { request: reduced, summary } = reduceRequest(request, { cacheTtl: "1h" });
+packages/sdk-js/src/reduce-request.test.ts:598:    reduceRequest(original, { cacheTtl: "1h" });
+packages/sdk-js/src/reduce-request.test.ts:615:      const { request: reduced, summary } = reduceRequest(request, { cacheTtl: "1h" });
+packages/sdk-js/src/reduce-request.test.ts:634:      const sonnet = reduceRequest(sonnetRequest, { cacheTtl: "1h" });
+packages/sdk-js/src/reduce-request.test.ts:638:      const haiku = reduceRequest(haikuRequest, { cacheTtl: "1h" });
+packages/sdk-js/src/reduce-request.test.ts:659:      const { request: reduced, summary } = reduceRequest(request, { cacheTtl: "5m" });
+packages/sdk-js/src/reduce-request.test.ts:680:      const { request: reduced, summary } = reduceRequest(request, { cacheTtl: "5m" });

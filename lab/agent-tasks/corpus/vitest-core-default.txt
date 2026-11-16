@@ -1,0 +1,9 @@
+
+ RUN  v4.1.12 /workspace/mesh
+
+
+ Test Files  29 passed (29)
+      Tests  468 passed (468)
+   Start at  06:45:57
+   Duration  983ms (transform 914ms, setup 0ms, import 1.49s, tests 1.40s, environment 2ms)
+

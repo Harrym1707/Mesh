@@ -11,6 +11,7 @@
 // passes only a SIMULATED grader is never promoted: the Maintainer rests it at
 // `needs_gate` until a real replay gate has run.
 
+import { agentArm, agentTask, corpusAvailable, qualifyAgentTasks, type AgentArmId, type AgentTaskId } from "./agent-tasks.js";
 import { browsingArm, qualifyBrowsingShape } from "./browsing-shape.js";
 import { qualifyOnCaptures, capturesAvailable } from "./captures.js";
 import { guardStudy, stampStudy } from "./live-study.js";
@@ -18,7 +19,7 @@ import { qualifyPayingShape } from "./paying-shape.js";
 import { cadenceSweep } from "./sweeps.js";
 
 export type HarnessEvidence = {
-  harness: "paying-shape" | "cadence-sweep" | "wire-captures" | "live-spools" | "browsing-shape";
+  harness: "paying-shape" | "cadence-sweep" | "wire-captures" | "live-spools" | "browsing-shape" | "agent-tasks";
   /**
    * The lever's saving. For paying-shape levers this is the POINTS of whole-bill
    * saving the lever adds on top of the rung below it; for the others it is the
@@ -78,7 +79,76 @@ function browsingEvidence(armId: string, note: (short: string, long: string) => 
   };
 }
 
+/**
+ * What one rung of the agent-task ladder adds over the rung below it, for a
+ * client that ALREADY caches (the stricter case: caching is not Mesh's to
+ * claim there, and a reducer that rewrites history costs money).
+ */
+function agentTaskEvidence(
+  taskId: AgentTaskId,
+  armId: AgentArmId,
+  belowId: AgentArmId,
+  lossless: boolean,
+  note: string,
+): HarnessEvidence | undefined {
+  if (!corpusAvailable()) return undefined;
+  const task = agentTask(qualifyAgentTasks(), taskId);
+  const arm = agentArm(task, armId);
+  const below = agentArm(task, belowId);
+  const withoutCache = arm.savingWithoutCachePercent - below.savingWithoutCachePercent;
+  return {
+    harness: "agent-tasks",
+    savingPercent: arm.savingWhenClientCachesPercent - below.savingWhenClientCachesPercent,
+    scope: `whole-bill saving on the "${task.label}" session for a client that already caches, on top of the tiers above it`,
+    qualityDrop: lossless ? 0 : null, // no model runs on this harness
+    lossless,
+    basis:
+      "SIMULATOR — real tool outputs recorded from this repository, its site and its public GitHub metadata " +
+      "(lab/agent-tasks/corpus); scripted session; tokens ESTIMATED; documented cache multipliers",
+    grader: lossless ? "not needed: the JSON document is unchanged (whitespace between tokens only; every lexeme kept; tested)" : "none",
+    note:
+      `${note} For a client that does not cache, the same step is worth ${withoutCache.toFixed(1)}% of its bill. ` +
+      `Tool results are ${task.toolResultSharePercent.toFixed(1)}% of the input this session sends.`,
+  };
+}
+
 const EVIDENCE: Record<string, () => HarnessEvidence | undefined> = {
+  "tool-result-json-minify": () =>
+    agentTaskEvidence("api-analysis", "parse-equal", "raw", true,
+      "Lab-local (lab/experiments/tool-result-codecs.ts). The whole tool result is JSON; layout whitespace is removed without re-typing any value."),
+
+  "tool-result-json-columns": () =>
+    agentTaskEvidence("api-analysis", "reversible", "render-equal", false,
+      "Lab-local. Arrays of same-shaped objects are sent as column names plus rows, and a repeated sub-object as a pointer to its first copy; the exact inverse is tested on every recorded output."),
+
+  "tool-result-grouped-search-hits": () =>
+    agentTaskEvidence("coding-fix", "reversible", "render-equal", false,
+      "Lab-local. path:line:text hits are grouped under one heading per file; the exact inverse is tested on every recorded output."),
+
+  "repeated-tool-result-pointer": () =>
+    agentTaskEvidence("repo-exploration", "pointer", "reversible", false,
+      "Lab-local. A result identical to an earlier one becomes a one-line pointer; history is untouched, so a client's cache is unaffected."),
+
+  "reread-as-changes": () =>
+    agentTaskEvidence("coding-fix", "reread-changes", "pointer", false,
+      "Lab-local. A file read again after an edit shows its changed lines and names the unchanged ranges; the first read is never altered."),
+
+  "stale-file-read-dedup": () =>
+    agentTaskEvidence("coding-fix", "stale-reads", "pointer", false,
+      "Lab-local. Trimming the OLDER read rewrites history: it pays for a client with no cache and costs a caching client a re-write of everything after it."),
+
+  "fetched-html-to-text": () =>
+    agentTaskEvidence("web-research", "lossy", "reread-changes", false,
+      "Lab-local. A fetched page is sent as its readable text; markup, scripts, styles and attributes are dropped. Lossy."),
+
+  "passing-test-line-fold": () =>
+    agentTaskEvidence("build-triage", "lossy", "reread-changes", false,
+      "Lab-local. Runs of passing-test lines become a count; failures are never touched. Lossy."),
+
+  "terminal-control-strip": () =>
+    agentTaskEvidence("build-triage", "render-equal", "parse-equal", false,
+      "Lab-local. Colour codes and carriage-return overwrites, on a test run recorded inside a pseudo-terminal. That recording carries 9 escape sequences and no colour codes."),
+
   "stale-page-snapshot-line-dedup": () =>
     browsingEvidence(
       "lineDedup",
