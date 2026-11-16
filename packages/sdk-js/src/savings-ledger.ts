@@ -7,11 +7,13 @@ import {
   priceLedgerUsage,
   type BillableEvent,
   type LedgerExecutionMode,
+  type LedgerGateVerdict,
   type LedgerLever,
   type LedgerRecord,
   type LedgerUsage,
 } from "../../core/dist/src/savings-ledger.js";
 import type { MeshRequestEvent, MeshSavingsLedgerConfig } from "./types.js";
+import { LedgerMirror } from "./ledger-mirror.js";
 
 /**
  * The opt-in savings meter: turns each MeshRequestEvent into one append-only
@@ -264,9 +266,20 @@ export function billableEventFromRequest(
   };
 }
 
+/** Per-request facts the ledger cannot know at construction time. */
+export type SavingsLedgerEmitContext = {
+  /**
+   * Replay-gate verdicts for the lossy levers the policy in force for THIS
+   * request enforces, keyed by lever id. Merged over the config's static
+   * `gateVerdicts`. The proxy passes these because the policy hot-reloads and
+   * differs per route, so one fixed map per ledger would be wrong.
+   */
+  gateVerdicts?: Record<string, LedgerGateVerdict>;
+};
+
 export type SavingsLedger = {
   /** Synchronously appends one chained record. Never throws. */
-  emit: (event: MeshRequestEvent) => void;
+  emit: (event: MeshRequestEvent, context?: SavingsLedgerEmitContext) => void;
   readonly path: string;
 };
 
@@ -295,17 +308,25 @@ export function createSavingsLedger(config: MeshSavingsLedgerConfig): SavingsLed
   const tail = resumeChainTail(config.path);
   let previous = tail.previous;
   let disabled = tail.disabled;
+  // Optional mirror to the Mesh metering API; best-effort and fully detached
+  // from the request path. The local spool above stays authoritative.
+  const mirror = config.mirror ? new LedgerMirror(config.mirror) : undefined;
 
   return {
     path: config.path,
-    emit(event: MeshRequestEvent): void {
+    emit(event: MeshRequestEvent, context?: SavingsLedgerEmitContext): void {
       if (disabled) return;
       try {
-        const billable = billableEventFromRequest(event, config, catalogue, pinnedCatalogueVersion);
+        const effective = context?.gateVerdicts === undefined
+          ? config
+          : { ...config, gateVerdicts: { ...(config.gateVerdicts ?? {}), ...context.gateVerdicts } };
+        const billable = billableEventFromRequest(event, effective, catalogue, pinnedCatalogueVersion);
         const record = chainLedgerRecord(billable, previous);
         mkdirSync(dirname(config.path), { recursive: true, mode: 0o700 });
         appendFileSync(config.path, `${JSON.stringify(record)}\n`, { encoding: "utf8", mode: 0o600 });
         previous = record;
+        // Only mirror AFTER the authoritative local append succeeds.
+        mirror?.enqueue(record);
       } catch {
         // The meter must never throw into the request path; a failed append
         // disables it so the on-disk chain stays internally consistent.

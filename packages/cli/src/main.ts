@@ -403,16 +403,21 @@ Usage: mesh <command> [options]
 
   start      Start the MESH proxy, point Claude Code at it, and run Theo
              alongside you. One command; reverts cleanly on exit.
+  proxy      Start the MESH proxy for any app or agent: point its base URL at
+             MESH and keep your own key. Leaves Claude Code alone.
   install    Always-on: run MESH as a background service (launchd) so every
              Claude Code session is optimised, with nothing to start by hand.
   stop       Stop the background service (kept; resume with install).
   uninstall  Stop and remove the background service; restore Claude Code.
   status     Is the service up, and what has Theo saved so far?
   dashboard  Open a live local web view of your savings and what Theo is doing.
+  theo       Run Theo now over your metered traffic: observe it, find savings,
+             and update what he enforces, within your chosen autonomy level.
   update     Update the runtime now (--rollback to revert).
   verify     Re-prove MESH's claims on this machine: the build's provenance,
              your ledger's hash-chain, and a deterministic invoice recompute.
   doctor     Diagnose this machine (Node, proxy, Claude Code, service, ledger).
+  restore    Put Claude Code's settings back after a killed MESH session.
   version    Print the installed version and build.
   analyse    Measure a traffic log and report what a reduction is worth.
   compaction Estimate, per task in your ledger, what context compaction would
@@ -424,6 +429,9 @@ async function main(): Promise<void> {
   const sub = process.argv[2];
   if (sub === "start") {
     await (await import("./start.js")).runStart(process.argv.slice(3));
+  } else if (sub === "proxy") {
+    // The same proxy and Theo as `start`, for an application rather than Claude Code.
+    await (await import("./start.js")).runStart(["--no-install", ...process.argv.slice(3)]);
   } else if (sub === "serve") {
     await (await import("./start.js")).runServe(process.argv.slice(3));
   } else if (sub === "install") {
@@ -440,8 +448,12 @@ async function main(): Promise<void> {
     await (await import("./verify.js")).runVerify(process.argv.slice(3));
   } else if (sub === "doctor") {
     await (await import("./diag.js")).runDoctor(process.argv.slice(3));
+  } else if (sub === "restore") {
+    await (await import("./diag.js")).runRestore(process.argv.slice(3));
   } else if (sub === "dashboard") {
     await (await import("./dashboard.js")).runDashboard(process.argv.slice(3));
+  } else if (sub === "theo") {
+    await (await import("./theo.js")).runTheo(process.argv.slice(3));
   } else if (sub === "version" || sub === "--version" || sub === "-v") {
     (await import("./diag.js")).runVersion(process.argv.slice(3));
   } else if (sub === "analyse" || sub === "analyze") {

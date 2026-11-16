@@ -1,6 +1,6 @@
 // Specific core modules, not the barrel — see the note in proxy.ts.
 import { anthropicCacheableMinimumTokens, publishedModelPrices } from "../../core/dist/src/model-prices.js";
-import { approximateTokenCount, dedupeRepeatedBlocks, dedupeRepeatedLeadingBlock, type TokenCounter } from "../../core/dist/src/token-reduction.js";
+import { approximateTokenCount, compactJsonDocument, dedupeRepeatedBlocks, dedupeRepeatedLeadingBlock, type TokenCounter } from "../../core/dist/src/token-reduction.js";
 import { minifyToolSchemas } from "../../core/dist/src/tool-schema.js";
 import { resolveModelId } from "../../core/dist/src/price-catalogue.js";
 
@@ -69,6 +69,25 @@ export type MeshTokenReductionConfig = {
     descriptions?: "keep" | "truncate" | "drop";
     maximumDescriptionTokens?: number;
   };
+  /**
+   * Drop whole tool definitions by name — the "unused-tool removal" lever. A
+   * typical MCP server exposes 20-30 tools at 300-500 tokens each, and six
+   * connected servers run to 60,000-90,000 tokens of catalogue PER request; a
+   * workload that only ever calls a handful pays for all of them every turn.
+   * Each named tool is removed from the catalogue (Anthropic `{name}` and OpenAI
+   * `{type:"function",function:{name}}` shapes alike) before schema minification
+   * runs on the survivors. Past tool_use/tool_result turns in the history are
+   * untouched — providers do not require a tool's definition to be present to
+   * replay its earlier calls.
+   *
+   * LOSSY: removing a tool removes the model's ability to call it, so this holds
+   * ONLY where the tool is genuinely unreachable for the workload. The names are
+   * never guessed — they come from an operator who knows their workload (Theo is
+   * content-blind and cannot read tool names) and must clear a replay gate on the
+   * customer's own traffic before any saving is billed. Off by default; an empty
+   * or absent list is a no-op, and a name not present is skipped.
+   */
+  dropTools?: string[];
   /** Remove exact duplicate blocks from instructions and message text. */
   duplicateContext?: boolean;
   /**
@@ -124,6 +143,33 @@ export type MeshTokenReductionConfig = {
    * tune `maximumTokens` (integer, at least 64).
    */
   freshToolResultCap?: boolean | { maximumTokens?: number };
+  /**
+   * Remove the layout whitespace from tool results that are JSON. Tools and
+   * MCP servers often return indented JSON, and an agent pays for every
+   * space and line break in it on each turn the result stays in the
+   * conversation.
+   *
+   * A result is touched only when the whole of it is one JSON object or
+   * array. It then parses to exactly the same document: every key, string
+   * and number is kept as written and in the same order (the text is never
+   * rebuilt from parsed values, so a 64-bit id or `1.0` is not re-typed).
+   * Anything else - prose, logs, a numbered file read, JSON with text around
+   * it - passes through byte-identical. Only tool output is read: genuine
+   * user text, system text and the model's own turns are never touched.
+   *
+   * Pure and idempotent, so every request re-emits the same bytes for the
+   * same result and the provider's exact-prefix cache keeps matching.
+   *
+   * OFF by default, and the caller's per-workload flag, for two reasons:
+   * - The indentation is not kept. Where a tool result is the raw bytes of a
+   *   JSON FILE the agent will then edit by matching text (`cat config.json`
+   *   followed by an exact-string edit), the model no longer sees the file's
+   *   own layout. Leave it off for such a workload.
+   * - Switching it on or off in the MIDDLE of a conversation changes results
+   *   already in the history once, so a client that caches re-writes its
+   *   cached prefix one time. Set it for a workload and leave it.
+   */
+  toolResultJson?: boolean;
   /**
    * Output budget, applied through the field each surface honours: Responses
    * max_output_tokens (set only when absent), Chat Completions
@@ -203,9 +249,17 @@ export type MeshTokenReductionConfig = {
    * guard can, and a churning prefix turns the stamp into pure write premium
    * (the second live export measured exactly that loss). The proxy and
    * withMesh install one automatically whenever cacheTtl is set; it is
-   * consulted with the RAW request before any stamp is placed.
+   * consulted before any stamp is placed, with the RAW request (for the
+   * history check) and the content the system breakpoint would cover (for the
+   * prefix check). It may withhold everything (`stamp: false`) or only the
+   * breakpoint on the newest message (`messageBreakpoint: false`).
    */
-  cacheVolatilityGuard?: { observe(request: unknown): { stamp: boolean; reason?: string } };
+  cacheVolatilityGuard?: {
+    observe(
+      request: unknown,
+      context?: { stampedPrefix?: unknown },
+    ): { stamp: boolean; messageBreakpoint?: boolean; reason?: string };
+  };
   countTokens?: TokenCounter;
   onReduction?: (summary: MeshReductionSummary) => void;
 };
@@ -517,6 +571,56 @@ function capFreshToolResults(
 }
 
 /**
+ * Compact JSON tool results in a message array (see `toolResultJson`).
+ *
+ * Runs on every tool result on every request, with no turn boundary: the
+ * target is the first send of a result, and because the transform is a pure
+ * function of the result's text, re-walking the history re-emits the same
+ * bytes. Reads tool output only - Anthropic `tool_result` blocks, Chat
+ * `role: "tool"` messages and Responses `function_call_output` items. User,
+ * system, developer and assistant messages are never touched.
+ */
+function compactJsonToolResults(
+  input: unknown[],
+  countTokens: TokenCounter,
+  changes: MeshReductionChange[],
+): unknown[] {
+  const state = { bodies: 0 };
+  let savedTokens = 0;
+  const sizeOf = (value: unknown): number =>
+    countTokens(typeof value === "string" ? value : JSON.stringify(value) ?? "");
+  const next = input.map((message) => {
+    if (!isPlainObject(message)) return message;
+    const role = typeof message.role === "string" ? message.role : undefined;
+    if (role === "user") {
+      return transformUserToolResultBlocks(message, compactJsonDocument, countTokens, state, (saved) => {
+        savedTokens += saved;
+      });
+    }
+    // Responses-style tool output item, or a Chat-style tool message.
+    const field = message.type === "function_call_output" && typeof message.output === "string"
+      ? "output"
+      : role === "tool" && "content" in message ? "content" : undefined;
+    if (field === undefined) return message;
+    const bodiesBefore = state.bodies;
+    const compacted = transformBodyValue(message[field], compactJsonDocument, state);
+    if (state.bodies === bodiesBefore) return message;
+    savedTokens += Math.max(0, sizeOf(message[field]) - sizeOf(compacted));
+    return { ...message, [field]: compacted };
+  });
+
+  if (state.bodies === 0) return input;
+  changes.push({
+    lever: "tool-result-json-compaction",
+    lossless: true,
+    estimatedTokensSaved: savedTokens,
+    detail: `Removed the layout whitespace from ${state.bodies} JSON tool result(s). Each parses to the same ` +
+      "document, with every key, string and number as written; only the indentation is not kept.",
+  });
+  return next;
+}
+
+/**
  * Compact stale turns in a message array.
  *
  * A turn starts at each user message. The most recent `keepRecentTurns` turns
@@ -763,6 +867,7 @@ function stampAnthropicCacheTtl(
   ttl: "5m" | "1h",
   systemVolatileTail: string[],
   countTokens: TokenCounter,
+  allowMessageBreakpoint = true,
 ): { stamped: boolean; belowMinimum?: { measuredTokens: number; minimumTokens: number } } {
   const model = typeof next.model === "string" ? next.model.toLowerCase() : "";
   if (!model.includes("claude")) return { stamped: false };
@@ -868,7 +973,7 @@ function stampAnthropicCacheTtl(
   // message verbatim on the next turn, so only they get a message breakpoint —
   // and never when a volatile tail sits in the system, because this
   // breakpoint's prefix would include that tail and could never match.
-  if (!volatileTailPresent && next.messages.length >= 2) {
+  if (allowMessageBreakpoint && !volatileTailPresent && next.messages.length >= 2) {
     const messages = [...next.messages];
     const lastIndex = messages.length - 1;
     const last = messages[lastIndex];
@@ -913,6 +1018,28 @@ function stampAnthropicCacheTtl(
 }
 
 /**
+ * The content a stamped request's SYSTEM breakpoint covers — model, tools, and
+ * every system block up to and including the last one carrying cache_control,
+ * with the markers themselves removed. This is what the provider matches on,
+ * so it is what the volatility guard compares turn over turn. Undefined when
+ * the request carries no system breakpoint.
+ */
+function stampedSystemPrefix(stamped: AnyObject): unknown {
+  if (!Array.isArray(stamped.system)) return undefined;
+  let last = -1;
+  stamped.system.forEach((block, index) => {
+    if (isPlainObject(block) && block.cache_control !== undefined) last = index;
+  });
+  if (last < 0) return undefined;
+  const span = stamped.system.slice(0, last + 1).map((block) => {
+    if (!isPlainObject(block)) return block;
+    const { cache_control: _marker, ...rest } = block;
+    return rest;
+  });
+  return [stamped.model ?? null, stamped.tools ?? null, span];
+}
+
+/**
  * Apply reduction to one request.
  *
  * Returns the original request and a `skipped` summary if anything goes wrong,
@@ -952,6 +1079,35 @@ export function reduceRequest(
     };
     const before = measure(next.instructions) + measure(next.system) + measure(next.input) +
       measure(next.messages) + measure(next.tools);
+
+    // Unused-tool removal. Drop whole named tool definitions BEFORE minification,
+    // so only the surviving catalogue is compacted. Lossy and operator-named.
+    if (Array.isArray(next.tools) && next.tools.length > 0 && Array.isArray(config.dropTools) && config.dropTools.length > 0) {
+      const drop = new Set(config.dropTools.filter((name): name is string => typeof name === "string"));
+      if (drop.size > 0) {
+        const nameOf = (tool: unknown): string | undefined => {
+          if (!isPlainObject(tool)) return undefined;
+          if (typeof tool.name === "string") return tool.name; // Anthropic + OpenAI Responses
+          if (isPlainObject(tool.function) && typeof tool.function.name === "string") return tool.function.name; // OpenAI Chat
+          return undefined;
+        };
+        const toolsBefore = measure(next.tools);
+        const kept = (next.tools as unknown[]).filter((tool) => { const name = nameOf(tool); return name === undefined || !drop.has(name); });
+        const removed = (next.tools as unknown[]).length - kept.length;
+        if (removed > 0) {
+          next.tools = kept;
+          const saved = toolsBefore - measure(next.tools);
+          if (saved > 0) {
+            changes.push({
+              lever: "unused-tool-removal",
+              lossless: false,
+              estimatedTokensSaved: saved,
+              detail: `Removed ${removed} tool definition(s) the workload does not call; proven on your traffic before billing.`,
+            });
+          }
+        }
+      }
+    }
 
     // Tool catalogue. Lossless unless the caller opts into description trimming.
     if (Array.isArray(next.tools) && next.tools.length > 0 && config.toolSchemas !== false) {
@@ -1019,6 +1175,17 @@ export function reduceRequest(
     }
     if (typeof next.system === "string") {
       next.system = reduceSystemText(next.system, "system");
+    }
+
+    // JSON tool results, before the cap and compaction below, so both see
+    // the compact form on every request and stay byte-stable with it.
+    if (config.toolResultJson === true) {
+      if (Array.isArray(next.input)) {
+        next.input = compactJsonToolResults(next.input, countTokens, changes);
+      }
+      if (Array.isArray(next.messages)) {
+        next.messages = compactJsonToolResults(next.messages, countTokens, changes);
+      }
     }
 
     // Fresh tool-result capping, BEFORE history compaction: the cap targets
@@ -1114,12 +1281,43 @@ export function reduceRequest(
     // prompt: the same bytes are cached for an hour at a 2x write premium.
     if (config.cacheTtl === "5m" || config.cacheTtl === "1h") {
       const ttl = config.cacheTtl;
-      // The guard sees the RAW request: MESH's own deterministic levers must
-      // never be mistaken for client-side churn.
-      const decision = config.cacheVolatilityGuard?.observe(request) ?? { stamp: true };
-      const result = decision.stamp
-        ? stampAnthropicCacheTtl(next, ttl, systemVolatileTail, countTokens)
-        : { stamped: false as const };
+      // Work out where the breakpoints WOULD go on a scratch copy first, so
+      // the guard can compare the bytes the system breakpoint would actually
+      // cover (what the provider matches on) rather than the client's raw
+      // system prompt: a clock that prefix repair has already moved behind
+      // the breakpoint is not churn. The guard still reads the RAW messages
+      // for its history check, so MESH's own deterministic levers are never
+      // mistaken for a client rewriting its history.
+      const trial: AnyObject = { ...next };
+      const trialResult = stampAnthropicCacheTtl(trial, ttl, systemVolatileTail, countTokens);
+      const decision = config.cacheVolatilityGuard?.observe(request, {
+        stampedPrefix: stampedSystemPrefix(trial),
+      }) ?? { stamp: true };
+      // A rewritten history only spoils the breakpoint on the newest message;
+      // the tools + system breakpoint sits before the history and still reads.
+      const messageBreakpointWithheld = decision.stamp && decision.messageBreakpoint === false &&
+        trial.messages !== next.messages;
+      let result: ReturnType<typeof stampAnthropicCacheTtl> = { stamped: false };
+      if (decision.stamp) {
+        const systemStamped = trial.system !== next.system;
+        if (systemStamped) next.system = trial.system;
+        if (decision.messageBreakpoint === false) {
+          result = systemStamped ? { stamped: true } : { stamped: false, belowMinimum: trialResult.belowMinimum };
+        } else {
+          if (trial.messages !== next.messages) next.messages = trial.messages;
+          result = trialResult;
+        }
+      }
+      if (messageBreakpointWithheld) {
+        changes.push({
+          lever: "cache-ttl-suppressed",
+          lossless: true,
+          // Nothing was changed; this records WHY one breakpoint was not placed.
+          estimatedTokensSaved: 0,
+          detail: `Cache breakpoint on the newest message withheld: ${decision.reason ?? "the conversation's history is not stable"}. ` +
+            "The tools + system breakpoint is unaffected: it sits before the history and still reads.",
+        });
+      }
       if (!decision.stamp) {
         changes.push({
           lever: "cache-ttl-suppressed",

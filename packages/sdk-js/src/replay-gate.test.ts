@@ -337,6 +337,36 @@ describe("replayGate", () => {
     expect(candidate.approved).toBe(true);
   });
 
+  it("refuses compaction that removes tokens but raises the bill by rewriting a cached prefix", async () => {
+    // The failure mode the cache-simulator predicted: summarising stale turns
+    // shrinks the prompt, yet the summary rewrites a prefix the provider was
+    // serving cheaply from cache. Fewer tokens, bigger bill. Tool choice is
+    // unchanged, so quality holds — only the cost test can catch this.
+    const call = async (request: unknown) => {
+      const reduced = !JSON.stringify(request).includes("$schema"); // losslessOnly strips plumbing
+      const usage = reduced
+        // Candidate: 700 input tokens, but 600 of them are a fresh cache WRITE.
+        ? { input_tokens: 100, cache_creation_input_tokens: 600, output_tokens: 20 }
+        // Baseline: 1,000 input tokens, 900 of them served cheap from cache.
+        : { input_tokens: 100, cache_read_input_tokens: 900, output_tokens: 20 };
+      return { output: [{ type: "function_call", name: "lookup", arguments: '{"accountId":"1"}' }], usage };
+    };
+    const result = await replayGate({
+      requests: requests(20),
+      call,
+      candidates: [losslessOnly],
+      grade: toolSelectionGrader,
+      price: { inputPerMillion: 2.0, cachedInputPerMillion: 0.1, cacheWriteInputPerMillion: 2.5, outputPerMillion: 10 },
+    });
+    const candidate = result.candidates[0]!;
+    // Tokens genuinely fell...
+    expect(candidate.inputTokensSaved).toBeGreaterThan(0);
+    // ...but the bill rose, so the gate must withhold it despite the saved tokens.
+    expect(candidate.costSavedUsd!).toBeLessThan(0);
+    expect(candidate.approved).toBe(false);
+    expect(candidate.rejectionReason).toMatch(/cache writes and reads/);
+  });
+
   it("resets provider state before each run so the baseline cannot warm it", async () => {
     const seen: string[] = [];
     const call = async (request: unknown) => toolResponse("lookup", { accountId: "1" }, JSON.stringify(request).length);

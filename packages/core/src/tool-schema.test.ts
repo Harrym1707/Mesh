@@ -180,3 +180,193 @@ describe("auditToolCatalogue", () => {
     expect(result.changes.some((c) => c.kind === "plumbing")).toBe(true);
   });
 });
+
+/** Resolve a local "#/…" JSON pointer against a document. */
+function resolvePointer(document: unknown, reference: string): unknown {
+  let node: unknown = document;
+  for (const raw of reference.slice(1).split("/").filter((part) => part !== "")) {
+    const key = decodeURIComponent(raw).replace(/~1/g, "/").replace(/~0/g, "~");
+    if (typeof node !== "object" || node === null || !(key in node)) return undefined;
+    node = (node as Record<string, unknown>)[key];
+  }
+  return node;
+}
+
+/** Every "$ref" string in a schema. */
+function referencesIn(node: unknown, found: string[] = []): string[] {
+  if (Array.isArray(node)) {
+    for (const item of node) referencesIn(item, found);
+  } else if (typeof node === "object" && node !== null) {
+    for (const [key, value] of Object.entries(node)) {
+      if (key === "$ref" && typeof value === "string") found.push(value);
+      else referencesIn(value, found);
+    }
+  }
+  return found;
+}
+
+function anthropicTool(inputSchema: Record<string, unknown>): Record<string, unknown> {
+  return { name: "create_order", description: "Create an order for a customer.", input_schema: inputSchema };
+}
+
+function inputSchemaOf(result: { tools: unknown[] }): Record<string, unknown> {
+  return (result.tools[0] as { input_schema: Record<string, unknown> }).input_schema;
+}
+
+describe("minifyToolSchemas: references, names and data survive the lossless tier", () => {
+  // The shape a nested Pydantic model compiles to.
+  const nested = {
+    type: "object",
+    properties: {
+      customer: { $ref: "#/$defs/Customer" },
+      note: { type: "string", description: "Free text." },
+    },
+    required: ["customer"],
+    $defs: {
+      Customer: {
+        type: "object",
+        properties: { id: { type: "string" }, address: { $ref: "#/$defs/Address" } },
+        required: ["id"],
+      },
+      Address: { type: "object", properties: { city: { type: "string" } } },
+    },
+  };
+
+  it("keeps $defs, so every $ref still resolves", () => {
+    const result = minifyToolSchemas([anthropicTool(nested)]);
+    const sent = inputSchemaOf(result);
+    expect(sent.$defs).toEqual(nested.$defs);
+    const references = referencesIn(sent);
+    expect(references).toEqual(["#/$defs/Customer", "#/$defs/Address"]);
+    for (const reference of references) expect(resolvePointer(sent, reference)).toBeDefined();
+    // Nothing was removed, so nothing is claimed.
+    expect(result.changes).toEqual([]);
+    expect(result.losslessTokensSaved).toBe(0);
+  });
+
+  it("keeps a definition nothing points to", () => {
+    // Proving a definition unreferenced means resolving every form a $ref can
+    // take. The lossless tier does not take that bet.
+    const schema = { ...nested, $defs: { ...nested.$defs, Orphan: { type: "string" } } };
+    expect(inputSchemaOf(minifyToolSchemas([anthropicTool(schema)])).$defs).toEqual(schema.$defs);
+  });
+
+  it("keeps draft-07 definitions and a recursive reference", () => {
+    const schema = {
+      type: "object",
+      properties: { root: { $ref: "#/definitions/Node" } },
+      definitions: {
+        Node: {
+          type: "object",
+          properties: { children: { type: "array", items: { $ref: "#/definitions/Node" } } },
+        },
+      },
+    };
+    const sent = inputSchemaOf(minifyToolSchemas([anthropicTool(schema)]));
+    expect(sent).toEqual(schema);
+  });
+
+  it("keeps nested $defs and references with escaped pointers", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        item: {
+          type: "object",
+          properties: { size: { $ref: "#/properties/item/$defs/Size~1Unit" } },
+          $defs: { "Size/Unit": { type: "string", enum: ["cm", "in"] } },
+        },
+      },
+    };
+    const sent = inputSchemaOf(minifyToolSchemas([anthropicTool(schema)]));
+    expect(sent).toEqual(schema);
+    for (const reference of referencesIn(sent)) expect(resolvePointer(sent, reference)).toBeDefined();
+  });
+
+  it("keeps $id when the tool uses a reference, and still removes it when it does not", () => {
+    const withReference = {
+      $id: "https://example.com/schemas/order.json",
+      type: "object",
+      properties: { line: { $ref: "line.json" } },
+      $defs: { Line: { $id: "line.json", type: "object" } },
+    };
+    const sent = inputSchemaOf(minifyToolSchemas([anthropicTool(withReference)]));
+    expect(sent).toEqual(withReference);
+
+    const withoutReference = { $id: "https://example.com/schemas/order.json", type: "object", properties: {} };
+    const result = minifyToolSchemas([anthropicTool(withoutReference)]);
+    expect(inputSchemaOf(result)).toEqual({ type: "object", properties: {} });
+    expect(result.changes.map((change) => change.kind)).toEqual(["plumbing"]);
+  });
+
+  it("decides $id per tool, not for the whole catalogue", () => {
+    const plain = { $id: "urn:plain", type: "object", properties: {} };
+    const result = minifyToolSchemas([anthropicTool(nested), { ...anthropicTool(plain), name: "ping" }]);
+    expect((result.tools[1] as { input_schema: unknown }).input_schema).toEqual({ type: "object", properties: {} });
+  });
+
+  it("treats the keys of properties as names, not keywords", () => {
+    // A tool that takes a JSON document can have parameters called exactly this.
+    const schema = {
+      type: "object",
+      properties: {
+        $id: { type: "string", description: "Identifier of the document." },
+        $schema: { type: "string", description: "Schema URL of the document." },
+        $comment: { type: "string" },
+        $defs: { type: "object" },
+        title: { type: "string" },
+        description: { type: "string" },
+        default: { type: "string" },
+        enum: { type: "array", items: { type: "string" } },
+        properties: { type: "object", properties: { $id: { type: "string" } } },
+      },
+      required: ["$id", "$schema"],
+    };
+    const sent = inputSchemaOf(minifyToolSchemas([anthropicTool(schema)]));
+    expect(sent).toEqual(schema);
+    const parameters = Object.keys(sent.properties as Record<string, unknown>);
+    for (const name of sent.required as string[]) expect(parameters).toContain(name);
+  });
+
+  it("keeps parameters named like keywords when descriptions are trimmed or dropped", () => {
+    const schema = {
+      type: "object",
+      properties: { description: { type: "string", description: "The text of the description field." } },
+    };
+    const dropped = inputSchemaOf(minifyToolSchemas([anthropicTool(schema)], { descriptions: "drop" }));
+    // The parameter survives; only its own description text is lossy-removed.
+    expect(dropped.properties).toEqual({ description: { type: "string" } });
+  });
+
+  it("copies default, const, enum and examples through untouched", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        document: {
+          type: "object",
+          default: { $id: "urn:example:1", $comment: "the caller's", title: "document" },
+          examples: [{ $schema: "https://example.com/s.json", description: "an example" }],
+        },
+        kind: { const: { $id: 7 } },
+        mode: { enum: [{ $comment: "a" }, "b"] },
+      },
+    };
+    const sent = inputSchemaOf(minifyToolSchemas([anthropicTool(schema)]));
+    expect(sent).toEqual(schema);
+    // A copy, not the caller's own object.
+    const sentDocument = (sent.properties as Record<string, { default: unknown }>).document!;
+    expect(sentDocument.default).not.toBe(schema.properties.document.default);
+  });
+
+  it("still removes $schema and $comment inside a definition", () => {
+    const schema = {
+      type: "object",
+      properties: { customer: { $ref: "#/$defs/Customer" } },
+      $defs: { Customer: { $comment: "generated", $schema: "https://json-schema.org/draft/2020-12/schema", type: "object" } },
+    };
+    const result = minifyToolSchemas([anthropicTool(schema)]);
+    expect(inputSchemaOf(result).$defs).toEqual({ Customer: { type: "object" } });
+    expect(result.changes.every((change) => change.kind === "plumbing" && change.lossless)).toBe(true);
+    expect(result.changes).toHaveLength(2);
+  });
+});
+

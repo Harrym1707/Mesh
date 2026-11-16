@@ -1,0 +1,37 @@
+
+ RUN  v4.1.12 /workspace/mesh
+
+ ✓ packages/core/src/tool-schema.test.ts > minifyToolSchemas > keeps descriptions by default, so the default path is lossless 2ms
+ ✓ packages/core/src/tool-schema.test.ts > minifyToolSchemas > removes schema plumbing the model never reads 0ms
+ ✓ packages/core/src/tool-schema.test.ts > minifyToolSchemas > removes a title that only restates its property name, and keeps one that does not 0ms
+ ✓ packages/core/src/tool-schema.test.ts > minifyToolSchemas > never reports formatting or plumbing as lossy 0ms
+ ✓ packages/core/src/tool-schema.test.ts > minifyToolSchemas > reports description trimming as lossy, because descriptions drive tool choice 0ms
+ ✓ packages/core/src/tool-schema.test.ts > minifyToolSchemas > truncates on a sentence boundary where one fits 0ms
+ ✓ packages/core/src/tool-schema.test.ts > minifyToolSchemas > drops descriptions entirely when asked, and says so 0ms
+ ✓ packages/core/src/tool-schema.test.ts > minifyToolSchemas > treats dropping a tool as lossy and names it 1ms
+ ✓ packages/core/src/tool-schema.test.ts > minifyToolSchemas > only reduces tokens 0ms
+ ✓ packages/core/src/tool-schema.test.ts > minifyToolSchemas > rejects a catalogue that is not an array, and a bad token limit 0ms
+ ✓ packages/core/src/tool-schema.test.ts > minifyToolSchemas > handles an empty catalogue 0ms
+ ✓ packages/core/src/tool-schema.test.ts > auditToolCatalogue > separates what is free from what needs verifying 1ms
+ ✓ packages/core/src/tool-schema.test.ts > auditToolCatalogue > scales the description saving with how verbose the descriptions are 3ms
+ ✓ packages/core/src/tool-schema.test.ts > auditToolCatalogue > credits an already-lean catalogue almost nothing for description trimming 0ms
+ ✓ packages/core/src/tool-schema.test.ts > auditToolCatalogue > ranks the largest tools first so a catalogue can be trimmed by hand 0ms
+ ✓ packages/core/src/tool-schema.test.ts > auditToolCatalogue > reports mean size per tool 0ms
+ ✓ packages/core/src/tool-schema.test.ts > auditToolCatalogue > never claims a whitespace/formatting saving — the provider does not bill it 0ms
+ ✓ packages/core/src/tool-schema.test.ts > auditToolCatalogue > still credits real content removal (plumbing) as lossless 0ms
+ ✓ packages/core/src/tool-schema.test.ts > minifyToolSchemas: references, names and data survive the lossless tier > keeps $defs, so every $ref still resolves 0ms
+ ✓ packages/core/src/tool-schema.test.ts > minifyToolSchemas: references, names and data survive the lossless tier > keeps a definition nothing points to 0ms
+ ✓ packages/core/src/tool-schema.test.ts > minifyToolSchemas: references, names and data survive the lossless tier > keeps draft-07 definitions and a recursive reference 0ms
+ ✓ packages/core/src/tool-schema.test.ts > minifyToolSchemas: references, names and data survive the lossless tier > keeps nested $defs and references with escaped pointers 0ms
+ ✓ packages/core/src/tool-schema.test.ts > minifyToolSchemas: references, names and data survive the lossless tier > keeps $id when the tool uses a reference, and still removes it when it does not 0ms
+ ✓ packages/core/src/tool-schema.test.ts > minifyToolSchemas: references, names and data survive the lossless tier > decides $id per tool, not for the whole catalogue 0ms
+ ✓ packages/core/src/tool-schema.test.ts > minifyToolSchemas: references, names and data survive the lossless tier > treats the keys of properties as names, not keywords 0ms
+ ✓ packages/core/src/tool-schema.test.ts > minifyToolSchemas: references, names and data survive the lossless tier > keeps parameters named like keywords when descriptions are trimmed or dropped 0ms
+ ✓ packages/core/src/tool-schema.test.ts > minifyToolSchemas: references, names and data survive the lossless tier > copies default, const, enum and examples through untouched 0ms
+ ✓ packages/core/src/tool-schema.test.ts > minifyToolSchemas: references, names and data survive the lossless tier > still removes $schema and $comment inside a definition 0ms
+
+ Test Files  1 passed (1)
+      Tests  28 passed (28)
+   Start at  06:45:57
+   Duration  147ms (transform 39ms, setup 0ms, import 50ms, tests 13ms, environment 0ms)
+

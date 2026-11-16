@@ -1,7 +1,7 @@
 # Theo — the per-user token engineer agent (design sketch)
 
 Worked out collaboratively 2026-10-29. Theo is the user-facing agent that keeps finding
-each user cost savings on top of FLUX, personalised to their traffic, without the user
+each user cost savings on top of MESH, personalised to their traffic, without the user
 changing anything.
 
 ## North star
@@ -12,27 +12,27 @@ Every design choice below serves that one sentence.
 
 ## The division of labour
 
-- **FLUX** is the engine: the proxy reduces tokens (lossless-first), meters savings into the
+- **MESH** is the engine: the proxy reduces tokens (lossless-first), meters savings into the
   hash-chained ledger, and emits the **blind feature stream** (irreversible keyed hashes +
   structural counts, no content). It runs in the request path, fast.
 - **Theo** is the loop + the face: an **async, per-user optimiser out of the request path**.
-  He never touches content, never slows a request. Mechanically he tunes FLUX's lever config;
-  to the user he's the agent that says "I found you more savings." He improves FLUX's config —
+  He never touches content, never slows a request. Mechanically he tunes MESH's lever config;
+  to the user he's the agent that says "I found you more savings." He improves MESH's config —
   nothing else.
 
 ## Theo's senses, hands, conscience, memory — already built
 
-| Theo needs | FLUX primitive | Status |
+| Theo needs | MESH primitive | Status |
 |---|---|---|
 | perceive the workflow (privacy-safe) | blind feature stream | built (tonight) |
-| act | the per-request reduction config (`FluxTokenReductionConfig`) | built |
+| act | the per-request reduction config (`MeshTokenReductionConfig`) | built |
 | prove a saving + hold quality | the replay gate | exists |
 | measure savings + ROI | ledger + `recomputeInvoice` | exists |
 | cheap offline hypotheses | the cache/workload simulator | exists |
 
 Theo is mostly an **orchestration layer** over pieces that already exist. That's why he's buildable.
 
-## The control mechanism (Theo → FLUX, never in the request path)
+## The control mechanism (Theo → MESH, never in the request path)
 
 - The proxy reads a **per-app policy** = the lever config, per route. Today it's static
   (lossless default).
@@ -62,7 +62,7 @@ Theo is mostly an **orchestration layer** over pieces that already exist. That's
 6. **Drift monitors** — per active lever: a continuous behavioural + usage signal with
    auto-rollback thresholds. The "never degrade" enforcement.
 7. **Exploration ledger** — spend-to-find vs savings-found. Powers the monthly ROI line,
-   FLUX's own budget management, and the attention dial.
+   MESH's own budget management, and the attention dial.
 
 ## Theo's loop
 
@@ -70,7 +70,7 @@ Theo is mostly an **orchestration layer** over pieces that already exist. That's
 2. **Hypothesise** → offline simulate candidates on the user's features + fleet priors → rank
    the queue. *Free.*
 3. **Prove** → run the top candidate through the gate on **recorded baselines** (the real
-   traffic already happened, so only the candidate variant costs; **FLUX fronts it**). *The
+   traffic already happened, so only the candidate variant costs; **MESH fronts it**). *The
    learning step.*
 4. **Decide**:
    - lossless pass → **autopilot**: publish + notify after.
@@ -80,7 +80,7 @@ Theo is mostly an **orchestration layer** over pieces that already exist. That's
 5. **Monitor** → drift monitors on active levers; auto-rollback + notify on breach. Purely
    passive — the user changes nothing; their natural retry/regeneration behaviour is the
    thermometer, not the target.
-6. **Report** → one or two lines monthly: *"This month FLUX saved you £X. Theo found an extra
+6. **Report** → one or two lines monthly: *"This month MESH saved you £X. Theo found an extra
    £Y, and it only cost £Z to discover."* Honest both ways (quiet months say so).
 7. **Compound** → anonymised outcomes → fleet model → better warm-start priors for everyone
    (privacy-safe: features are irreversible; consent-gated for cross-use).
@@ -119,13 +119,13 @@ lossless — he never trades quality he cannot measure.
 ## The budget model
 
 - **Tier 1 (free):** offline analysis + simulation on features. Finds most opportunities.
-- **Tier 2 (cheap, FLUX-fronts):** live gate confirmation of top lossy candidates, using
-  recorded baselines so only the candidate variant costs. FLUX pays — finding savings is our
+- **Tier 2 (cheap, MESH-fronts):** live gate confirmation of top lossy candidates, using
+  recorded baselines so only the candidate variant costs. MESH pays — finding savings is our
   cost of goods, recouped via the 1% fee; a per-user exploration cap protects us.
 - **The attention dial** (low/med/high) lets the user scale how hard Theo hunts.
 - Net: the user never pays to be optimised; they only ever see net savings.
 
-## The honesty invariants Theo inherits from FLUX
+## The honesty invariants Theo inherits from MESH
 
 - Never claim a saving not proven on the user's own traffic via provider-reported usage.
 - Never enable a lossy lever without a gate pass within the route's quality ceiling.

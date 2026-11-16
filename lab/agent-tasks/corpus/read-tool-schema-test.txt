@@ -1,0 +1,230 @@
+     1	import { describe, expect, it } from "vitest";
+     2	import { auditToolCatalogue, minifyToolSchemas } from "./tool-schema.js";
+     3	
+     4	function tool(name: string, description: string, extra: Record<string, unknown> = {}): unknown {
+     5	  return {
+     6	    type: "function",
+     7	    function: {
+     8	      name,
+     9	      description,
+    10	      parameters: {
+    11	        $schema: "https://json-schema.org/draft/2020-12/schema",
+    12	        type: "object",
+    13	        properties: {
+    14	          accountId: {
+    15	            type: "string",
+    16	            title: "accountId",
+    17	            description: "The customer account identifier as shown in the admin console.",
+    18	          },
+    19	          limit: { type: "integer", title: "Maximum results", description: "Between 1 and 100." },
+    20	        },
+    21	        required: ["accountId"],
+    22	        ...extra,
+    23	      },
+    24	    },
+    25	  };
+    26	}
+    27	
+    28	const LONG = "Look up a record set for an account. Use this when the customer asks about historical activity " +
+    29	  "in this subsystem. Returns a paginated list ordered by creation time descending. Do not call this more " +
+    30	  "than once per turn; prefer narrowing the query with filters over paging through results.";
+    31	
+    32	describe("minifyToolSchemas", () => {
+    33	  it("keeps descriptions by default, so the default path is lossless", () => {
+    34	    const result = minifyToolSchemas([tool("lookup", LONG)]);
+    35	    expect(result.lossyTokensSaved).toBe(0);
+    36	    expect(result.losslessTokensSaved).toBeGreaterThan(0);
+    37	    expect(JSON.stringify(result.tools)).toContain("paginated list");
+    38	  });
+    39	
+    40	  it("removes schema plumbing the model never reads", () => {
+    41	    const result = minifyToolSchemas([tool("lookup", LONG)]);
+    42	    expect(JSON.stringify(result.tools)).not.toContain("$schema");
+    43	    expect(result.changes.some((change) => change.kind === "plumbing" && change.lossless)).toBe(true);
+    44	  });
+    45	
+    46	  it("removes a title that only restates its property name, and keeps one that does not", () => {
+    47	    const result = minifyToolSchemas([tool("lookup", LONG)]);
+    48	    const serialised = JSON.stringify(result.tools);
+    49	    // accountId's title restated the key; limit's title carries information.
+    50	    expect(serialised).not.toContain('"title":"accountId"');
+    51	    expect(serialised).toContain("Maximum results");
+    52	  });
+    53	
+    54	  it("never reports formatting or plumbing as lossy", () => {
+    55	    const result = minifyToolSchemas([tool("lookup", LONG)]);
+    56	    for (const change of result.changes) {
+    57	      if (change.kind === "formatting" || change.kind === "plumbing" || change.kind === "redundant-title") {
+    58	        expect(change.lossless).toBe(true);
+    59	      }
+    60	    }
+    61	  });
+    62	
+    63	  it("reports description trimming as lossy, because descriptions drive tool choice", () => {
+    64	    const result = minifyToolSchemas([tool("lookup", LONG)], {
+    65	      descriptions: "truncate",
+    66	      maximumDescriptionTokens: 12,
+    67	    });
+    68	    const trims = result.changes.filter((change) => change.kind === "description");
+    69	    expect(trims.length).toBeGreaterThan(0);
+    70	    expect(trims.every((change) => change.lossless === false)).toBe(true);
+    71	    expect(result.lossyTokensSaved).toBeGreaterThan(0);
+    72	  });
+    73	
+    74	  it("truncates on a sentence boundary where one fits", () => {
+    75	    const result = minifyToolSchemas([tool("lookup", LONG)], {
+    76	      descriptions: "truncate",
+    77	      maximumDescriptionTokens: 16,
+    78	    });
+    79	    const serialised = JSON.stringify(result.tools);
+    80	    expect(serialised).toContain("Look up a record set for an account.");
+    81	    expect(serialised).not.toContain("paginated list");
+    82	  });
+    83	
+    84	  it("drops descriptions entirely when asked, and says so", () => {
+    85	    const result = minifyToolSchemas([tool("lookup", LONG)], { descriptions: "drop" });
+    86	    expect(JSON.stringify(result.tools)).not.toContain("Look up a record set");
+    87	    expect(result.changes.some((change) =>
+    88	      change.kind === "description" && /chooses between tools/.test(change.detail))).toBe(true);
+    89	  });
+    90	
+    91	  it("treats dropping a tool as lossy and names it", () => {
+    92	    const result = minifyToolSchemas([tool("keep", LONG), tool("discard", LONG)], { keepTools: ["keep"] });
+    93	    expect(result.tools).toHaveLength(1);
+    94	    const dropped = result.changes.find((change) => change.kind === "dropped-tool")!;
+    95	    expect(dropped.lossless).toBe(false);
+    96	    expect(dropped.at).toBe("discard");
+    97	    expect(dropped.detail).toMatch(/cannot call what it cannot see/);
+    98	  });
+    99	
+   100	  it("only reduces tokens", () => {
+   101	    const tools = [tool("a", LONG), tool("b", LONG)];
+   102	    const result = minifyToolSchemas(tools, { descriptions: "truncate" });
+   103	    expect(result.tokensAfter).toBeLessThan(result.tokensBefore);
+   104	  });
+   105	
+   106	  it("rejects a catalogue that is not an array, and a bad token limit", () => {
+   107	    expect(() => minifyToolSchemas({} as unknown as unknown[])).toThrow(/must be an array/);
+   108	    expect(() => minifyToolSchemas([], { maximumDescriptionTokens: 0 })).toThrow(/positive integer/);
+   109	  });
+   110	
+   111	  it("handles an empty catalogue", () => {
+   112	    const result = minifyToolSchemas([]);
+   113	    expect(result.tools).toEqual([]);
+   114	    expect(result.lossyTokensSaved).toBe(0);
+   115	  });
+   116	});
+   117	
+   118	describe("auditToolCatalogue", () => {
+   119	  it("separates what is free from what needs verifying", () => {
+   120	    const audit = auditToolCatalogue([tool("a", LONG), tool("b", LONG), tool("c", LONG)]);
+   121	    expect(audit.tools).toBe(3);
+   122	    expect(audit.tokens).toBeGreaterThan(0);
+   123	    expect(audit.losslessTokensSaved).toBeGreaterThan(0);
+   124	    expect(audit.descriptionTokensSaved).toBeGreaterThan(0);
+   125	  });
+   126	
+   127	  it("scales the description saving with how verbose the descriptions are", () => {
+   128	    // Which tier is larger depends on what the catalogue happens to contain:
+   129	    // the lossless tier is plumbing and indentation, the lossy tier is prose.
+   130	    // Asserting an ordering between them would test the fixture rather than the
+   131	    // code, so the invariant asserted is that the description saving tracks
+   132	    // description length while the lossless saving does not.
+   133	    const terse = auditToolCatalogue(Array.from({ length: 8 }, (_, i) => tool(`t${i}`, "Short.")));
+   134	    const verbose = auditToolCatalogue(Array.from({ length: 8 }, (_, i) => tool(`t${i}`, LONG)));
+   135	    expect(verbose.descriptionTokensSaved).toBeGreaterThan(terse.descriptionTokensSaved * 3);
+   136	    expect(verbose.losslessTokensSaved).toBeCloseTo(terse.losslessTokensSaved, -1);
+   137	  });
+   138	
+   139	  it("credits an already-lean catalogue almost nothing for description trimming", () => {
+   140	    const lean = [{ type: "function", function: { name: "ping", parameters: { type: "object", properties: {} } } }];
+   141	    const audit = auditToolCatalogue(lean);
+   142	    expect(audit.descriptionTokensSaved).toBe(0);
+   143	  });
+   144	
+   145	  it("ranks the largest tools first so a catalogue can be trimmed by hand", () => {
+   146	    const audit = auditToolCatalogue([
+   147	      tool("small", "Short."),
+   148	      tool("large", LONG),
+   149	    ]);
+   150	    expect(audit.largest[0]!.name).toBe("large");
+   151	    expect(audit.largest[0]!.descriptionTokens).toBeGreaterThan(audit.largest[1]!.descriptionTokens);
+   152	  });
+   153	
+   154	  it("reports mean size per tool", () => {
+   155	    const audit = auditToolCatalogue([tool("a", LONG), tool("b", LONG)]);
+   156	    expect(audit.meanTokensPerTool).toBeCloseTo(audit.tokens / 2, 6);
+   157	  });
+   158	
+   159	  it("never claims a whitespace/formatting saving — the provider does not bill it", () => {
+   160	    // A catalogue with no plumbing and no redundant titles has NOTHING the
+   161	    // provider would tokenise differently; compacting its JSON is hygiene, not a
+   162	    // saving. The minifier must report zero lossless tokens and no formatting change.
+   163	    const clean = [{
+   164	      type: "function",
+   165	      function: {
+   166	        name: "lookup",
+   167	        description: "Look up a record by id.",
+   168	        parameters: { type: "object", properties: { id: { type: "string", description: "The id." } }, required: ["id"] },
+   169	      },
+   170	    }];
+   171	    const result = minifyToolSchemas(clean, { descriptions: "keep" });
+   172	    expect(result.changes.some((c) => c.kind === "formatting")).toBe(false);
+   173	    expect(result.losslessTokensSaved).toBe(0);
+   174	  });
+   175	
+   176	  it("still credits real content removal (plumbing) as lossless", () => {
+   177	    // The helper always carries parameters.$schema + a redundant accountId title.
+   178	    const result = minifyToolSchemas([tool("lookup", "Look up a record by id.")], { descriptions: "keep" });
+   179	    expect(result.losslessTokensSaved).toBeGreaterThan(0);
+   180	    expect(result.changes.some((c) => c.kind === "plumbing")).toBe(true);
+   181	  });
+   182	});
+   183	
+   184	/** Resolve a local "#/…" JSON pointer against a document. */
+   185	function resolvePointer(document: unknown, reference: string): unknown {
+   186	  let node: unknown = document;
+   187	  for (const raw of reference.slice(1).split("/").filter((part) => part !== "")) {
+   188	    const key = decodeURIComponent(raw).replace(/~1/g, "/").replace(/~0/g, "~");
+   189	    if (typeof node !== "object" || node === null || !(key in node)) return undefined;
+   190	    node = (node as Record<string, unknown>)[key];
+   191	  }
+   192	  return node;
+   193	}
+   194	
+   195	/** Every "$ref" string in a schema. */
+   196	function referencesIn(node: unknown, found: string[] = []): string[] {
+   197	  if (Array.isArray(node)) {
+   198	    for (const item of node) referencesIn(item, found);
+   199	  } else if (typeof node === "object" && node !== null) {
+   200	    for (const [key, value] of Object.entries(node)) {
+   201	      if (key === "$ref" && typeof value === "string") found.push(value);
+   202	      else referencesIn(value, found);
+   203	    }
+   204	  }
+   205	  return found;
+   206	}
+   207	
+   208	function anthropicTool(inputSchema: Record<string, unknown>): Record<string, unknown> {
+   209	  return { name: "create_order", description: "Create an order for a customer.", input_schema: inputSchema };
+   210	}
+   211	
+   212	function inputSchemaOf(result: { tools: unknown[] }): Record<string, unknown> {
+   213	  return (result.tools[0] as { input_schema: Record<string, unknown> }).input_schema;
+   214	}
+   215	
+   216	describe("minifyToolSchemas: references, names and data survive the lossless tier", () => {
+   217	  // The shape a nested Pydantic model compiles to.
+   218	  const nested = {
+   219	    type: "object",
+   220	    properties: {
+   221	      customer: { $ref: "#/$defs/Customer" },
+   222	      note: { type: "string", description: "Free text." },
+   223	    },
+   224	    required: ["customer"],
+   225	    $defs: {
+   226	      Customer: {
+   227	        type: "object",
+   228	        properties: { id: { type: "string" }, address: { $ref: "#/$defs/Address" } },
+   229	        required: ["id"],
+   230	      },

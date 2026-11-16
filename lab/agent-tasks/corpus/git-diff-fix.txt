@@ -1,0 +1,118 @@
+diff --git a/packages/core/src/tool-schema.ts b/packages/core/src/tool-schema.ts
+index 6ae9c21..270b1f8 100644
+--- a/packages/core/src/tool-schema.ts
++++ b/packages/core/src/tool-schema.ts
+@@ -28,8 +28,58 @@ import { approximateTokenCount, type TokenCounter } from "./token-reduction.js";
+  * attached to it was not.
+  */
+ 
+-/** Keys the provider's schema validator reads but the model never sees as prose. */
+-const PLUMBING_KEYS = new Set(["$schema", "$id", "$comment", "$defs"]);
++/**
++ * Keys the provider's schema validator reads but the model never sees as prose.
++ *
++ * `$defs` is deliberately NOT here. It holds the definitions that `$ref`
++ * pointers resolve to (every nested Pydantic model compiles to this shape), so
++ * it is content, not plumbing. An earlier version listed it, and a tool with a
++ * nested model was sent with its `$ref` intact and the definition gone.
++ * Definitions nothing points to are kept too: proving one unreferenced means
++ * resolving every form a `$ref` can take, and a wrong answer corrupts the
++ * schema. The lossless tier does not take that bet.
++ */
++const PLUMBING_KEYS = new Set(["$schema", "$id", "$comment"]);
++
++/**
++ * Keywords whose value maps a NAME to a schema. The keys inside are names the
++ * tool's author chose, never keywords: a parameter may legitimately be called
++ * `$id`, `title` or `description`, and must not be treated as one.
++ */
++const NAME_MAP_KEYS = new Set([
++  "properties",
++  "patternProperties",
++  "$defs",
++  "definitions",
++  "dependentSchemas",
++  "dependencies",
++]);
++
++/**
++ * Keywords whose value is data, not a schema. It is copied through untouched:
++ * a default or an example is whatever the tool's author wrote, including any
++ * `$id` or `title` keys inside it.
++ */
++const DATA_KEYS = new Set(["default", "const", "enum", "examples", "example", "input_examples"]);
++
++/** Keywords that point at another part of the schema. */
++const REFERENCE_KEYS = new Set(["$ref", "$dynamicRef", "$recursiveRef"]);
++
++/** True when anything in `node` uses a reference keyword. Conservative: it also
++ *  counts one inside data, which only ever keeps more. */
++function usesReferences(node: unknown): boolean {
++  if (Array.isArray(node)) return node.some(usesReferences);
++  if (typeof node !== "object" || node === null) return false;
++  for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
++    if (REFERENCE_KEYS.has(key) && typeof value === "string") return true;
++    if (usesReferences(value)) return true;
++  }
++  return false;
++}
++
++function isPlainRecord(value: unknown): value is Record<string, unknown> {
++  return typeof value === "object" && value !== null && !Array.isArray(value);
++}
+ 
+ export type MinifyOptions = {
+   /**
+@@ -123,6 +173,8 @@ export function minifyToolSchemas(tools: unknown[], options: MinifyOptions = {})
+ 
+   const keep = options.keepTools === undefined ? undefined : new Set(options.keepTools);
+   const retained: unknown[] = [];
++  // Set per tool, just before it is pruned.
++  let keepIdentifiers = false;
+ 
+   tools.forEach((tool, index) => {
+     const name = toolNameOf(tool, index);
+@@ -137,16 +189,28 @@ export function minifyToolSchemas(tools: unknown[], options: MinifyOptions = {})
+       });
+       return;
+     }
++    // A reference may resolve against an `$id` (a base URI, or an embedded
++    // schema's own identifier), so a tool that uses any reference keeps them.
++    keepIdentifiers = usesReferences(tool);
+     retained.push(prune(tool, name));
+   });
+ 
+-  function prune(node: unknown, path: string): unknown {
++  /**
++   * `names` is true when `node` is a name → schema map (the value of
++   * `properties`, `$defs`, …). Its keys are names, so no keyword rule applies
++   * to them; each value is a schema and is pruned as one.
++   */
++  function prune(node: unknown, path: string, names = false): unknown {
+     if (Array.isArray(node)) return node.map((item, index) => prune(item, `${path}[${index}]`));
+     if (typeof node !== "object" || node === null) return node;
+     const row = node as Record<string, unknown>;
+     const output: Record<string, unknown> = {};
++    if (names) {
++      for (const [key, value] of Object.entries(row)) output[key] = prune(value, `${path}.${key}`);
++      return output;
++    }
+     for (const [key, value] of Object.entries(row)) {
+-      if (PLUMBING_KEYS.has(key)) {
++      if (PLUMBING_KEYS.has(key) && !(key === "$id" && keepIdentifiers)) {
+         changes.push({
+           kind: "plumbing",
+           lossless: true,
+@@ -204,7 +268,11 @@ export function minifyToolSchemas(tools: unknown[], options: MinifyOptions = {})
+         output[key] = trimmed;
+         continue;
+       }
+-      output[key] = prune(value, `${path}.${key}`);
++      if (DATA_KEYS.has(key)) {
++        output[key] = structuredClone(value);
++        continue;
++      }
++      output[key] = prune(value, `${path}.${key}`, NAME_MAP_KEYS.has(key) && isPlainRecord(value));
+     }
+     return output;
+   }

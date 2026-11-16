@@ -39,6 +39,19 @@ If it says "not set" or points elsewhere, run `mesh start` (or `mesh install`) t
 wire it up. If it says `~/.claude/settings.json is not valid JSON`, fix or remove
 that file first — MESH deliberately won't overwrite invalid JSON.
 
+### Claude Code can't connect after MESH stopped
+
+`doctor`'s **claude** line shows `✗` and says the address was left by a MESH
+session that is no longer running, or that nothing is listening there. This
+happens only if `mesh start` was killed outright or the machine went down:
+Claude Code is still pointed at the proxy. Put it back:
+
+```bash
+mesh restore
+```
+
+Or run `mesh start` again. Then open a new Claude Code session.
+
 ### Node too old
 
 Upgrade to Node 22 LTS from <https://nodejs.org>. MESH warns on Node 20–21 and

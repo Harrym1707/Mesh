@@ -1,14 +1,14 @@
 # A5 output-reduction — the CLEAR, DEFENSIBLE value (2026-10-28)
 
 Axis owner: A5-output value analyst. Scope: how much output-token cost is
-**really recoverable** by FLUX's black-box levers (the shipped `outputEffort`
+**really recoverable** by MESH's black-box levers (the shipped `outputEffort`
 dial; a stable concise-prefix instruction), split by **workload shape**, with
 every number honesty-labelled, and the single cheapest live experiment that
 confirms or kills it.
 
 > Honesty labels: `measured` (tiktoken on real data here) / `derived-from-data`
 > (arithmetic on measured anchors) / `literature-claim` / `estimate`.
-> FLUX can only rewrite the outgoing request body + read provider usage.
+> MESH can only rewrite the outgoing request body + read provider usage.
 > LOSSLESS = model reads an equivalent sequence → billable unconditionally.
 > LOSSY = changes what the model sees → must pass a task-completion replay gate.
 

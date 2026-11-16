@@ -1,0 +1,62 @@
+commit ca73b64 2026-11-16
+    Merge pull request #44 from Harrym1707/fix/tool-schema-keep-defs
+
+commit 1bd1f0d 2026-11-16
+    docs(ops): runbook — runtime 73dcdfe with the tool-schema fix
+
+
+ docs/ops/release-0.2.0-runbook.md | 36 ++++++++++++++++++++++++++++++++++++
+ 1 file changed, 36 insertions(+)
+commit 1a70246 2026-11-16
+    chore(site): hosted runtime df70f3f → 73dcdfe (v0.2.0)
+
+
+ docs/site/dist/mesh-runtime      | 49 +++++++++++++++++++++++++++++++++++-----
+ docs/site/dist/mesh-version.json |  4 ++--
+ 2 files changed, 45 insertions(+), 8 deletions(-)
+commit 73dcdfe 2026-11-16
+    fix(core): the lossless tool-schema lever keeps $defs, keyword-named parameters and data
+
+
+ packages/core/src/tool-schema.test.ts      | 190 +++++++++++++++++++++++++++++
+ packages/core/src/tool-schema.ts           |  78 +++++++++++-
+ packages/sdk-js/src/reduce-request.test.ts |  42 +++++++
+ 3 files changed, 305 insertions(+), 5 deletions(-)
+commit b52a3cf 2026-11-16
+    Merge pull request #41 from Harrym1707/theo/readiness-loop
+
+commit d2c928f 2026-11-15
+    test(lab): give the lab's end-to-end tests a real time limit
+
+
+ lab/lab.test.ts | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+commit 28946c4 2026-11-15
+    Merge pull request #33 from Harrym1707/theo/readiness-loop
+
+commit 0f64c08 2026-11-15
+    merge(release): Mesh 0.2.0 — autonomous Theo runtime + legal pages + wiring fixes (#40)
+
+commit 7473f09 2026-11-15
+    Merge theo/autonomous-agent (release 0.2.0 at 88a3df4) into the lab branch
+
+commit 88a3df4 2026-11-15
+    docs(ops): runbook — runtime df70f3f with the shutdown-handler fix
+
+
+ docs/ops/release-0.2.0-runbook.md | 26 ++++++++++++++++----------
+ 1 file changed, 16 insertions(+), 10 deletions(-)
+commit f1ed77a 2026-11-15
+    chore(site): hosted runtime b5dff02 → df70f3f (v0.2.0)
+
+
+ docs/site/dist/mesh-runtime      | 92 +++++++++++++++++++++-------------------
+ docs/site/dist/mesh-version.json |  4 +-
+ 2 files changed, 50 insertions(+), 46 deletions(-)
+commit df70f3f 2026-11-15
+    fix(cli): arm the shutdown handlers before Claude Code's settings are written
+
+
+ packages/cli/src/daemon-settings.test.ts |  21 +++++++
+ packages/cli/src/start.ts                | 104 +++++++++++++++++--------------
+ 2 files changed, 77 insertions(+), 48 deletions(-)

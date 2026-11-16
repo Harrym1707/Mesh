@@ -6,6 +6,7 @@ founder's act, not an agent's.**
 
 | File | What it is |
 |---|---|
+| [TESTER-GUIDE.md](./TESTER-GUIDE.md) | What to hand a tester: install, connect Claude Code or their own app, check it works, what to expect, what to send back, how to remove it. Written 2026-11-16 for MESH 0.2.1. |
 | [onboarding.md](./onboarding.md) | **Start here.** The one canonical way to set a design partner up (proxy mode), with the Claude Code and build-from-source alternatives. |
 | [runbook.md](./runbook.md) | The one-page partner runbook (day 0 → day 14) **and** the step-by-step [Operator playbook](./runbook.md#operator-playbook--manual-billing) for manual billing. |
 | [PILOT_PLAN.md](./PILOT_PLAN.md) | The pilot plan: target ICP, cohort size, success metric, timeline, and what we measure. |

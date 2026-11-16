@@ -1,0 +1,345 @@
+     1	import { approximateTokenCount, type TokenCounter } from "./token-reduction.js";
+     2	
+     3	/**
+     4	 * Tool and MCP schema minification: the largest lever on agentic workloads.
+     5	 *
+     6	 * Tool catalogues are resent on every turn because the APIs are stateless, so a
+     7	 * 20-turn task pays for the whole catalogue 20 times. Measured on the sample
+     8	 * fixtures the catalogue was 66% of a request's input.
+     9	 *
+    10	 * Minification is split into two tiers and the distinction is not cosmetic.
+    11	 *
+    12	 *   Lossless (billable): schema plumbing the model does not read ($schema, $id,
+    13	 *   $comment) and `title` fields that only restate the property name — content
+    14	 *   the provider tokenises, so removing it is a real saving, billable without a
+    15	 *   quality gate. Whitespace / JSON formatting is NOT in this tier: the provider
+    16	 *   tokenises the PARSED structure, not the byte formatting (verified against
+    17	 *   Anthropic count_tokens — pretty vs compact tools return an identical count),
+    18	 *   so MESH compacts it as hygiene but never claims it as a saving.
+    19	 *
+    20	 *   Lossy: descriptions, examples, and dropping tools. Descriptions are how the
+    21	 *   model decides which tool to call, so trimming them is a behaviour change,
+    22	 *   not a formatting change. Published sources report the large savings here,
+    23	 *   but they belong behind a replay check.
+    24	 *
+    25	 * An earlier version of this project's savings model labelled description
+    26	 * trimming "deterministic". That was wrong, and it is the kind of error that
+    27	 * turns into a disputed invoice: the saving is real, the no-quality-risk claim
+    28	 * attached to it was not.
+    29	 */
+    30	
+    31	/**
+    32	 * Keys the provider's schema validator reads but the model never sees as prose.
+    33	 *
+    34	 * `$defs` is deliberately NOT here. It holds the definitions that `$ref`
+    35	 * pointers resolve to (every nested Pydantic model compiles to this shape), so
+    36	 * it is content, not plumbing. An earlier version listed it, and a tool with a
+    37	 * nested model was sent with its `$ref` intact and the definition gone.
+    38	 * Definitions nothing points to are kept too: proving one unreferenced means
+    39	 * resolving every form a `$ref` can take, and a wrong answer corrupts the
+    40	 * schema. The lossless tier does not take that bet.
+    41	 */
+    42	const PLUMBING_KEYS = new Set(["$schema", "$id", "$comment"]);
+    43	
+    44	/**
+    45	 * Keywords whose value maps a NAME to a schema. The keys inside are names the
+    46	 * tool's author chose, never keywords: a parameter may legitimately be called
+    47	 * `$id`, `title` or `description`, and must not be treated as one.
+    48	 */
+    49	const NAME_MAP_KEYS = new Set([
+    50	  "properties",
+    51	  "patternProperties",
+    52	  "$defs",
+    53	  "definitions",
+    54	  "dependentSchemas",
+    55	  "dependencies",
+    56	]);
+    57	
+    58	/**
+    59	 * Keywords whose value is data, not a schema. It is copied through untouched:
+    60	 * a default or an example is whatever the tool's author wrote, including any
+    61	 * `$id` or `title` keys inside it.
+    62	 */
+    63	const DATA_KEYS = new Set(["default", "const", "enum", "examples", "example", "input_examples"]);
+    64	
+    65	/** Keywords that point at another part of the schema. */
+    66	const REFERENCE_KEYS = new Set(["$ref", "$dynamicRef", "$recursiveRef"]);
+    67	
+    68	/** True when anything in `node` uses a reference keyword. Conservative: it also
+    69	 *  counts one inside data, which only ever keeps more. */
+    70	function usesReferences(node: unknown): boolean {
+    71	  if (Array.isArray(node)) return node.some(usesReferences);
+    72	  if (typeof node !== "object" || node === null) return false;
+    73	  for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+    74	    if (REFERENCE_KEYS.has(key) && typeof value === "string") return true;
+    75	    if (usesReferences(value)) return true;
+    76	  }
+    77	  return false;
+    78	}
+    79	
+    80	function isPlainRecord(value: unknown): value is Record<string, unknown> {
+    81	  return typeof value === "object" && value !== null && !Array.isArray(value);
+    82	}
+    83	
+    84	export type MinifyOptions = {
+    85	  /**
+    86	   * What to do with description fields.
+    87	   * `keep` stays lossless. `truncate` clips to `maximumDescriptionTokens`.
+    88	   * `drop` removes them, which is the largest saving and the largest risk.
+    89	   */
+    90	  descriptions?: "keep" | "truncate" | "drop";
+    91	  maximumDescriptionTokens?: number;
+    92	  /** Remove `examples` arrays. The model does read these, so this is lossy. */
+    93	  dropExamples?: boolean;
+    94	  /** Tool names to keep. Omit to keep all; naming a subset is lossy. */
+    95	  keepTools?: readonly string[];
+    96	  countTokens?: TokenCounter;
+    97	};
+    98	
+    99	export type MinifyChange = {
+   100	  kind: "plumbing" | "redundant-title" | "formatting" | "description" | "examples" | "dropped-tool";
+   101	  lossless: boolean;
+   102	  /** Where in the catalogue, e.g. a tool name or a property path. */
+   103	  at: string;
+   104	  tokensSaved: number;
+   105	  detail: string;
+   106	};
+   107	
+   108	export type MinifyResult = {
+   109	  tools: unknown[];
+   110	  tokensBefore: number;
+   111	  tokensAfter: number;
+   112	  /** Tokens removed without any possibility of changing tool selection. */
+   113	  losslessTokensSaved: number;
+   114	  /** Tokens removed by altering what the model reads. Needs a replay check. */
+   115	  lossyTokensSaved: number;
+   116	  changes: MinifyChange[];
+   117	};
+   118	
+   119	function toolNameOf(tool: unknown, index: number): string {
+   120	  if (typeof tool === "object" && tool !== null) {
+   121	    const row = tool as Record<string, unknown>;
+   122	    const direct = typeof row.name === "string" ? row.name : undefined;
+   123	    const nested = typeof row.function === "object" && row.function !== null
+   124	      ? (row.function as Record<string, unknown>).name
+   125	      : undefined;
+   126	    return direct ?? (typeof nested === "string" ? nested : `tool-${index}`);
+   127	  }
+   128	  return `tool-${index}`;
+   129	}
+   130	
+   131	function truncateToTokens(text: string, limit: number, countTokens: TokenCounter): string {
+   132	  if (countTokens(text) <= limit) return text;
+   133	  // Clip on a sentence boundary where one is available, so the remaining text
+   134	  // still reads as an instruction rather than breaking mid-clause.
+   135	  const sentences = text.split(/(?<=[.!?])\s+/);
+   136	  let kept = "";
+   137	  for (const sentence of sentences) {
+   138	    const candidate = kept === "" ? sentence : `${kept} ${sentence}`;
+   139	    if (countTokens(candidate) > limit) break;
+   140	    kept = candidate;
+   141	  }
+   142	  if (kept !== "") return kept;
+   143	  const words = text.split(/\s+/);
+   144	  let fallback = "";
+   145	  for (const word of words) {
+   146	    const candidate = fallback === "" ? word : `${fallback} ${word}`;
+   147	    if (countTokens(candidate) > limit) break;
+   148	    fallback = candidate;
+   149	  }
+   150	  return fallback;
+   151	}
+   152	
+   153	/**
+   154	 * Minify a tool catalogue, reporting every change and which tier it belongs to.
+   155	 *
+   156	 * Defaults are lossless only: descriptions are kept. A caller wanting the large
+   157	 * saving opts into it explicitly and gets it reported as lossy.
+   158	 */
+   159	export function minifyToolSchemas(tools: unknown[], options: MinifyOptions = {}): MinifyResult {
+   160	  if (!Array.isArray(tools)) throw new Error("A tool catalogue must be an array.");
+   161	  const countTokens = options.countTokens ?? approximateTokenCount;
+   162	  const descriptions = options.descriptions ?? "keep";
+   163	  const maximumDescriptionTokens = options.maximumDescriptionTokens ?? 24;
+   164	  if (!Number.isInteger(maximumDescriptionTokens) || maximumDescriptionTokens < 1) {
+   165	    throw new Error("maximumDescriptionTokens must be a positive integer.");
+   166	  }
+   167	  const changes: MinifyChange[] = [];
+   168	  // Baseline is the COMPACT serialisation — what actually goes on the wire and
+   169	  // what the provider tokenises. Measuring "before" as pretty-printed (indented)
+   170	  // counted whitespace the provider never bills, which over-stated the saving
+   171	  // (verified against Anthropic count_tokens: pretty vs compact tools -> identical).
+   172	  const tokensBefore = countTokens(JSON.stringify(tools));
+   173	
+   174	  const keep = options.keepTools === undefined ? undefined : new Set(options.keepTools);
+   175	  const retained: unknown[] = [];
+   176	  // Set per tool, just before it is pruned.
+   177	  let keepIdentifiers = false;
+   178	
+   179	  tools.forEach((tool, index) => {
+   180	    const name = toolNameOf(tool, index);
+   181	    if (keep !== undefined && !keep.has(name)) {
+   182	      changes.push({
+   183	        kind: "dropped-tool",
+   184	        lossless: false,
+   185	        at: name,
+   186	        tokensSaved: countTokens(JSON.stringify(tool)),
+   187	        detail: "Tool removed from the catalogue. The model cannot call what it cannot see, so this " +
+   188	          "is safe only where the tool is genuinely unreachable for the workload.",
+   189	      });
+   190	      return;
+   191	    }
+   192	    // A reference may resolve against an `$id` (a base URI, or an embedded
+   193	    // schema's own identifier), so a tool that uses any reference keeps them.
+   194	    keepIdentifiers = usesReferences(tool);
+   195	    retained.push(prune(tool, name));
+   196	  });
+   197	
+   198	  /**
+   199	   * `names` is true when `node` is a name → schema map (the value of
+   200	   * `properties`, `$defs`, …). Its keys are names, so no keyword rule applies
+   201	   * to them; each value is a schema and is pruned as one.
+   202	   */
+   203	  function prune(node: unknown, path: string, names = false): unknown {
+   204	    if (Array.isArray(node)) return node.map((item, index) => prune(item, `${path}[${index}]`));
+   205	    if (typeof node !== "object" || node === null) return node;
+   206	    const row = node as Record<string, unknown>;
+   207	    const output: Record<string, unknown> = {};
+   208	    if (names) {
+   209	      for (const [key, value] of Object.entries(row)) output[key] = prune(value, `${path}.${key}`);
+   210	      return output;
+   211	    }
+   212	    for (const [key, value] of Object.entries(row)) {
+   213	      if (PLUMBING_KEYS.has(key) && !(key === "$id" && keepIdentifiers)) {
+   214	        changes.push({
+   215	          kind: "plumbing",
+   216	          lossless: true,
+   217	          at: `${path}.${key}`,
+   218	          tokensSaved: countTokens(JSON.stringify({ [key]: value })),
+   219	          detail: `Removed ${key}, which the model never reads.`,
+   220	        });
+   221	        continue;
+   222	      }
+   223	      if (key === "title" && typeof value === "string") {
+   224	        const leaf = path.split(".").pop() ?? "";
+   225	        // A title that only restates its own property name carries no information.
+   226	        if (value.toLowerCase().replace(/[^a-z0-9]/g, "") === leaf.toLowerCase().replace(/[^a-z0-9]/g, "")) {
+   227	          changes.push({
+   228	            kind: "redundant-title",
+   229	            lossless: true,
+   230	            at: `${path}.title`,
+   231	            tokensSaved: countTokens(JSON.stringify({ title: value })),
+   232	            detail: `Removed title "${value}", which restates the property name.`,
+   233	          });
+   234	          continue;
+   235	        }
+   236	      }
+   237	      if (key === "examples" && options.dropExamples) {
+   238	        changes.push({
+   239	          kind: "examples",
+   240	          lossless: false,
+   241	          at: `${path}.examples`,
+   242	          tokensSaved: countTokens(JSON.stringify({ examples: value })),
+   243	          detail: "Removed examples. The model does read these when choosing arguments.",
+   244	        });
+   245	        continue;
+   246	      }
+   247	      if (key === "description" && typeof value === "string" && descriptions !== "keep") {
+   248	        if (descriptions === "drop") {
+   249	          changes.push({
+   250	            kind: "description",
+   251	            lossless: false,
+   252	            at: `${path}.description`,
+   253	            tokensSaved: countTokens(JSON.stringify({ description: value })),
+   254	            detail: "Removed description. Descriptions are how the model chooses between tools.",
+   255	          });
+   256	          continue;
+   257	        }
+   258	        const trimmed = truncateToTokens(value, maximumDescriptionTokens, countTokens);
+   259	        if (trimmed !== value) {
+   260	          changes.push({
+   261	            kind: "description",
+   262	            lossless: false,
+   263	            at: `${path}.description`,
+   264	            tokensSaved: countTokens(value) - countTokens(trimmed),
+   265	            detail: `Truncated description from ${countTokens(value)} to ${countTokens(trimmed)} tokens.`,
+   266	          });
+   267	        }
+   268	        output[key] = trimmed;
+   269	        continue;
+   270	      }
+   271	      if (DATA_KEYS.has(key)) {
+   272	        output[key] = structuredClone(value);
+   273	        continue;
+   274	      }
+   275	      output[key] = prune(value, `${path}.${key}`, NAME_MAP_KEYS.has(key) && isPlainRecord(value));
+   276	    }
+   277	    return output;
+   278	  }
+   279	
+   280	  // Compact serialisation is hygiene, NOT a billable saving: every client
+   281	  // JSON-encodes the request body and the provider tokenises the parsed
+   282	  // structure, not the byte formatting, so whitespace removal saves zero real
+   283	  // tokens (verified against Anthropic count_tokens). No formatting change is
+   284	  // recorded — the honest lossless savings are the content removals above.
+   285	  const compact = JSON.stringify(retained);
+   286	  const tokensAfter = countTokens(compact);
+   287	
+   288	  return {
+   289	    tools: retained,
+   290	    tokensBefore,
+   291	    tokensAfter,
+   292	    losslessTokensSaved: changes.filter((change) => change.lossless)
+   293	      .reduce((sum, change) => sum + change.tokensSaved, 0),
+   294	    lossyTokensSaved: changes.filter((change) => !change.lossless)
+   295	      .reduce((sum, change) => sum + change.tokensSaved, 0),
+   296	    changes,
+   297	  };
+   298	}
+   299	
+   300	export type ToolCatalogueAudit = {
+   301	  tools: number;
+   302	  tokens: number;
+   303	  meanTokensPerTool: number;
+   304	  /** Largest offenders first, so a catalogue can be trimmed by hand. */
+   305	  largest: Array<{ name: string; tokens: number; descriptionTokens: number }>;
+   306	  /** Achievable without any behaviour change. */
+   307	  losslessTokensSaved: number;
+   308	  /** Additionally achievable by trimming descriptions, behind a replay check. */
+   309	  descriptionTokensSaved: number;
+   310	};
+   311	
+   312	/**
+   313	 * Audit a catalogue: how big it is, which tools dominate, and how much each tier
+   314	 * of minification would recover. This is what makes the lever measured rather
+   315	 * than assumed, so a workload with an already-lean catalogue is credited nothing.
+   316	 */
+   317	export function auditToolCatalogue(
+   318	  tools: unknown[],
+   319	  options: { countTokens?: TokenCounter; maximumDescriptionTokens?: number } = {},
+   320	): ToolCatalogueAudit {
+   321	  const countTokens = options.countTokens ?? approximateTokenCount;
+   322	  const lossless = minifyToolSchemas(tools, { countTokens, descriptions: "keep" });
+   323	  const trimmed = minifyToolSchemas(tools, {
+   324	    countTokens,
+   325	    descriptions: "truncate",
+   326	    maximumDescriptionTokens: options.maximumDescriptionTokens ?? 24,
+   327	  });
+   328	
+   329	  const largest = tools.map((tool, index) => {
+   330	    const serialised = JSON.stringify(tool);
+   331	    const descriptions = [...serialised.matchAll(/"description"\s*:\s*"((?:[^"\\]|\\.)*)"/g)]
+   332	      .reduce((sum, match) => sum + countTokens(match[1] ?? ""), 0);
+   333	    return { name: toolNameOf(tool, index), tokens: countTokens(serialised), descriptionTokens: descriptions };
+   334	  }).sort((left, right) => right.tokens - left.tokens);
+   335	
+   336	  const tokens = countTokens(JSON.stringify(tools));
+   337	  return {
+   338	    tools: tools.length,
+   339	    tokens,
+   340	    meanTokensPerTool: tools.length === 0 ? 0 : tokens / tools.length,
+   341	    largest: largest.slice(0, 10),
+   342	    losslessTokensSaved: Math.max(0, lossless.tokensBefore - lossless.tokensAfter),
+   343	    descriptionTokensSaved: trimmed.lossyTokensSaved,
+   344	  };
+   345	}

@@ -1,0 +1,244 @@
+{
+  "iteration": 6,
+  "timestamp": "2026-11-07T11:53:57.334Z",
+  "composite": {
+    "corpusSize": 9,
+    "realisedMedianAutoSafePct": 0.42,
+    "projectedMedianAutoSafePct": 6.75,
+    "realisedMedianGatedReductionPct": 16.1,
+    "projectedMedianGatedPct": 53.32,
+    "gatedQualityVerified": false,
+    "medianRealisablePct": 60.07,
+    "dormantCount": 0,
+    "answerEquivalenceMeasured": true,
+    "answerEquivalence": {
+      "measuredWorkloads": 9,
+      "ofCorpus": 9,
+      "allLossless": true,
+      "workloadsWithLeak": []
+    },
+    "autoSafeOverProjection": [
+      {
+        "workload": "support-chat",
+        "projected": 5.955882352941173,
+        "realised": 0.42
+      },
+      {
+        "workload": "tool-heavy-agent",
+        "projected": 23.450074962518762,
+        "realised": 3.42
+      },
+      {
+        "workload": "chatbot-memory",
+        "projected": 6.749156355455574,
+        "realised": 0
+      }
+    ]
+  },
+  "workloads": [
+    {
+      "workload": "coding-agent",
+      "baselineUsd": 0.09856000000000001,
+      "autoSafePct": 6.9805194805194635,
+      "gatedUpsidePct": 57.94480519480521,
+      "coveragePct": 77.77777777777779,
+      "applicable": 9,
+      "applied": 7,
+      "uncapturedPct": 47.72727272727272,
+      "status": "saving"
+    },
+    {
+      "workload": "rag-docqa",
+      "baselineUsd": 0.3272,
+      "autoSafePct": 7.823960880195603,
+      "gatedUpsidePct": 66.89486552567236,
+      "coveragePct": 100,
+      "applicable": 5,
+      "applied": 5,
+      "uncapturedPct": 0,
+      "status": "saving"
+    },
+    {
+      "workload": "support-chat",
+      "baselineUsd": 0.20400000000000001,
+      "autoSafePct": 5.955882352941173,
+      "gatedUpsidePct": 51.93529411764706,
+      "coveragePct": 77.77777777777779,
+      "applicable": 9,
+      "applied": 7,
+      "uncapturedPct": 22.411764705882362,
+      "status": "saving"
+    },
+    {
+      "workload": "batch-classifier",
+      "baselineUsd": 0.08,
+      "autoSafePct": 0,
+      "gatedUpsidePct": 7.500000000000007,
+      "coveragePct": 100,
+      "applicable": 1,
+      "applied": 1,
+      "uncapturedPct": 0,
+      "status": "needs-gate"
+    },
+    {
+      "workload": "already-lean",
+      "baselineUsd": 0.0148,
+      "autoSafePct": 0,
+      "gatedUpsidePct": 48.648648648648646,
+      "coveragePct": 100,
+      "applicable": 1,
+      "applied": 1,
+      "uncapturedPct": 0,
+      "status": "needs-gate"
+    },
+    {
+      "workload": "long-context-summarize",
+      "baselineUsd": 0.36719999999999997,
+      "autoSafePct": 8.33333333333334,
+      "gatedUpsidePct": 67.69607843137254,
+      "coveragePct": 100,
+      "applicable": 5,
+      "applied": 5,
+      "uncapturedPct": 0,
+      "status": "saving"
+    },
+    {
+      "workload": "tool-heavy-agent",
+      "baselineUsd": 0.16008,
+      "autoSafePct": 23.450074962518762,
+      "gatedUpsidePct": 57.02248875562216,
+      "coveragePct": 77.77777777777779,
+      "applicable": 9,
+      "applied": 7,
+      "uncapturedPct": 95.59970014992504,
+      "status": "saving"
+    },
+    {
+      "workload": "chatbot-memory",
+      "baselineUsd": 0.3556,
+      "autoSafePct": 6.749156355455574,
+      "gatedUpsidePct": 53.318335208098986,
+      "coveragePct": 100,
+      "applicable": 4,
+      "applied": 4,
+      "uncapturedPct": 0,
+      "status": "saving"
+    },
+    {
+      "workload": "translation",
+      "baselineUsd": 0.25099999999999995,
+      "autoSafePct": 0,
+      "gatedUpsidePct": 49.00398406374501,
+      "coveragePct": 100,
+      "applicable": 1,
+      "applied": 1,
+      "uncapturedPct": 0,
+      "status": "needs-gate"
+    }
+  ],
+  "blockers": [
+    "SAFETY: answer-equivalence verified across all 9 workloads (auto reduction 100% lossless)",
+    "SAVINGS: model over-projects auto-safe on 3 workload(s) — support-chat (model 6.0% vs reducer 0.4%), tool-heavy-agent (model 23.5% vs reducer 3.4%), chatbot-memory (model 6.7% vs reducer 0.0%). duplicate-context-removal is credited as deterministic on cross-turn redundancy the shipping lossless reducer only removes WITHIN one message; cross-turn dedup is lossy/gated.",
+    "GATED: the lossy tier removes a measured 16.1% median input (model projects 53.3%), but its quality-hold is UNVERIFIED — replay-gate.ts proves answer-equivalence only against a real model, so this needs live traffic (see AUTONOMY).",
+    "AUTONOMY (plumbing): pipeline runs end-to-end unattended on a spool ✓ — approved \"gated-full\", measured saving 33.8% on the spool",
+    "AUTONOMY (verification): the pipeline's quality verdict is from a local stub — point `call` at a real provider (API key/endpoint) to verify quality on real traffic"
+  ],
+  "equivalence": [
+    {
+      "workload": "coding-agent",
+      "allLossless": true,
+      "measuredAutoSafePct": 6.12,
+      "measuredGatedReductionPct": 29.22,
+      "lossyLeaks": []
+    },
+    {
+      "workload": "rag-docqa",
+      "allLossless": true,
+      "measuredAutoSafePct": 17.58,
+      "measuredGatedReductionPct": 9.36,
+      "lossyLeaks": []
+    },
+    {
+      "workload": "support-chat",
+      "allLossless": true,
+      "measuredAutoSafePct": 0.42,
+      "measuredGatedReductionPct": 28.71,
+      "lossyLeaks": []
+    },
+    {
+      "workload": "batch-classifier",
+      "allLossless": true,
+      "measuredAutoSafePct": 0,
+      "measuredGatedReductionPct": 0,
+      "lossyLeaks": []
+    },
+    {
+      "workload": "already-lean",
+      "allLossless": true,
+      "measuredAutoSafePct": 0,
+      "measuredGatedReductionPct": 0,
+      "lossyLeaks": []
+    },
+    {
+      "workload": "long-context-summarize",
+      "allLossless": true,
+      "measuredAutoSafePct": 16.43,
+      "measuredGatedReductionPct": 16.1,
+      "lossyLeaks": []
+    },
+    {
+      "workload": "tool-heavy-agent",
+      "allLossless": true,
+      "measuredAutoSafePct": 3.42,
+      "measuredGatedReductionPct": 25.77,
+      "lossyLeaks": []
+    },
+    {
+      "workload": "chatbot-memory",
+      "allLossless": true,
+      "measuredAutoSafePct": 0,
+      "measuredGatedReductionPct": 27.1,
+      "lossyLeaks": []
+    },
+    {
+      "workload": "translation",
+      "allLossless": true,
+      "measuredAutoSafePct": 0,
+      "measuredGatedReductionPct": 0,
+      "lossyLeaks": []
+    }
+  ],
+  "pipeline": {
+    "ranAt": "2026-11-07T02:14:25.361Z",
+    "spoolSize": 8,
+    "unattendedRun": true,
+    "provider": "local-stub",
+    "qualityVerifiedAgainstRealModel": false,
+    "providerCalls": 24,
+    "maximumQualityDrop": 0.02,
+    "approvedCandidate": "gated-full",
+    "candidates": [
+      {
+        "label": "lossless-auto",
+        "approved": true,
+        "meanQualityDelta": 0,
+        "lower95QualityDelta": 0,
+        "tokenSavingPercent": 5.78,
+        "costSavingPercent": 5.22,
+        "rejectionReason": null
+      },
+      {
+        "label": "gated-full",
+        "approved": true,
+        "meanQualityDelta": 0,
+        "lower95QualityDelta": 0,
+        "tokenSavingPercent": 33.82,
+        "costSavingPercent": 30.53,
+        "rejectionReason": null
+      }
+    ],
+    "notes": [
+      "LOCAL STUB MODEL: token savings are measured and real; the quality verdict is plumbing-only. Set ANTHROPIC_API_KEY or MESH_REPLAY_ENDPOINT+MESH_REPLAY_API_KEY to verify quality — no code change."
+    ]
+  }
+}

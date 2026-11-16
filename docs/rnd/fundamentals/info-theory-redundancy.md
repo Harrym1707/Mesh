@@ -1,12 +1,12 @@
 # Fundamentals — Information theory of prompt redundancy (axis: info-theory-redundancy)
 
 Date: 2026-10-28. Author axis: info-theory-redundancy. Scope: ground how much
-of a prompt is *theoretically recoverable* and **by which FLUX axis**, from
+of a prompt is *theoretically recoverable* and **by which MESH axis**, from
 primary information-theory + context-utilisation literature. Every number
 carries an honesty label (measured / derived-from-data / literature-claim /
 reasoned / estimate). Sandbox: `evals/fundamentals/redundancy-decomposition.mjs`.
 
-FLUX constraints assumed throughout: black-box only (rewrite request bytes,
+MESH constraints assumed throughout: black-box only (rewrite request bytes,
 read provider usage); no weights/logits/hidden states; no second LLM bundled
 today; ~tens-of-ms latency budget; bill 1% of VERIFIED savings; lossless =
 billed unconditionally, lossy = must clear the replay quality gate.
@@ -16,15 +16,15 @@ billed unconditionally, lossy = must clear the replay quality gate.
 ## TL;DR — the one load-bearing finding
 
 **Shannon redundancy of a prompt is real and large (natural-language text is
-~50-75% redundant), but it is NOT the redundancy FLUX can bill.** The model
+~50-75% redundant), but it is NOT the redundancy MESH can bill.** The model
 never reads bytes — it reads BPE tokens, and the tokenizer has *already* folded
 most of that statistical redundancy into its merges. The gzip/entropy number is
-therefore a ceiling on an *already-spent* compression, not on FLUX-addressable
+therefore a ceiling on an *already-spent* compression, not on MESH-addressable
 savings. What survives for a byte-rewrite proxy splits cleanly:
 
 - **A2 encoding overhead** — structural/whitespace/schema bytes the model reads
   as identical information once decoded. Genuinely **lossless**, small (single-
-  digit % of tokens on real bodies), FLUX bills unconditionally.
+  digit % of tokens on real bodies), MESH bills unconditionally.
 - **A3 literal / verbose redundancy** — byte-identical repeats (provable) and
   verbose paraphrase (needs a model). The provable part is **near-lossless**
   and replay-gated; the verbose part is **lossy** and needs a model we don't
@@ -64,7 +64,7 @@ Classic result, repeatedly re-measured:
 byte-pair tokenizer *is* a compressor — it exists precisely to merge frequent,
 predictable byte sequences into single tokens. The provider bills per token, so
 the predictable-character redundancy Shannon measured has already been monetised
-*down* by the tokenizer before FLUX ever sees the request. A byte-level
+*down* by the tokenizer before MESH ever sees the request. A byte-level
 re-encode (gzip-style) cannot be sent to the model — the model only accepts the
 token vocabulary — so none of the 50-75% character redundancy is recoverable as
 a token saving by lossless means. **This is the single most important guardrail
@@ -87,9 +87,9 @@ Sources:
   (literature-claim; the paper's headline is code is "even more natural"/
   lower-entropy than English corpora under matched n-gram models). Buggy code
   has measurably higher entropy than correct code (Ray et al., follow-on).
-- Implication for FLUX (reasoned): agent/coding traffic — our highest-value
+- Implication for MESH (reasoned): agent/coding traffic — our highest-value
   vertical — carries the *most* statistical redundancy, but again it is
-  tokenizer-captured. The FLUX-addressable slice in code/JSON is the
+  tokenizer-captured. The MESH-addressable slice in code/JSON is the
   **structural** one (A2: pretty-print whitespace, restated schema keys,
   pydantic `title` bloat already documented in our wire captures) plus
   **literal duplication** (A3), not the deep n-gram predictability.
@@ -106,7 +106,7 @@ the task — the A3-verbose + A4-irrelevance budget. **All are lossy and all nee
 a model, so all are REJECT as black-box levers.** They are cited as the ceiling,
 not as ship candidates.
 
-| Method | Mechanism | Measured compression / quality | Model needed | FLUX verdict |
+| Method | Mechanism | Measured compression / quality | Model needed | MESH verdict |
 |---|---|---|---|---|
 | **LLMLingua** (EMNLP'23) | small LM perplexity ranks & drops tokens; budget controller + iterative | up to **20x** (2,366→117 tok) with "almost unchanged" perf; at 20x on a reasoning task **77.33 EM** vs Selective-Context 44.20 (literature-claim, in-paper measured) | GPT2-small / LLaMA-7B | REJECT (second model) |
 | **LLMLingua-2** (ACL'24) | 355M XLM-RoBERTa token classifier, distilled from GPT-4 preserve/discard labels | **2x-5x** typical; MeetingBank in-domain ~3x: QA EM **86.92 vs 87.75** original; out-of-domain 5x: LongBench **39.1 vs 44.0**, GSM8K **79.08 vs 78.85**, BBH **70.02 vs 70.07**; **1.6-2.9x** end-to-end latency cut; 3-6x faster than LLMLingua (literature-claim, in-paper measured) | 355M BERT (110M "small") | REJECT today; **RESEARCH** if a ~100-355M scorer is ever bundled on-machine |
@@ -117,12 +117,12 @@ not as ship candidates.
 
 1. The ceiling is enormous — on retrieval-style long contexts, **80-90% of
    tokens are task-irrelevant** (A4). That is where the real money is, and it is
-   exactly where FLUX's pure-byte toolkit is weakest, because finding the
+   exactly where MESH's pure-byte toolkit is weakest, because finding the
    irrelevant 85% requires understanding the task.
 2. **Token-pruning disrupts quality more than chunk-level extraction.** The
    characterisation paper finds LLMLingua-style unstructured pruning "typically
    exhibits the worst behaviour," attributed to "disruption of grammar and
-   sentence comprehension." Lesson for any FLUX lossy lever we ever build:
+   sentence comprehension." Lesson for any MESH lossy lever we ever build:
    **operate at structural boundaries (whole tool results, whole stale turns),
    never mid-sentence token deletion.** This directly supports the existing
    semantic-compaction design (drop whole stale oversized tool results) over any
@@ -146,7 +146,7 @@ Sources:
   (**22.9-point** gap). Claude-1.3 was flatter (**59.9 → 55.9 → 60.1**).
   Key-value retrieval: GPT-3.5 fell to **45.6%** worst-case at 300 pairs without
   query-aware contextualisation (literature-claim, in-paper measured).
-  - FLUX read: middle-of-context tokens are frequently *paid for and ignored*.
+  - MESH read: middle-of-context tokens are frequently *paid for and ignored*.
     That is genuine A4 waste — but it is **lossy to remove** (you must decide
     what's irrelevant) and **model/position-dependent**. Not a byte lever; it
     quantifies the prize, not a method.
@@ -154,9 +154,9 @@ Sources:
   (longest length still above an 85.6% threshold) is routinely **far below the
   advertised window** — e.g. Yi-34B **93.3% @4K → 77.3% @128K**, effective ~32K
   vs a claimed 200K (literature-claim, in-paper measured).
-  - FLUX read: customers pay for context past the model's effective length that
+  - MESH read: customers pay for context past the model's effective length that
     returns degraded accuracy — an A4 over-provisioning signal. Lossy to act on;
-    useful as a *diagnostic* FLUX could surface ("you're sending 120K into a
+    useful as a *diagnostic* MESH could surface ("you're sending 120K into a
     model with ~32K effective length") even before any rewrite.
 
 Sources:

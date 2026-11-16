@@ -50,6 +50,8 @@ importers:
 
   packages/sdk-js: {}
 
+  packages/signal: {}
+
 packages:
 
   '@anthropic-ai/sdk@1.3.0':

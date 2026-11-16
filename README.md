@@ -1,5 +1,9 @@
 # MESH — cut your LLM API bill, pay only a share of verified savings
 
+[![savings: recompute it yourself](https://img.shields.io/static/v1?label=savings&message=recompute%20it%20yourself&color=brightgreen)](docs/site/evidence.md)
+[![fee: share of verified savings](https://img.shields.io/static/v1?label=fee&message=%25%20of%20verified%20savings&color=blue)](https://www.mesh-technology.com)
+[![npm @harrym1707/sdk](https://img.shields.io/npm/v/@harrym1707/sdk?label=%40harrym1707%2Fsdk)](https://www.npmjs.com/package/@harrym1707/sdk)
+
 MESH reduces what each LLM request costs — on Claude (Anthropic), OpenAI, and
 any OpenAI-compatible API — and meters the savings into an append-only,
 hash-chained ledger **you can recompute yourself**. The fee is a percentage of

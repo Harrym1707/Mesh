@@ -75,34 +75,51 @@ footer{border-top:2px solid var(--signal);margin-top:3rem;padding-top:1rem;font-
 <main>
 <h1>Get started in five minutes</h1>
 <p>MESH sits between your app and your AI provider, removes the tokens you were about to pay for twice, and writes every request into a tamper-evident ledger you can audit yourself. No signup, no account, no key handover: your API key passes through to the provider and is never stored. Works with Claude (Anthropic), OpenAI, and any OpenAI-compatible endpoint.</p>
-<h2>Claude Code — one command</h2>
-<p>Install the <code>mesh</code> command (needs Node 22+, which Claude Code already uses):</p>
+<h2>Install</h2>
+<p>One command (needs Node 22 or newer, which Claude Code already uses):</p>
 <pre class="block"><code>curl -fsSL https://www.mesh-technology.com/install.sh | sh</code></pre>
-<p>Then start it:</p>
+<p>The installer drops one tiny launcher that fetches and checksum-verifies the runtime, and keeps it up to date. It never touches your API key. Read it first if you like: <code>curl -fsSL https://www.mesh-technology.com/install.sh | less</code>. Or grab the launcher directly: <code>curl -fsSL https://www.mesh-technology.com/mesh -o mesh &amp;&amp; chmod +x mesh &amp;&amp; ./mesh start</code>.</p>
+<p>Check it: <code>mesh version</code>. If anything looks off, <code>mesh doctor</code> says what and how to fix it.</p>
+<h2>Claude Code — one command</h2>
 <pre class="block"><code>mesh start</code></pre>
 <p>That points Claude Code at MESH and runs <strong>Theo</strong> — your token engineer — alongside you. Use Claude Code exactly as normal; press Ctrl+C to stop and Claude Code reverts cleanly. Check your own verified number any time with <code>mesh verify</code>.</p>
-<p>The installer drops one tiny launcher that fetches and checksum-verifies the runtime; it never touches your API key. Read it first if you like: <code>curl -fsSL https://www.mesh-technology.com/install.sh | less</code>.</p>
-<p><strong>Other ways in:</strong> once <code>@harrym1707/mesh</code> is published, <code>npx @harrym1707/mesh start</code> works with no install. Or grab the launcher directly: <code>curl -fsSL https://www.mesh-technology.com/mesh -o mesh &amp;&amp; chmod +x mesh &amp;&amp; ./mesh start</code>.</p>
-<p>The rest of this page is the manual setup for any other app or language.</p>
-<h2>Step 1 — run the proxy</h2>
-<p>One command, nothing to clone:</p>
-<pre class="block"><code>npx -y -p @harrym1707/sdk mesh-proxy</code></pre>
-<p>You'll see:</p>
-<pre class="block"><code>MESH proxy listening on http://127.0.0.1:8787
-Ledger spools: ./mesh-ledger</code></pre>
-<p>To switch on the Claude prompt-cache lever too (our single biggest measured saver, 37.9% on multi-turn traffic), start it as <code>MESH_PROXY_CACHE_TTL=5m npx -y -p @harrym1707/sdk mesh-proxy</code>.</p>
-<h2>Step 2 — point your app at it</h2>
-<p>Change one line. Keep your own API key — MESH passes it through verbatim.</p>
+<p>Want it on for every session without starting anything? <code>mesh install</code> runs MESH as a background service (macOS); <code>mesh uninstall</code> removes it and puts Claude Code back.</p>
+<h2>Your own app or agent — one command, one setting</h2>
+<pre class="block"><code>mesh proxy</code></pre>
+<p>Same proxy, same Theo, and it leaves Claude Code alone. It prints the two settings to copy:</p>
+<pre class="block"><code>connect  Anthropic clients   ANTHROPIC_BASE_URL=http://127.0.0.1:8787
+         OpenAI-style        OPENAI_BASE_URL=http://127.0.0.1:8787/v1</code></pre>
+<p>Set the one your app uses and keep your own API key — MESH passes it through verbatim. The official SDKs read those environment variables, so often there is no code to change at all:</p>
+<pre class="block"><code>ANTHROPIC_BASE_URL=http://127.0.0.1:8787 python my_agent.py
+OPENAI_BASE_URL=http://127.0.0.1:8787/v1 node my-app.js</code></pre>
+<p>Or set it in code:</p>
 <pre class="block"><code>// Anthropic SDK
 const anthropic = new Anthropic({ baseURL: &quot;http://127.0.0.1:8787&quot; });
 
 // OpenAI SDK — also any OpenAI-compatible endpoint
 const openai = new OpenAI({ baseURL: &quot;http://127.0.0.1:8787/v1&quot; });</code></pre>
-<p>Any language works — it's just a base URL. Python, Go, curl, LangChain, whatever you run today.</p>
-<h2>Step 3 — run your traffic as normal</h2>
-<p>Responses come back byte-identical, streaming included. Reduction is <strong>lossless-only by default</strong>: compacted tool schemas decode identically, removed duplicates are exact, and if anything fails your request goes through untouched. Each request appends one hash-chained event to <code>./mesh-ledger/&lt;your-app&gt;-&lt;provider&gt;.jsonl</code> — usage numbers, lever names and hashes. Never your prompts.</p>
-<h2>Step 4 — check our maths yourself</h2>
-<p>This is the part no other cost tool offers: the invoice is a pure function of a ledger file <strong>you</strong> hold. Verify the chain and recompute it with the same published package:</p>
+<pre class="block"><code>anthropic = Anthropic(base_url=&quot;http://127.0.0.1:8787&quot;)
+openai = OpenAI(base_url=&quot;http://127.0.0.1:8787/v1&quot;)</code></pre>
+<p>Any language or framework works if it lets you set a base URL — Go, curl, LangChain, the Vercel AI SDK, whatever you run today.</p>
+<p><strong>Is it up?</strong> <code>curl http://127.0.0.1:8787/mesh/health</code> answers <code>{&quot;status&quot;:&quot;ok&quot;,&quot;service&quot;:&quot;mesh-proxy&quot;}</code>. A few seconds after your first request, the <code>mesh proxy</code> window prints <code>1 request seen</code>.</p>
+<p><strong>What goes through MESH.</strong> MESH reduces and meters the three generation endpoints: <code>/v1/messages</code>, <code>/v1/chat/completions</code> and <code>/v1/responses</code>. Everything else your app sends to the same base URL — embeddings, token counting, model lists, batches, file uploads — is forwarded to your provider exactly as it came, and the provider's answer comes back untouched. Pointing an app at MESH does not take a working call away.</p>
+<p><strong>Another provider.</strong> For any OpenAI-compatible host (Grok, DeepSeek, Mistral, a local model server), start with <code>mesh proxy --openai-base https://your-provider.example</code>.</p>
+<p><strong>Port taken?</strong> MESH tells you whether it is already running there (use that one) or names a free port: <code>mesh proxy --port 8788</code>.</p>
+<p>Checked on 2026-11-16 with the Claude Code command-line tool and the official Anthropic and OpenAI SDKs in TypeScript and Python, against a stand-in provider that records what reaches it: messages, streaming, token counting, embeddings, model lists, batches and file uploads.</p>
+<h2>No install: the proxy from npm</h2>
+<p>If you would rather not install anything:</p>
+<pre class="block"><code>npx -y -p @harrym1707/sdk mesh-proxy</code></pre>
+<p>You'll see:</p>
+<pre class="block"><code>MESH proxy listening on http://127.0.0.1:8787
+Ledger spools: ./mesh-ledger</code></pre>
+<p>Point your app at it the same way. This is the proxy on its own: the ledger is written to <code>./mesh-ledger</code> in the folder you started it from, and there is no Theo, dashboard or <code>mesh verify</code>. To switch on the Claude prompt-cache lever too (our single biggest measured saver, 37.9% on multi-turn traffic), start it as <code>MESH_PROXY_CACHE_TTL=5m npx -y -p @harrym1707/sdk mesh-proxy</code>.</p>
+<h2>Run your traffic as normal</h2>
+<p>Responses come back byte-identical, streaming included. Reduction is <strong>lossless-only by default</strong>: compacted tool schemas decode identically, removed duplicates are exact, and if anything fails your request goes through untouched. Each request appends one hash-chained event to your ledger (<code>~/.mesh/ledger/</code> with <code>mesh</code>, <code>./mesh-ledger/</code> with the npm proxy) — usage numbers, lever names and hashes. Never your prompts.</p>
+<p>See what it did at any time: <code>mesh status</code> for the total, <code>mesh dashboard</code> for a live local page.</p>
+<h2>Check our maths yourself</h2>
+<p>This is the part no other cost tool offers: the invoice is a pure function of a ledger file <strong>you</strong> hold. With <code>mesh</code> it is one command, and it makes no network calls:</p>
+<pre class="block"><code>mesh verify</code></pre>
+<p>With the npm proxy, verify the chain and recompute the invoice with the same published package:</p>
 <pre class="block"><code>node -e '
 const { readFileSync } = require(&quot;node:fs&quot;);
 const { verifyLedgerChain, recomputeInvoice } = require(&quot;@harrym1707/sdk&quot;);
@@ -129,8 +146,8 @@ console.log(JSON.stringify(recomputeInvoice(records.map(r =&gt; r.event)), null,
 <p>Open a <a href="https://github.com/Harrym1707/Mesh/blob/main/docs/pilot/runbook.md">pilot request</a> — bring an export from your existing gateway and leave with a per-segment quote from your own traffic, including the honest band for your workload shape.</p>
 <footer><strong>mesh</strong> — spend tokens where they matter. Every number on this site traces to a
 command and a commit — <a href="evidence.html">evidence</a>. Savings are measured per completed task;
-estimates are always labelled. <a href="https://github.com/Harrym1707/Mesh">Source</a> · <a href="llms.txt">llms.txt</a><br>
-Mesh AI Technologies Limited · registered in England and Wales · company no. 17543982</footer>
+estimates are always labelled. <a href="https://github.com/Harrym1707/Mesh">Source</a> · <a href="llms.txt">llms.txt</a> ·
+<a href="terms.html">Terms</a> · <a href="privacy.html">Privacy</a></footer>
 </main>
 </body>
 </html>
