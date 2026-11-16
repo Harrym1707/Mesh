@@ -5,6 +5,68 @@ Staged 2026-11-12 on `theo/autonomous-agent`. It reaches `main` through
 to `main`, deployed or published.** Every step below that changes what the
 public gets is the founder's to take.
 
+## Update 2026-11-16 (night): release 0.2.3, Theo keeps hand-added levers, hosted runtime `a2d2d87`
+
+Written on branch `release/0.2.3`. **Not merged, not deployed, not published.**
+The sections below describe 0.2.2 and earlier as they stood.
+
+- **Where things stand.** Release 0.2.2 is out on both channels: the website
+  serves build `d83ee89` and npm has both packages at 0.2.2 (tag `v0.2.2` at
+  `e620dd4`). After that tag, `main` gained one change, PR #50; this branch
+  starts from `main` at `0fc1bf5`.
+- **The defect in 0.2.2.** Theo's policy lives in his own memory. `mesh start`,
+  `mesh proxy` and the installed service run him with apply on, at startup and
+  every 15 minutes, and once the ledger has any traffic each cycle writes that
+  policy over `~/.mesh/theo-policy.json`. A lever a user added there by hand
+  was dropped, with no message. So the opt-in `tool-result-json-compaction`
+  lever, turned on through the policy file, stopped working after one cycle.
+  The SDK option was never affected. Every earlier build with a background
+  Theo behaves the same way for any hand-added lever.
+- **What 0.2.3 changes.** When Theo's policy is written, every lever in the
+  policy it replaces is kept unless Theo authors that lever himself. His own
+  six follow his policy, so a lever he rolled back stays out. An operator's
+  lever gives way to one of Theo's from the same either-or group. A new route
+  starts with the default's hand-added levers. A kept lossy lever is still
+  withheld without a proof inside the ceiling. `mesh theo --accept` and
+  `--apply` print which levers they kept. Nothing else changed.
+- **What changes for a user who added nothing by hand.** Nothing.
+- **Not changed.** A default lever a user removed by hand comes back on
+  Theo's next write. A lever from Theo's own six added by hand does not last.
+- **Version.** Both packages are 0.2.3 (`a2d2d87`).
+- **The hosted runtime** is rebuilt at `a2d2d87`, from a clean worktree.
+  Manifest: build `a2d2d87`, sha256
+  `ac00322344f99005f45055880d378b4c9813419cfeca8527da97c5f5086b397b`. Only
+  `mesh-runtime` and `mesh-version.json` changed in `docs/site/dist`.
+- **Checked on the built artifact** (2026-11-16, macOS arm64, Node 24):
+  - `mesh proxy` from the built runtime with **Theo running** (2-second
+    interval), in an empty home, against a stand-in provider, with
+    `tool-result-json-compaction` added to the policy file by hand. First
+    request: a 21,922-character JSON tool result forwarded at 15,694. Theo's
+    cycle then rewrote the file, and the lever was still in it. Next request:
+    forwarded at 15,694. The same run on the 0.2.2 runtime loses the lever at
+    Theo's cycle and forwards the next request at 21,922.
+  - With the default policy the same result is forwarded byte-identical (this
+    run had Theo off).
+  - A clean install from the rebuilt `docs/site/dist` into an empty home gives
+    `mesh 0.2.3 (build a2d2d87)`; `mesh verify` passes.
+  - A copy installed from the live site (`mesh 0.2.2 (build d83ee89)`) updates
+    itself to `a2d2d87` with `mesh update`; `mesh verify` passes after it.
+  - The release workflow's steps short of publishing: `pnpm build`, 1,050
+    tests in 70 files at default timeouts, the SDK package and its smoke test,
+    the CLI package and its two smoke tests. Both built packages say 0.2.3.
+  - Not checked: any real provider; Theo at his default 15-minute interval
+    (the 2-second interval runs the same code); Linux and Windows locally;
+    `mesh update --rollback` on this build.
+- **To release 0.2.3** (each step is the founder's):
+  1. Merge this branch's pull request into `main` with **"Create a merge
+     commit"** (the runtime is stamped with `a2d2d87`, which a squash or
+     rebase would remove from `main`). `pages.yml` then deploys the site, and
+     installed copies update within 24 hours.
+  2. Push the tag `v0.2.3` from `main`. That publishes both npm packages.
+  3. In the checks below expect `"version": "a2d2d87"` and the sha256 above.
+- **A user on 0.2.2 who already lost the lever** has to add it to the policy
+  file once more after updating. The update cannot know it was there.
+
 ## Update 2026-11-16 (evening): release 0.2.2, the opt-in JSON tool-result lever, hosted runtime `d83ee89`
 
 Written on branch `release/0.2.2`. **Not merged, not deployed, not published.**
