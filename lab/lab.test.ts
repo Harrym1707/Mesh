@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LabLedger, DuplicateLeadError, fingerprint } from "./ledger.js";
 import { assertCan, can, PermissionError } from "./permissions.js";
@@ -43,6 +43,12 @@ import { CachePrefixVolatilityGuard } from "../packages/sdk-js/src/cache-volatil
 import { isTerminal } from "./types.js";
 import { readLiveNumbers } from "./numbers.js";
 import type { OptimisationLead } from "./types.js";
+
+// These tests run the real pipeline end to end, not mocks. The continuous-loop
+// test takes about 5.5 s on a laptop, which is over vitest's 5 s default, and
+// it timed out on a CI runner (main @ 28946c4). Nothing here waits on a clock,
+// so a generous limit only stops a slow runner from failing a passing test.
+vi.setConfig({ testTimeout: 120_000 });
 
 let root: string;
 let counter: number;
