@@ -38,16 +38,29 @@ Every number traces to a command and a commit: see
 completed task**, never per request, and quality is gated by replaying your
 own recorded requests — a failed task voids its savings.
 
-## Quick start: proxy mode (no code changes)
+## Quick start (no code changes)
+
+Open to everyone: no signup, no account. Needs Node 22 or newer.
 
 ```bash
-npx -y -p @harrym1707/sdk mesh-proxy
+curl -fsSL https://www.mesh-technology.com/install.sh | sh   # macOS, Linux, WSL
+# or: npm install -g @harrym1707/mesh
 ```
 
-(Prefer building from source? `git clone https://github.com/Harrym1707/Mesh && cd Mesh`,
+Then connect what you run:
+
+```bash
+mesh start    # Claude Code: points it at MESH, restores it on Ctrl+C
+mesh proxy    # your own app or agent: prints the base URL to set
+mesh verify   # re-check the ledger and recompute the invoice yourself
+```
+
+(No install: `npx -y -p @harrym1707/sdk mesh-proxy` runs the proxy on its own.
+Prefer building from source? `git clone https://github.com/Harrym1707/Mesh && cd Mesh`,
 then `corepack enable && pnpm install && pnpm build` and `node --import tsx evals/run-proxy.ts`.)
 
-Then change one line in your app:
+For your own app, set `ANTHROPIC_BASE_URL=http://127.0.0.1:8787` or
+`OPENAI_BASE_URL=http://127.0.0.1:8787/v1`, or change one line:
 
 ```js
 // Anthropic SDK
@@ -58,7 +71,7 @@ const openai = new OpenAI({ baseURL: "http://127.0.0.1:8787/v1" });
 
 Requests are reduced before they reach the provider, responses (including SSE
 streams) come back byte-identical, and a hash-chained ledger spool appears
-under `./mesh-ledger/`. Reduction is **lossless-only by default**: compacted
+under `~/.mesh/ledger/` (`./mesh-ledger/` with the `npx` proxy). Reduction is **lossless-only by default**: compacted
 tool schemas decode identically, removed duplicates are exact, prefix repair
 reorders text without deleting it. Lossy levers stay off until a replay gate
 proves on your own traffic that quality held.
