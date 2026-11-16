@@ -77,7 +77,10 @@ describe("mesh start — Theo runs alongside the proxy", () => {
     const { output } = start(["--anthropic-base", provider.url, "--theo-interval", "1s"]);
 
     expect(await waitFor(() => /proxy\s+http:\/\/127\.0\.0\.1:\d+/.test(output()))).toBe(true);
-    expect(output()).toContain("I re-check every 1s (autonomy: recommend)");
+    // The banner arrives in more than one chunk: wait for the later line rather
+    // than assert it the moment the proxy line shows (that raced on a CI runner
+    // and failed the v0.2.0 release run).
+    expect(await waitFor(() => output().includes("I re-check every 1s (autonomy: recommend)"))).toBe(true);
     const proxyUrl = /proxy\s+(http:\/\/127\.0\.0\.1:\d+)/.exec(output())![1]!;
 
     const response = await fetch(`${proxyUrl}/v1/messages`, {
@@ -108,7 +111,7 @@ describe("mesh start — Theo runs alongside the proxy", () => {
     const { output } = start(["--anthropic-base", provider.url, "--theo-interval", "1s", "--no-theo"]);
 
     expect(await waitFor(() => /proxy\s+http:\/\/127\.0\.0\.1:\d+/.test(output()))).toBe(true);
-    expect(output()).toContain("Not optimising this session (--no-theo)");
+    expect(await waitFor(() => output().includes("Not optimising this session (--no-theo)"))).toBe(true);
     const proxyUrl = /proxy\s+(http:\/\/127\.0\.0\.1:\d+)/.exec(output())![1]!;
     const response = await fetch(`${proxyUrl}/v1/messages`, {
       method: "POST",
