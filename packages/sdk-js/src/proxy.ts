@@ -110,7 +110,22 @@ const LOSSLESS_DEFAULT: MeshTokenReductionConfig = {
 const HOP_HEADERS = new Set([
   "host", "content-length", "connection", "accept-encoding", "transfer-encoding",
   "upgrade", "te", "trailer", "keep-alive", "proxy-authorization",
+  // `Expect: 100-continue` is settled between the client and this proxy (Node
+  // answers it); forwarding it makes the upstream call fail outright. curl adds
+  // it to every body over 1 MB.
+  "expect",
+  // Cookies belong to whatever else runs on this machine's localhost (cookies
+  // are scoped by host, not port). No provider API authenticates with one.
+  "cookie",
 ]);
+
+/**
+ * Response headers that must not reach the client as the provider sent them:
+ * the hop headers, `content-encoding` (the bytes forwarded are already
+ * decoded, so the label would be false) and `set-cookie` (a provider must not
+ * set cookies on the user's localhost).
+ */
+const RESPONSE_DROP_HEADERS = new Set([...HOP_HEADERS, "content-encoding", "set-cookie"]);
 
 /**
  * Copy the caller's headers for one upstream, scoped so a credential meant
@@ -192,11 +207,15 @@ function surfaceOf(path: string): Surface | undefined {
  * same header OpenAI uses, and guessing "OpenAI" for those would hand an
  * Anthropic credential to the wrong company.
  */
-function passthroughProvider(req: IncomingMessage, path: string): "anthropic" | "openai" {
+function passthroughProvider(req: IncomingMessage, path: string): "anthropic" | "openai" | undefined {
   if (req.headers["anthropic-version"] !== undefined || req.headers["anthropic-beta"] !== undefined) return "anthropic";
   if (req.headers["x-api-key"] !== undefined) return "anthropic";
   if (path === "/v1/messages" || path.startsWith("/v1/messages/") || path === "/v1/complete") return "anthropic";
-  return "openai";
+  // An OpenAI-style client carries nothing that names its provider, so the
+  // API paths default to the OpenAI upstream. Anything else that names no
+  // provider (a browser asking for /favicon.ico, a stray tool) is not
+  // forwarded at all: a request must not be sent to a company on a guess.
+  return path.startsWith("/v1/") ? "openai" : undefined;
 }
 
 /** An error MESH itself raises, in a shape both providers' SDKs can read. */
@@ -421,14 +440,18 @@ export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
     const surface = req.method === "POST" ? surfaceOf(path) : undefined;
 
     // "Is it up?" — answered here, never forwarded. Says nothing about traffic.
-    if (req.method === "GET" && path === "/mesh/health") {
+    // Any method: a readiness checker that polls with HEAD must not reach a provider.
+    if (path === "/mesh/health") {
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ status: "ok", service: "mesh-proxy" }));
+      res.end(req.method === "HEAD" ? undefined : JSON.stringify({ status: "ok", service: "mesh-proxy" }));
       return;
     }
 
-    // Nothing to forward at the root: say what this server is.
-    if (surface === undefined && (path === "/" || path === "")) {
+    const passProvider = surface === undefined ? passthroughProvider(req, path) : undefined;
+
+    // Nothing to forward: the root, or a path that names no provider. Say what
+    // this server is.
+    if (surface === undefined && (path === "/" || path === "" || passProvider === undefined)) {
       res.writeHead(404, { "content-type": "application/json" });
       res.end(meshError(
         "This is the MESH proxy. Point your client's base URL at this server: Anthropic clients at " +
@@ -444,8 +467,8 @@ export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
     // bytes out. Pointing an application at MESH must never take a working
     // call away from it. The forwarded headers are scoped to the one provider
     // the request belongs to; the other provider's credential never rides along.
-    if (surface === undefined) {
-      const provider = passthroughProvider(req, path);
+    if (surface === undefined && passProvider !== undefined) {
+      const provider = passProvider;
       const hasBody = req.method !== "GET" && req.method !== "HEAD";
       const declaredLength = Number.parseInt(String(req.headers["content-length"] ?? ""), 10);
       const passControl = new AbortController();
@@ -453,16 +476,23 @@ export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
       res.on("close", onPassClose);
       let upstreamResponse: Response;
       try {
+        const passRequestHeaders = forwardHeaders(req, provider);
         let init: RequestInit & { duplex?: "half" } = {
           method: req.method ?? "GET",
-          headers: forwardHeaders(req, provider),
+          headers: passRequestHeaders,
           signal: passControl.signal,
+          // A redirect is the client's to follow. Followed here, the caller's
+          // key would travel to wherever the provider pointed.
+          redirect: "manual",
         };
         if (hasBody) {
           if (Number.isFinite(declaredLength) && declaredLength <= PASSTHROUGH_BUFFER_CAP) {
             init = { ...init, body: new Uint8Array(await readBody(req)) };
           } else {
-            // Large or length-less upload: stream it rather than hold it in memory.
+            // Large or length-less upload: stream it rather than hold it in
+            // memory, and keep the length the client declared so the provider
+            // sees the same framing it would have seen directly.
+            if (Number.isFinite(declaredLength)) passRequestHeaders["content-length"] = String(declaredLength);
             init = { ...init, body: Readable.toWeb(req) as unknown as ReadableStream<Uint8Array>, duplex: "half" };
           }
         }
@@ -477,7 +507,7 @@ export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
       }
       const passHeaders: Record<string, string> = {};
       upstreamResponse.headers.forEach((value, name) => {
-        if (!HOP_HEADERS.has(name.toLowerCase())) passHeaders[name] = value;
+        if (!RESPONSE_DROP_HEADERS.has(name.toLowerCase())) passHeaders[name] = value;
       });
       res.writeHead(upstreamResponse.status, passHeaders);
       if (upstreamResponse.body !== null) {
@@ -496,13 +526,20 @@ export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
             }
           }
         } catch {
-          // Upstream read aborted (client gone): nothing more to forward.
+          // The provider's response broke off (or the client left). Ending the
+          // response normally would hand the client a short body that looks
+          // complete; cut the connection so it sees the failure it would have
+          // seen talking to the provider directly.
+          res.off("close", onPassClose);
+          if (!res.destroyed) res.destroy();
+          return;
         }
       }
       res.off("close", onPassClose);
       if (!res.destroyed) res.end();
       return;
     }
+    if (surface === undefined) return; // unreachable: both non-surface cases returned above
 
     let rawBody: Buffer;
     try {
@@ -585,6 +622,7 @@ export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
         headers,
         body: sendBody,
         signal: upstreamControl.signal,
+        redirect: "manual", // never carry the caller's key to a redirect target
       });
     } catch (cause) {
       clearTimeout(phaseTimer);
@@ -598,7 +636,7 @@ export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
 
     const responseHeaders: Record<string, string> = {};
     upstreamResponse.headers.forEach((value, name) => {
-      if (!HOP_HEADERS.has(name.toLowerCase())) responseHeaders[name] = value;
+      if (!RESPONSE_DROP_HEADERS.has(name.toLowerCase())) responseHeaders[name] = value;
     });
     if (res.destroyed) {
       abortUpstream("client disconnected");
@@ -615,6 +653,7 @@ export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
     let accumulated = 0;
     const ACCUMULATION_CAP = 32 * 1024 * 1024;
     let clientLost = false;
+    let upstreamBroke = false;
     if (upstreamResponse.body !== null) {
       const reader = upstreamResponse.body.getReader();
       try {
@@ -653,10 +692,14 @@ export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
         // whatever usage was accumulated still produces an honest ledger
         // event for the tokens that were actually streamed and billed.
         clientLost = res.destroyed;
+        upstreamBroke = !res.destroyed;
       }
     }
     res.off("close", onClientClose);
-    if (!clientLost && !res.destroyed) res.end();
+    // A response that broke off upstream must not be ended as if it were whole:
+    // cut the connection so the client sees the failure, as it would directly.
+    if (upstreamBroke && !res.destroyed) res.destroy();
+    else if (!clientLost && !res.destroyed) res.end();
 
     // Ledger event, after the response is fully forwarded. Never throws.
     try {

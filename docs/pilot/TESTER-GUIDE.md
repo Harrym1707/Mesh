@@ -146,7 +146,7 @@ Send them to whoever gave you this guide.
 
 | You see | What it means | What to do |
 |---|---|---|
-| `MESH is already running on port 8787` | It is already up (always-on mode, or another window) | Nothing to start; point your app at it |
+| `MESH is already running on port 8787` | It is already up (always-on mode, or another window) | Use that one, or stop it first. To run a second copy beside it: `--port 8788` |
 | `Port 8787 is in use by another program` | Something else has the port | `mesh proxy --port 8788`, and use 8788 in the base URL |
 | Your app gets `Upstream unreachable` | MESH could not reach your provider | Check your network; the provider may be down |
 | An error from your provider (rate limit, bad key) | The provider's own answer, passed through unchanged | Handle it as you would without MESH |
@@ -162,6 +162,9 @@ base URL setting. Your app then talks to the provider directly, as before.
   OpenAI SDKs (TypeScript and Python) against a stand-in provider. A tester's
   real traffic is the first of its kind; that is why your feedback matters.
 - Always-on mode is macOS only.
+- MESH hands a redirect from your provider back to your app rather than
+  following it, so your key never travels to a third address. The official
+  SDKs follow redirects themselves.
 - Realtime (WebSocket) APIs cannot go through the proxy; keep those clients
   pointed at the provider.
 - Azure OpenAI's address format (`/openai/deployments/...`) is passed through

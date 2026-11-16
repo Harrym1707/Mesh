@@ -12,6 +12,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { portInUseMessage } from "./start.js";
+
 const MAIN = fileURLToPath(new URL("./main.ts", import.meta.url));
 // What a downloaded user actually runs: the runtime has its own command table.
 const RUNTIME = fileURLToPath(new URL("./mesh-runtime.ts", import.meta.url));
@@ -156,6 +158,22 @@ describe("mesh start — Theo runs alongside the proxy", () => {
     expect(await waitFor(() => child!.exitCode !== null)).toBe(true);
     expect(second.output()).toContain(`MESH is already running on port ${meshPort}`);
     child = firstChild; // afterEach stops the one still running
+  });
+
+  it("recognises an older MESH on the port, and never suggests a port that does not exist", async () => {
+    // A build from before the health check answers it with its own 404.
+    const older = createServer((_req, res) => {
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "MESH proxy forwards POST /v1/messages (Anthropic), /v1/responses and /v1/chat/completions (OpenAI-compatible)." }));
+    });
+    await new Promise<void>((resolve) => older.listen(0, "127.0.0.1", () => resolve()));
+    const port = (older.address() as { port: number }).port;
+    try {
+      expect(await portInUseMessage(port)).toContain(`MESH is already running on port ${port}`);
+    } finally {
+      older.close();
+    }
+    expect(await portInUseMessage(65535)).toContain("--port 65534");
   });
 
   it("mesh proxy serves any app, says how to connect, and leaves Claude Code's settings alone", { timeout: 40_000 }, async () => {

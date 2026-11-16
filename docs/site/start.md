@@ -95,8 +95,8 @@ an app at MESH does not take a working call away.
 Mistral, a local model server), start with
 `mesh proxy --openai-base https://your-provider.example`.
 
-**Port taken?** MESH tells you whether it is already running there (nothing
-to start) or names a free port: `mesh proxy --port 8788`.
+**Port taken?** MESH tells you whether it is already running there (use that
+one) or names a free port: `mesh proxy --port 8788`.
 
 Checked on 2026-11-16 with the Claude Code command-line tool and the official
 Anthropic and OpenAI SDKs in TypeScript and Python, against a stand-in

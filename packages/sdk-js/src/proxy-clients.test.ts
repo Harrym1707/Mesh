@@ -11,7 +11,8 @@
  * has to arrive at the provider exactly as the client sent it.
  */
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
-import { createServer, type IncomingMessage, type Server } from "node:http";
+import { createServer, request as httpRequest, type IncomingMessage, type Server } from "node:http";
+import { gzipSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
@@ -65,7 +66,8 @@ function standInProvider(side: Seen["side"], seen: Seen[]): Promise<{ server: Se
       seen.push({ side, method: req.method ?? "", url: req.url ?? "", headers: req.headers, body });
       const path = (req.url ?? "").split("?")[0]!;
       const json = (status: number, payload: unknown, extra: Record<string, string> = {}): void => {
-        res.writeHead(status, { "content-type": "application/json", "request-id": "req_stub", ...extra });
+        // Providers sit behind a CDN that sets a cookie on every response.
+        res.writeHead(status, { "content-type": "application/json", "request-id": "req_stub", "set-cookie": "__cf_bm=stub; path=/", ...extra });
         res.end(JSON.stringify(payload));
       };
       const stream = (text: string): void => {
@@ -78,6 +80,24 @@ function standInProvider(side: Seen["side"], seen: Seen[]): Promise<{ server: Se
       if (req.headers["x-test-fail"] === "429") {
         return json(429, { type: "error", error: { type: "rate_limit_error", message: "slow down" } }, { "retry-after": "7" });
       }
+      if (path === "/v1/files/moved/content") {
+        res.writeHead(302, { location: "http://127.0.0.1:9/presigned-elsewhere" });
+        res.end();
+        return;
+      }
+      if (path === "/v1/files/broken/content") {
+        // Promise a megabyte, send a fraction, drop the connection.
+        res.writeHead(200, { "content-type": "application/octet-stream", "content-length": "1000000" });
+        res.write(Buffer.alloc(300_000, 0x62), () => res.destroy());
+        return;
+      }
+      if (path === "/v1/gzipped") {
+        // A provider that compresses although it was asked not to.
+        res.writeHead(200, { "content-type": "application/json", "content-encoding": "gzip" });
+        res.end(gzipSync(JSON.stringify({ compressed: true })));
+        return;
+      }
+      if (path === "/api/hello") return json(200, { hello: side });
       if (req.method === "POST" && path === "/v1/messages") return parsed.stream === true ? stream(ANTHROPIC_STREAM) : json(200, ANTHROPIC_MESSAGE);
       if (req.method === "POST" && path === "/v1/messages/count_tokens") return json(200, { input_tokens: 42 });
       if (req.method === "POST" && path === "/v1/messages/batches") return json(200, { id: "msgbatch_stub", type: "message_batch", processing_status: "in_progress", request_counts: { processing: 1, succeeded: 0, errored: 0, canceled: 0, expired: 0 }, created_at: "2026-11-16T00:00:00Z", expires_at: "2026-11-17T00:00:00Z", ended_at: null, archived_at: null, cancel_initiated_at: null, results_url: null });
@@ -316,6 +336,86 @@ describe("the integration pathway — real client libraries through the proxy", 
     expect(last().body.byteLength).toBe(big.byteLength);
     expect(last().body.subarray(0, 5).toString()).toBe("START");
     expect(last().body.subarray(-3).toString()).toBe("END");
+    // Same framing the provider would have seen directly: a length, not chunks.
+    expect(last().headers["content-length"]).toBe(String(big.byteLength));
+    expect(last().headers["transfer-encoding"]).toBeUndefined();
+  });
+
+  describe("found by an independent review of the passthrough", () => {
+    it("accepts an Expect: 100-continue upload (curl sends one for every body over 1 MB)", async () => {
+      const payload = JSON.stringify({ model: "text-embedding-3-small", input: "x".repeat(4096) });
+      const status = await new Promise<number>((resolve, reject) => {
+        const outgoing = httpRequest(`${proxy.url}/v1/embeddings`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json", authorization: "Bearer sk-test-not-real",
+            "content-length": Buffer.byteLength(payload), expect: "100-continue",
+          },
+        }, (incoming) => { incoming.resume(); incoming.on("end", () => resolve(incoming.statusCode ?? 0)); });
+        outgoing.on("continue", () => outgoing.end(payload));
+        outgoing.on("error", reject);
+      });
+      expect(status).toBe(200);
+      expect(last().url).toBe("/v1/embeddings");
+      expect(last().headers.expect).toBeUndefined();
+      expect(last().body.toString("utf8")).toBe(payload);
+    });
+
+    it("hands a redirect back to the client instead of following it with the caller's key", async () => {
+      const response = await fetch(`${proxy.url}/v1/files/moved/content`, {
+        headers: { "x-api-key": "sk-ant-test-not-real", "anthropic-version": "2023-06-01" },
+        redirect: "manual",
+      });
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toBe("http://127.0.0.1:9/presigned-elsewhere");
+      expect(seen.length).toBe(1); // the provider only; nothing went to the redirect target
+    });
+
+    it("does not pass off a download that broke upstream as a complete one", async () => {
+      const outcome = await fetch(`${proxy.url}/v1/files/broken/content`, {
+        headers: { authorization: "Bearer sk-test-not-real" },
+      }).then((response) => response.arrayBuffer()).then((bytes) => `complete: ${bytes.byteLength} bytes`, () => "failed");
+      expect(outcome).toBe("failed");
+    });
+
+    it("never forwards this machine's cookies, and never lets a provider set one on localhost", async () => {
+      const response = await fetch(`${proxy.url}/v1/models`, {
+        headers: { authorization: "Bearer sk-test-not-real", cookie: "session=another-localhost-app" },
+      });
+      expect(response.status).toBe(200);
+      expect(last().headers.cookie).toBeUndefined();
+      expect(response.headers.get("set-cookie")).toBeNull();
+    });
+
+    it("does not send a request that names no provider anywhere", async () => {
+      const favicon = await fetch(`${proxy.url}/favicon.ico`, { headers: { cookie: "session=another-localhost-app" } });
+      expect(favicon.status).toBe(404);
+      const bearerOnly = await fetch(`${proxy.url}/api/event_logging/batch`, {
+        method: "POST", headers: { authorization: "Bearer oauth-test-not-real", "content-type": "application/json" }, body: "{}",
+      });
+      expect(bearerOnly.status).toBe(404);
+      expect(seen.length).toBe(0);
+
+      // The same path from a client that says who it is talking to is forwarded.
+      const named = await fetch(`${proxy.url}/api/hello`, {
+        headers: { authorization: "Bearer oauth-test-not-real", "anthropic-version": "2023-06-01" },
+      });
+      expect(await named.json()).toEqual({ hello: "anthropic" });
+    });
+
+    it("answers the health check for every method, without a provider call", async () => {
+      const head = await fetch(`${proxy.url}/mesh/health`, { method: "HEAD" });
+      expect(head.status).toBe(200);
+      const post = await fetch(`${proxy.url}/mesh/health`, { method: "POST", headers: { authorization: "Bearer sk-test-not-real" } });
+      expect(post.status).toBe(200);
+      expect(seen.length).toBe(0);
+    });
+
+    it("does not label decoded bytes as compressed", async () => {
+      const response = await fetch(`${proxy.url}/v1/gzipped`, { headers: { authorization: "Bearer sk-test-not-real" } });
+      expect(response.headers.get("content-encoding")).toBeNull();
+      expect(await response.json()).toEqual({ compressed: true });
+    });
   });
 
   it("answers its own health check without contacting a provider", async () => {

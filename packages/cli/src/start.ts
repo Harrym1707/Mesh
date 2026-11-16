@@ -304,14 +304,20 @@ export async function portInUseMessage(port: number): Promise<string> {
   let isMesh = false;
   try {
     const response = await fetch(`http://127.0.0.1:${port}/mesh/health`, { signal: AbortSignal.timeout(1500) });
-    isMesh = response.ok && ((await response.json()) as { service?: string }).service === "mesh-proxy";
+    const text = await response.text();
+    // A current build answers its health check; a build from before the health
+    // check answers 404 with its own "MESH proxy ..." sentence. Both are MESH.
+    isMesh = text.includes('"mesh-proxy"') || text.includes("MESH proxy");
   } catch {
     isMesh = false;
   }
+  // A port to suggest that the option parser will accept.
+  const other = port < 65535 ? port + 1 : port - 1;
   return isMesh
-    ? `MESH is already running on port ${port}, so there is nothing to start: point your app at ` +
-      `http://127.0.0.1:${port} (see: mesh status). To run a second copy, add --port ${port + 1}.`
-    : `Port ${port} is in use by another program. Start MESH on a free port instead: add --port ${port + 1} ` +
+    ? `MESH is already running on port ${port} (see: mesh status). If that is the always-on service, ` +
+      `Claude Code is already using it; an app can use it at http://127.0.0.1:${port}. ` +
+      `Otherwise stop the other copy first, or run this one beside it: add --port ${other}.`
+    : `Port ${port} is in use by another program. Start MESH on a free port instead: add --port ${other} ` +
       `(and use that port in your base URL).`;
 }
 
