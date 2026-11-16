@@ -190,14 +190,79 @@ export function collapseWhitespace(): Reducer {
 }
 
 /**
- * Minifies pretty-printed JSON inside fenced ```json blocks. Agent tool results
- * are frequently indented JSON, and JSON whitespace carries no meaning the model
- * depends on, so re-serializing compactly removes indentation while preserving
- * every key and value. Only blocks that parse as JSON are touched; anything else
- * is left byte-identical. Values are preserved; numeric *formatting* is
- * normalized (e.g. 1.0 -> 1), which is why this is a reduction of the serialized
- * form, not a byte-identity transform — it is applied where the JSON's values,
- * not its layout, are what the model needs.
+ * Remove the whitespace between JSON tokens and nothing else. Every string and
+ * number is kept exactly as it was written. A `JSON.parse` round trip is not
+ * the same thing: it re-types numbers, so 1.0 becomes 1, 1e3 becomes 1000 and
+ * an integer past 2^53 (a 64-bit identifier) loses its last digits.
+ *
+ * The caller must have checked that `json` is valid JSON: only then is every
+ * space, tab and line break outside a string insignificant.
+ */
+function stripJsonWhitespace(json: string): string {
+  const kept: string[] = [];
+  let runStart = 0;
+  let inString = false;
+  for (let at = 0; at < json.length; at += 1) {
+    const code = json.charCodeAt(at);
+    if (inString) {
+      if (code === 0x5c) at += 1; // a backslash escapes the next character
+      else if (code === 0x22) inString = false;
+      continue;
+    }
+    if (code === 0x22) {
+      inString = true;
+    } else if (code === 0x20 || code === 0x0a || code === 0x09 || code === 0x0d) {
+      if (at > runStart) kept.push(json.slice(runStart, at));
+      runStart = at + 1;
+    }
+  }
+  if (runStart === 0) return json;
+  if (runStart < json.length) kept.push(json.slice(runStart));
+  return kept.join("");
+}
+
+/**
+ * Compact a text that is, as a whole, one JSON object or array: the whitespace
+ * between its tokens goes and nothing else does. Every key, string and number
+ * stays exactly as written, in the same order, so the result parses to the
+ * same document and no number is re-typed.
+ *
+ * Anything else is returned untouched: text that is not JSON, JSON with other
+ * text around it, a bare string or number, and JSON that is already compact.
+ * The function is pure and idempotent, so applying it to the same text always
+ * gives the same bytes.
+ *
+ * The layout is not kept. A caller for whom the indentation itself is the
+ * content (the exact bytes of a JSON file that will be edited by matching
+ * text) should not use this.
+ */
+export function compactJsonDocument(text: string): string {
+  let start = 0;
+  while (start < text.length) {
+    const code = text.charCodeAt(start);
+    if (code !== 0x20 && code !== 0x0a && code !== 0x09 && code !== 0x0d) break;
+    start += 1;
+  }
+  const opener = text.charCodeAt(start);
+  if (opener !== 0x7b && opener !== 0x5b) return text; // not `{` or `[`
+  try {
+    JSON.parse(text);
+  } catch {
+    return text; // not one valid JSON document: never touch it
+  }
+  // Validity is checked by parsing; the output is NOT rebuilt from the parsed
+  // value, which would rewrite numbers and drop duplicate keys.
+  const compact = stripJsonWhitespace(text);
+  return compact.length < text.length ? compact : text;
+}
+
+/**
+ * Minifies pretty-printed JSON inside fenced ```json blocks. JSON whitespace
+ * between tokens carries no meaning, so removing it keeps every key, string
+ * and number exactly as written. Only blocks that parse as JSON are touched;
+ * anything else is left byte-identical. The layout of a block is not kept, so
+ * this is applied where the JSON's values, not its indentation, are what the
+ * model needs.
  */
 export function minifyJsonBlocks(
   countTokens: TokenCounter = approximateTokenCount,
@@ -210,13 +275,14 @@ export function minifyJsonBlocks(
       const notes: string[] = [];
       let tokensSaved = 0;
       const out = text.replace(/```json[ \t]*\n([\s\S]*?)\n?```/g, (match, body: string) => {
-        let parsed: unknown;
         try {
-          parsed = JSON.parse(body);
+          JSON.parse(body);
         } catch {
           return match; // not valid JSON — never touch it
         }
-        const minified = JSON.stringify(parsed);
+        // Validity is checked by parsing; the output is NOT rebuilt from the
+        // parsed value, which would rewrite numbers.
+        const minified = stripJsonWhitespace(body);
         const rebuilt = `\`\`\`json\n${minified}\n\`\`\``;
         if (rebuilt.length >= match.length) return match;
         tokensSaved += Math.max(0, countTokens(body) - countTokens(minified));

@@ -5,6 +5,7 @@ import {
   applyReducers,
   approximateTokenCount,
   collapseWhitespace,
+  compactJsonDocument,
   dedupeRepeatedBlocks,
   dedupeRepeatedLeadingBlock,
   minifyJsonBlocks,
@@ -250,6 +251,17 @@ describe("minifyJsonBlocks", () => {
     expect(result.text.length).toBeLessThan(pretty.length);
   });
 
+  it("keeps every number and string exactly as written", () => {
+    // A JSON.parse round trip would turn 1.0 into 1, 1e3 into 1000 and round
+    // the 20-digit identifier: a changed value, in a reducer labelled lossless.
+    const pretty = '```json\n{\n  "price": 1.0,\n  "id": 12345678901234567890,\n  "big": 1e3,\n  "neg": -0,\n  "note": "two  spaces, a \\"quote\\" and a \\\\ backslash",\n  "tags": [ "a b", "c" ]\n}\n```';
+    const result = minifyJsonBlocks().reduce(pretty);
+    expect(result.text).toBe(
+      '```json\n{"price":1.0,"id":12345678901234567890,"big":1e3,"neg":-0,"note":"two  spaces, a \\"quote\\" and a \\\\ backslash","tags":["a b","c"]}\n```',
+    );
+    expect(JSON.stringify(JSON.parse('{"id":12345678901234567890}'))).not.toContain("12345678901234567890");
+  });
+
   it("leaves invalid JSON and non-json fences byte-identical", () => {
     const notJson = "```json\nthis is not json\n```";
     expect(minifyJsonBlocks().reduce(notJson).text).toBe(notJson);
@@ -262,6 +274,83 @@ describe("minifyJsonBlocks", () => {
     const before = approximateTokenCount(text);
     const result = minifyJsonBlocks().reduce(text);
     expect(approximateTokenCount(result.text)).toBeLessThanOrEqual(before);
+  });
+});
+
+describe("compactJsonDocument", () => {
+  it("removes the whitespace between tokens of a whole JSON document", () => {
+    const pretty = JSON.stringify({ name: "alice", roles: ["admin", "user"], nested: { ok: true, none: null } }, null, 2);
+    const compact = compactJsonDocument(`${pretty}\n`);
+    expect(compact).toBe('{"name":"alice","roles":["admin","user"],"nested":{"ok":true,"none":null}}');
+    expect(JSON.parse(compact)).toEqual(JSON.parse(pretty));
+    expect(compactJsonDocument("  [\n  1,\n  2\n]")).toBe("[1,2]");
+  });
+
+  it("keeps every number, string and key exactly as written, in order", () => {
+    const pretty = [
+      "{",
+      '  "price": 1.0,',
+      '  "id": 12345678901234567890,',
+      '  "big": 1e3,',
+      '  "neg": -0,',
+      '  "note": "two  spaces,\\ta tab escape, a \\"quote\\" and a \\\\",',
+      '  "ends in a backslash": "path\\\\",',
+      '  "unicode": " non-breaking and \\u0041",',
+      '  "dup": 1,',
+      '  "dup": 2,',
+      '  "empty": { },',
+      '  "list": [ ]',
+      "}",
+    ].join("\n");
+    expect(compactJsonDocument(pretty)).toBe(
+      '{"price":1.0,"id":12345678901234567890,"big":1e3,"neg":-0,' +
+        '"note":"two  spaces,\\ta tab escape, a \\"quote\\" and a \\\\",' +
+        '"ends in a backslash":"path\\\\","unicode":" non-breaking and \\u0041",' +
+        '"dup":1,"dup":2,"empty":{},"list":[]}',
+    );
+  });
+
+  it("returns anything that is not one whole JSON object or array untouched", () => {
+    const untouched = [
+      "",
+      "   ",
+      "plain prose with { braces } in it",
+      '{ "a": 1, }', // trailing comma: not JSON
+      "{ 'a': 1 }", // single quotes: not JSON
+      '{ "a": 1 }\n{ "b": 2 }', // two documents (JSON lines)
+      'Result:\n{ "a": 1 }', // text before
+      '{ "a": 1 }\nDone.', // text after
+      '     1\t{\n     2\t  "a": 1\n     3\t}', // a numbered file read
+      '"  a bare string  "',
+      " 42 ",
+      "null",
+      '﻿{ "a": 1 }', // byte-order mark
+      '{"a":1,"b":[1,2,{"c":"d e"}]}', // already compact
+      "[ 1, 2", // truncated
+    ];
+    for (const text of untouched) expect(compactJsonDocument(text)).toBe(text);
+  });
+
+  it("is idempotent and never longer", () => {
+    const samples = [
+      JSON.stringify({ a: [1, 2, { b: "c d" }], e: "f\ng" }, null, 4),
+      JSON.stringify([{ id: 1 }, { id: 2 }], null, "\t"),
+      '{\r\n  "windows": "line endings"\r\n}\r\n',
+    ];
+    for (const sample of samples) {
+      const once = compactJsonDocument(sample);
+      expect(once.length).toBeLessThan(sample.length);
+      expect(compactJsonDocument(once)).toBe(once);
+      expect(JSON.parse(once)).toEqual(JSON.parse(sample));
+    }
+  });
+
+  it("leaves a document nested too deeply to parse untouched instead of throwing", () => {
+    const deep = `${"[ ".repeat(200_000)}${" ]".repeat(200_000)}`;
+    expect(() => compactJsonDocument(deep)).not.toThrow();
+    const result = compactJsonDocument(deep);
+    // Either the engine parsed it and it was compacted, or it was left alone.
+    expect(result === deep || result === "[".repeat(200_000) + "]".repeat(200_000)).toBe(true);
   });
 });
 

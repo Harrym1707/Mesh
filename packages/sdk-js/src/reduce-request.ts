@@ -1,6 +1,6 @@
 // Specific core modules, not the barrel — see the note in proxy.ts.
 import { anthropicCacheableMinimumTokens, publishedModelPrices } from "../../core/dist/src/model-prices.js";
-import { approximateTokenCount, dedupeRepeatedBlocks, dedupeRepeatedLeadingBlock, type TokenCounter } from "../../core/dist/src/token-reduction.js";
+import { approximateTokenCount, compactJsonDocument, dedupeRepeatedBlocks, dedupeRepeatedLeadingBlock, type TokenCounter } from "../../core/dist/src/token-reduction.js";
 import { minifyToolSchemas } from "../../core/dist/src/tool-schema.js";
 import { resolveModelId } from "../../core/dist/src/price-catalogue.js";
 
@@ -143,6 +143,33 @@ export type MeshTokenReductionConfig = {
    * tune `maximumTokens` (integer, at least 64).
    */
   freshToolResultCap?: boolean | { maximumTokens?: number };
+  /**
+   * Remove the layout whitespace from tool results that are JSON. Tools and
+   * MCP servers often return indented JSON, and an agent pays for every
+   * space and line break in it on each turn the result stays in the
+   * conversation.
+   *
+   * A result is touched only when the whole of it is one JSON object or
+   * array. It then parses to exactly the same document: every key, string
+   * and number is kept as written and in the same order (the text is never
+   * rebuilt from parsed values, so a 64-bit id or `1.0` is not re-typed).
+   * Anything else - prose, logs, a numbered file read, JSON with text around
+   * it - passes through byte-identical. Only tool output is read: genuine
+   * user text, system text and the model's own turns are never touched.
+   *
+   * Pure and idempotent, so every request re-emits the same bytes for the
+   * same result and the provider's exact-prefix cache keeps matching.
+   *
+   * OFF by default, and the caller's per-workload flag, for two reasons:
+   * - The indentation is not kept. Where a tool result is the raw bytes of a
+   *   JSON FILE the agent will then edit by matching text (`cat config.json`
+   *   followed by an exact-string edit), the model no longer sees the file's
+   *   own layout. Leave it off for such a workload.
+   * - Switching it on or off in the MIDDLE of a conversation changes results
+   *   already in the history once, so a client that caches re-writes its
+   *   cached prefix one time. Set it for a workload and leave it.
+   */
+  toolResultJson?: boolean;
   /**
    * Output budget, applied through the field each surface honours: Responses
    * max_output_tokens (set only when absent), Chat Completions
@@ -539,6 +566,56 @@ function capFreshToolResults(
       "injection, before first send (headlines, errors, file paths and MESH markers kept verbatim). These " +
       "tokens would have been billed once at the FULL input rate; history compaction only reaches their " +
       "cached rebills.",
+  });
+  return next;
+}
+
+/**
+ * Compact JSON tool results in a message array (see `toolResultJson`).
+ *
+ * Runs on every tool result on every request, with no turn boundary: the
+ * target is the first send of a result, and because the transform is a pure
+ * function of the result's text, re-walking the history re-emits the same
+ * bytes. Reads tool output only - Anthropic `tool_result` blocks, Chat
+ * `role: "tool"` messages and Responses `function_call_output` items. User,
+ * system, developer and assistant messages are never touched.
+ */
+function compactJsonToolResults(
+  input: unknown[],
+  countTokens: TokenCounter,
+  changes: MeshReductionChange[],
+): unknown[] {
+  const state = { bodies: 0 };
+  let savedTokens = 0;
+  const sizeOf = (value: unknown): number =>
+    countTokens(typeof value === "string" ? value : JSON.stringify(value) ?? "");
+  const next = input.map((message) => {
+    if (!isPlainObject(message)) return message;
+    const role = typeof message.role === "string" ? message.role : undefined;
+    if (role === "user") {
+      return transformUserToolResultBlocks(message, compactJsonDocument, countTokens, state, (saved) => {
+        savedTokens += saved;
+      });
+    }
+    // Responses-style tool output item, or a Chat-style tool message.
+    const field = message.type === "function_call_output" && typeof message.output === "string"
+      ? "output"
+      : role === "tool" && "content" in message ? "content" : undefined;
+    if (field === undefined) return message;
+    const bodiesBefore = state.bodies;
+    const compacted = transformBodyValue(message[field], compactJsonDocument, state);
+    if (state.bodies === bodiesBefore) return message;
+    savedTokens += Math.max(0, sizeOf(message[field]) - sizeOf(compacted));
+    return { ...message, [field]: compacted };
+  });
+
+  if (state.bodies === 0) return input;
+  changes.push({
+    lever: "tool-result-json-compaction",
+    lossless: true,
+    estimatedTokensSaved: savedTokens,
+    detail: `Removed the layout whitespace from ${state.bodies} JSON tool result(s). Each parses to the same ` +
+      "document, with every key, string and number as written; only the indentation is not kept.",
   });
   return next;
 }
@@ -1098,6 +1175,17 @@ export function reduceRequest(
     }
     if (typeof next.system === "string") {
       next.system = reduceSystemText(next.system, "system");
+    }
+
+    // JSON tool results, before the cap and compaction below, so both see
+    // the compact form on every request and stay byte-stable with it.
+    if (config.toolResultJson === true) {
+      if (Array.isArray(next.input)) {
+        next.input = compactJsonToolResults(next.input, countTokens, changes);
+      }
+      if (Array.isArray(next.messages)) {
+        next.messages = compactJsonToolResults(next.messages, countTokens, changes);
+      }
     }
 
     // Fresh tool-result capping, BEFORE history compaction: the cap targets

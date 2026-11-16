@@ -113,6 +113,10 @@ function applyLever(config: MeshTokenReductionConfig, lever: TheoLever): void {
     case "cross-turn-memory-dedup":
       config.crossTurnMemoryDedup = true;
       return;
+    case "tool-result-json-compaction":
+      // Never in the default policy: the operator adds it per workload.
+      config.toolResultJson = true;
+      return;
     case "fresh-tool-result-cap":
       config.freshToolResultCap = typeof p.maximumTokens === "number" ? { maximumTokens: p.maximumTokens } : true;
       return;
@@ -367,7 +371,7 @@ export function knownLeverIds(): string[] {
   return [
     "tool-schema-compaction", "tool-schema-description-trim", "unused-tool-removal", "duplicate-context-removal",
     "cache-prefix-repair", "stale-history-compaction", "cross-turn-memory-dedup",
-    "fresh-tool-result-cap", "output-cap", "execution-tier-flex",
+    "tool-result-json-compaction", "fresh-tool-result-cap", "output-cap", "execution-tier-flex",
     "cache-ttl-5m", "cache-ttl-1h",
     "output-effort-low", "output-effort-medium", "output-effort-high", "output-effort-xhigh", "output-effort-max",
   ];
@@ -390,6 +394,7 @@ export const ENFORCEABLE_LEVERS: readonly EnforceableLever[] = [
   { id: "cache-prefix-repair", label: "Cache-prefix repair", members: ["cache-prefix-repair"] },
   { id: "stale-history-compaction", label: "Stale-history compaction", members: ["stale-history-compaction"] },
   { id: "cross-turn-memory-dedup", label: "Cross-turn memory dedup", members: ["cross-turn-memory-dedup"] },
+  { id: "tool-result-json-compaction", label: "JSON tool-result compaction", members: ["tool-result-json-compaction"] },
   { id: "fresh-tool-result-cap", label: "Fresh tool-result cap", members: ["fresh-tool-result-cap"] },
   { id: "output-cap", label: "Output cap", members: ["output-cap"] },
   { id: "execution-tier-flex", label: "Execution-tier flex", members: ["execution-tier-flex"] },
