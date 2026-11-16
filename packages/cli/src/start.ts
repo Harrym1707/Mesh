@@ -276,17 +276,43 @@ export async function startProxyWithPolicy(
   // on an event always matches the policy that reduced it.
   const liveVerdicts = (modelId?: string): ReturnType<typeof bundleGateVerdicts> =>
     bundleGateVerdicts(cached.bundle, modelId ?? "");
-  const proxy = await startMeshProxy({
-    port,
-    ledgerDirectory: ledgerDir,
-    tokenReduction: liveReduction,
-    gateVerdicts: liveVerdicts,
-    blindFeaturesKey: blindKey(),
-    ...(capture ? { requestCapture: capture } : {}),
-    ...(upstreams.anthropicUpstream ? { anthropicUpstream: upstreams.anthropicUpstream } : {}),
-    ...(upstreams.openaiUpstream ? { openaiUpstream: upstreams.openaiUpstream } : {}),
-  });
+  let proxy: Awaited<ReturnType<typeof startMeshProxy>>;
+  try {
+    proxy = await startMeshProxy({
+      port,
+      ledgerDirectory: ledgerDir,
+      tokenReduction: liveReduction,
+      gateVerdicts: liveVerdicts,
+      blindFeaturesKey: blindKey(),
+      ...(capture ? { requestCapture: capture } : {}),
+      ...(upstreams.anthropicUpstream ? { anthropicUpstream: upstreams.anthropicUpstream } : {}),
+      ...(upstreams.openaiUpstream ? { openaiUpstream: upstreams.openaiUpstream } : {}),
+    });
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === "EADDRINUSE") throw new Error(await portInUseMessage(port));
+    throw cause;
+  }
   return { proxy, policy };
+}
+
+/**
+ * What to tell someone whose port is taken. The usual reason is that MESH is
+ * already running there (the always-on service, or another terminal), in which
+ * case nothing needs starting; otherwise another program has the port.
+ */
+export async function portInUseMessage(port: number): Promise<string> {
+  let isMesh = false;
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/mesh/health`, { signal: AbortSignal.timeout(1500) });
+    isMesh = response.ok && ((await response.json()) as { service?: string }).service === "mesh-proxy";
+  } catch {
+    isMesh = false;
+  }
+  return isMesh
+    ? `MESH is already running on port ${port}, so there is nothing to start: point your app at ` +
+      `http://127.0.0.1:${port} (see: mesh status). To run a second copy, add --port ${port + 1}.`
+    : `Port ${port} is in use by another program. Start MESH on a free port instead: add --port ${port + 1} ` +
+      `(and use that port in your base URL).`;
 }
 
 /**

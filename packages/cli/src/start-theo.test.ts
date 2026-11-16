@@ -63,7 +63,8 @@ describe("mesh start — Theo runs alongside the proxy", () => {
 
   function start(extra: string[], command: string[] = ["start", "--no-install"]): { output: () => string } {
     let text = "";
-    child = spawn(process.execPath, ["--import", "tsx", MAIN, ...command, "--port", "0", ...extra], {
+    const port = command.includes("--port") ? [] : ["--port", "0"];
+    child = spawn(process.execPath, ["--import", "tsx", MAIN, ...command, ...port, ...extra], {
       env: { ...process.env, HOME: home },
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -122,6 +123,27 @@ describe("mesh start — Theo runs alongside the proxy", () => {
 
     await sleep(2500); // more than two intervals
     expect(existsSync(join(home, ".mesh", "ledger", "theo", "local.json"))).toBe(false);
+  });
+
+  it("a taken port gets a sentence a person can act on, not a system error", { timeout: 40_000 }, async () => {
+    // Taken by another program.
+    provider = await stubProvider();
+    const takenPort = new URL(provider.url).port;
+    const other = start(["--no-theo"], ["proxy", "--port", takenPort]);
+    expect(await waitFor(() => child!.exitCode !== null)).toBe(true);
+    expect(child!.exitCode).toBe(1);
+    expect(other.output()).toContain(`Port ${takenPort} is in use by another program`);
+    expect(other.output()).not.toContain("EADDRINUSE");
+
+    // Taken by MESH itself.
+    const first = start(["--anthropic-base", provider.url, "--no-theo"], ["proxy"]);
+    expect(await waitFor(() => /proxy\s+http:\/\/127\.0\.0\.1:\d+/.test(first.output()))).toBe(true);
+    const meshPort = /proxy\s+http:\/\/127\.0\.0\.1:(\d+)/.exec(first.output())![1]!;
+    const firstChild = child!;
+    const second = start(["--no-theo"], ["proxy", "--port", meshPort]);
+    expect(await waitFor(() => child!.exitCode !== null)).toBe(true);
+    expect(second.output()).toContain(`MESH is already running on port ${meshPort}`);
+    child = firstChild; // afterEach stops the one still running
   });
 
   it("mesh proxy serves any app, says how to connect, and leaves Claude Code's settings alone", { timeout: 40_000 }, async () => {
