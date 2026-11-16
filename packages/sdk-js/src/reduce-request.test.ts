@@ -811,3 +811,45 @@ describe("reduceRequest — unused-tool removal (dropTools)", () => {
     expect(summary.changes.some((c) => c.lever === "tool-schema-compaction")).toBe(true);
   });
 });
+
+describe("reduceRequest: the default levers leave a tool's schema resolvable", () => {
+  // What the proxy applies when nothing is configured.
+  const DEFAULTS = { toolSchemas: true, duplicateContext: true, repairCachePrefix: true } as const;
+
+  function toolRequest(inputSchema: Record<string, unknown>): Record<string, unknown> {
+    return {
+      model: "claude-sonnet-5-5",
+      max_tokens: 64,
+      messages: [{ role: "user", content: "Create the order." }],
+      tools: [{ name: "create_order", description: "Create an order for a customer.", input_schema: inputSchema }],
+    };
+  }
+
+  function sentSchema(reduced: unknown): Record<string, unknown> {
+    return ((reduced as { tools: Array<{ input_schema: Record<string, unknown> }> }).tools[0]!).input_schema;
+  }
+
+  it("sends a nested-model tool with its $defs, so its $ref has a target", () => {
+    const schema = {
+      type: "object",
+      properties: { customer: { $ref: "#/$defs/Customer" } },
+      required: ["customer"],
+      $defs: { Customer: { type: "object", properties: { id: { type: "string" } }, required: ["id"] } },
+    };
+    const { request: reduced, summary } = reduceRequest(toolRequest(schema), DEFAULTS);
+    expect(sentSchema(reduced)).toEqual(schema);
+    // Nothing was removed from this tool, so the lever records no saving on it.
+    expect(summary.changes.some((c) => c.lever === "tool-schema-compaction")).toBe(false);
+  });
+
+  it("sends parameters named $id and $schema, with required still satisfied", () => {
+    const schema = {
+      type: "object",
+      properties: { $id: { type: "string" }, $schema: { type: "string" }, body: { type: "string" } },
+      required: ["$id", "body"],
+    };
+    const { request: reduced } = reduceRequest(toolRequest(schema), DEFAULTS);
+    expect(sentSchema(reduced)).toEqual(schema);
+  });
+});
+

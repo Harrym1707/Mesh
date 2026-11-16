@@ -5,6 +5,42 @@ Staged 2026-11-12 on `theo/autonomous-agent`. It reaches `main` through
 to `main`, deployed or published.** Every step below that changes what the
 public gets is the founder's to take.
 
+## Update 2026-11-16: tool-schema fix, hosted runtime `73dcdfe`
+
+Written after the release was merged; the sections below are as they stood
+before the merge and still name build `df70f3f`.
+
+- **Where things stand.** PR #40 was merged on 2026-11-15 (`main` `0f64c08`)
+  and the website serves build `df70f3f`. npm is not published. The Token
+  Engineering Lab (PR #33) and a test time limit (PR #41) are on `main` too;
+  neither changed the website.
+- **The bug.** The default-on `tool-schema-compaction` lever removed `$defs`
+  from tool schemas, leaving every `$ref` into it pointing at nothing. It also
+  removed parameters that were named `$id`, `$schema` or `$comment`, and
+  stripped those keys from `default`, `const`, `enum` and `examples` data.
+  Build `df70f3f` has it, and so does the code on `main` up to `b52a3cf`.
+- **The fix.** Commit `73dcdfe`. `$defs` is never removed; the keys of
+  `properties` and the other name-to-schema maps are treated as names; data
+  values are copied through untouched; `$id` is kept on any tool that uses a
+  reference. Nothing else about the lever changed.
+- **The hosted runtime** is rebuilt at `73dcdfe` (commit `1a70246`). Manifest:
+  build `73dcdfe`, sha256
+  `0c75411453dcff5f1c9851a89c99eab9234029e8ae95ee2bde17b0e00c79090e`. It is
+  also the first hosted build made from a tree that contains everything on
+  `main`, including the Lab's unused `minifyJsonBlocks`.
+- **Checked on 2026-11-16 (macOS arm64, Node 24).** 971 tests in 67 files at
+  default timeouts; `tsc -b` and `typecheck:lab`; the CLI package and its two
+  smoke tests. One request with a nested-model tool sent through each built
+  runtime to a stand-in provider: build `df70f3f` forwards it without `$defs`,
+  build `73dcdfe` forwards the schema exactly as the client sent it. Not
+  checked: any real provider, so what a provider does with the dangling
+  reference is still unknown; the upgrade and rollback on this build.
+- **To ship it.** Merge the pull request that carries these commits with
+  **"Create a merge commit"** (the runtime is stamped with `73dcdfe`, which a
+  squash or rebase would remove from `main`). `pages.yml` then deploys by
+  itself. In step 2 below expect `"version": "73dcdfe"`, the sha256 above and
+  `mesh 0.2.0 (build 73dcdfe)`. Cut the `v0.2.0` tag (step 3) only after that.
+
 ## What is staged
 
 | Item | State |
