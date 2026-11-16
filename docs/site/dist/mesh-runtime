@@ -1823,7 +1823,23 @@ function stampedSystemPrefix(stamped) {
   return [stamped.model ?? null, stamped.tools ?? null, span];
 }
 function reduceRequest(request, config = {}) {
-  const countTokens = config.countTokens ?? approximateTokenCount;
+  return reduceRequestWithCounter(
+    request,
+    config,
+    memoizeTokenCounter(config.countTokens ?? approximateTokenCount)
+  );
+}
+function memoizeTokenCounter(countTokens) {
+  const counted = /* @__PURE__ */ new Map();
+  return (text) => {
+    const known = counted.get(text);
+    if (known !== void 0) return known;
+    const tokens = countTokens(text);
+    counted.set(text, tokens);
+    return tokens;
+  };
+}
+function reduceRequestWithCounter(request, config, countTokens) {
   const changes = [];
   const unchanged = (reason) => ({
     request,
@@ -6943,7 +6959,7 @@ var init_start = __esm({
     init_claude_wiring();
     init_cta();
     init_update();
-    BUILD_COMMIT = true ? "a2d2d87" : process.env.MESH_BUILD_COMMIT ?? "dev";
+    BUILD_COMMIT = true ? "65dcbec" : process.env.MESH_BUILD_COMMIT ?? "dev";
     MESH_HOME = join5(homedir3(), ".mesh");
     CLAUDE_SETTINGS = join5(homedir3(), ".claude", "settings.json");
     WIRING_STATE = join5(MESH_HOME, "claude-wiring.json");
