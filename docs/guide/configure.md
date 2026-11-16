@@ -55,6 +55,48 @@ Point its Anthropic base URL at the proxy and leave your key where it is:
 
 For OpenAI-style configuration in any of these, use `http://127.0.0.1:8787/v1`.
 
+## Optional: compact JSON tool results
+
+Off by default. When an agent's tools or MCP servers return indented JSON, this
+removes the whitespace between the JSON tokens before the result is sent. The
+result parses to exactly the same document: every key, string and number is kept
+as written. A tool result that is not one whole JSON object or array (a log, a
+file read with line numbers, JSON with other text around it) is left untouched,
+and so is everything that is not tool output.
+
+Turn it on per workload.
+
+With the proxy (`mesh start` / `mesh install`), add the lever to the `levers`
+list in `~/.mesh/theo-policy.json`. A running proxy picks the change up on its
+next request:
+
+```json
+{ "lever": "tool-result-json-compaction", "class": "lossless" }
+```
+
+With the SDK:
+
+```js
+const client = withMesh(new Anthropic(), {
+  applicationId: "my-app",
+  tokenReduction: { toolSchemas: true, duplicateContext: true, repairCachePrefix: true, toolResultJson: true },
+});
+```
+
+Two things to know before you turn it on:
+
+- **The indentation is not kept.** If your agent reads a JSON file's raw bytes
+  through a tool (for example `cat config.json`) and then edits that file by
+  matching text exactly, it no longer sees the file's own layout. Leave the
+  lever off for that workload.
+- **Change it between conversations, not during one.** Switching it on or off
+  mid-conversation changes tool results already in the history once, so a
+  client that uses prompt caching (Claude Code does) re-writes its cached
+  prefix one time.
+
+`mesh theo --apply` writes Theo's own policy over the default one, so a lever
+you added by hand is not carried over; add it again afterwards.
+
 ## Your key never leaves
 
 Whatever the client, MESH only rewrites the base URL. Your API key stays in the
