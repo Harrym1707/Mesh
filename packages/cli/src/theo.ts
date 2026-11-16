@@ -41,6 +41,7 @@ import {
   reconsiderLever,
   rejectProposal,
   runTheoCycle,
+  theoLeverIds,
   type TheoAutonomyLevel,
   type TheoCycleResult,
   type TheoMemory,
@@ -52,7 +53,7 @@ import {
   saveTheoMemory,
 } from "../../sdk-js/src/theo-agent-store.js";
 import { proveCandidates } from "../../sdk-js/src/theo-gate.js";
-import { asBundle, effectiveQualityCeiling, mergePolicyIntoBundle, type TheoPolicy, type TheoPolicyBundle } from "../../sdk-js/src/theo-policy.js";
+import { asBundle, effectiveQualityCeiling, keptOperatorLevers, mergePolicyIntoBundle, type TheoPolicy, type TheoPolicyBundle } from "../../sdk-js/src/theo-policy.js";
 
 const USAGE = `Usage: mesh theo [options]
 
@@ -567,9 +568,10 @@ export async function runTheoOnce(args: TheoRunOptions): Promise<TheoCycleResult
   say(`\nMemory saved to ${memoryPath}`);
 
   if (args.apply) {
-    const policyPath = applyPolicyToProxy(result.memory.policy, args.route, args.policyPath);
+    const { policyPath, kept } = applyPolicyToProxy(result.memory.policy, args.route, args.policyPath);
     const where = args.route ? `route '${args.route}'` : "the default route";
     say(`Applied policy to ${where} in ${policyPath} — a running proxy picks it up on its next request.`);
+    if (kept.length > 0) say(keptLeversLine(kept));
   }
   return result;
 }
@@ -626,9 +628,10 @@ export function runTheoDecision(args: TheoRunOptions): void {
   saveTheoMemory(memoryPath, decision.memory);
   console.log(decision.message);
   if (args.accept !== undefined) {
-    const policyPath = applyPolicyToProxy(decision.memory.policy, args.route, args.policyPath);
+    const { policyPath, kept } = applyPolicyToProxy(decision.memory.policy, args.route, args.policyPath);
     const where = args.route ? `route '${args.route}'` : "the default route";
     console.log(`Live on ${where} via ${policyPath} — a running proxy picks it up on its next request.`);
+    if (kept.length > 0) console.log(keptLeversLine(kept));
   }
 }
 
@@ -676,8 +679,17 @@ export async function theoWatch(options: {
  * the policy lands as that route's override; without one, as the bundle's default.
  * Either way every OTHER route is preserved, so optimising one model never wipes
  * another model's proven policy.
+ *
+ * Levers a person added to the file by hand are kept too. Theo's policy comes
+ * from his own memory and has never heard of them, and this runs on every
+ * background cycle of `mesh start`, so without that an opt-in lever would be
+ * gone within one cycle of the first traffic. Returns the ids it kept.
  */
-function applyPolicyToProxy(policy: TheoPolicy, route: string | undefined, path?: string): string {
+function applyPolicyToProxy(
+  policy: TheoPolicy,
+  route: string | undefined,
+  path?: string,
+): { policyPath: string; kept: string[] } {
   const policyPath = path ?? join(homedir(), ".mesh", "theo-policy.json");
   mkdirSync(dirname(policyPath), { recursive: true });
   let existing: TheoPolicyBundle | undefined;
@@ -688,9 +700,16 @@ function applyPolicyToProxy(policy: TheoPolicy, route: string | undefined, path?
       existing = undefined; // a corrupt file is replaced, not merged into
     }
   }
-  const bundle = mergePolicyIntoBundle(existing, policy, route, new Date().toISOString());
+  const owned = theoLeverIds();
+  const kept = keptOperatorLevers(existing, policy, route, owned).map((lever) => lever.lever);
+  const bundle = mergePolicyIntoBundle(existing, policy, route, new Date().toISOString(), { theoLeverIds: owned });
   writeFileSync(policyPath, `${JSON.stringify(bundle, null, 2)}\n`, { mode: 0o600 });
-  return policyPath;
+  return { policyPath, kept };
+}
+
+/** One line telling the user which of their own levers were left in place. */
+function keptLeversLine(kept: string[]): string {
+  return `Kept ${kept.length === 1 ? "the lever" : "the levers"} you added by hand: ${kept.join(", ")}.`;
 }
 
 /**

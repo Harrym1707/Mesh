@@ -35,6 +35,17 @@ The sections below describe 0.2.1 and 0.2.0 as they stood.
   is not carried over, and nothing tells them. A tester who turns the lever on
   and later applies a Theo proposal has to add it again.
   `docs/guide/configure.md` says so. Read from the code; not changed in 0.2.2.
+  **Correction, 2026-11-16 (after release):** this understated it. The same
+  write happens on every background Theo cycle, which `mesh start`,
+  `mesh proxy` and the installed service run by default (at startup and
+  every 15 minutes, once the ledger has any traffic). Reproduced on the
+  shipped runtime `d83ee89` with a 2-second interval: the lever was in the
+  file, the first request was compacted, Theo's next cycle rewrote the file
+  without it, and the next request was forwarded uncompacted. So on 0.2.2
+  the policy-file way of turning the lever on does not last unless the
+  proxy runs with `--no-theo`. The SDK option is not affected. Fixed on the
+  branch `fix/theo-apply-keeps-levers`; it needs a later build to reach
+  users.
 - **Version.** Both packages are 0.2.2 (`d83ee89`), because `v0.2.1` points at
   a commit without the lever and npm will not publish a version twice.
 - **The hosted runtime** is rebuilt at `d83ee89`, from a clean worktree.
