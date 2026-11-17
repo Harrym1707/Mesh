@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import type { TokenPrice } from "./cost.js";
 import type { BillableEvent } from "./savings-ledger.js";
 import {
+  ANTHROPIC_CACHE_1H,
   ANTHROPIC_CACHE_5M,
   ANTHROPIC_NO_CACHE,
   OPENAI_CACHE,
+  anthropicCachePolicy,
   buildAgentSession,
   estimateCompactionEconomics,
   estimateCompactionFromLedger,
@@ -146,6 +148,41 @@ describe("cache simulator", () => {
     expect(() => simulateCache([], OPENAI_CACHE, price)).toThrow(/at least one request/);
     expect(() => simulateCache(stream([filler(100)]), { ...OPENAI_CACHE, incrementTokens: 0 }, price))
       .toThrow(/at least 1 token/);
+  });
+});
+
+describe("anthropicCachePolicy", () => {
+  it("keeps the 1,024 minimum for a non-Haiku model id", () => {
+    const policy = anthropicCachePolicy(ANTHROPIC_CACHE_5M, "claude-sonnet-5-5-latest");
+    expect(policy.minimumCacheableTokens).toBe(1_024);
+    expect(policy).toEqual(ANTHROPIC_CACHE_5M);
+  });
+
+  it("raises the minimum to 2,048 for a Haiku-class model id", () => {
+    const policy = anthropicCachePolicy(ANTHROPIC_CACHE_5M, "claude-haiku-5-5-latest");
+    expect(policy.minimumCacheableTokens).toBe(2_048);
+    // Everything else about the policy (TTL, write/read multipliers) is untouched.
+    expect(policy).toEqual({ ...ANTHROPIC_CACHE_5M, minimumCacheableTokens: 2_048 });
+  });
+
+  it("a Haiku-class prefix between 1,024 and 2,048 tokens misses where the bare constant would have hit", () => {
+    const prompt = filler(800); // ~1,600 approximated tokens: above 1,024, below 2,048.
+    const defaultPolicyResult = simulateCache(stream([prompt, prompt]), ANTHROPIC_CACHE_5M, price);
+    const haikuPolicyResult = simulateCache(
+      stream([prompt, prompt]),
+      anthropicCachePolicy(ANTHROPIC_CACHE_5M, "claude-haiku-5-5-latest"),
+      price,
+    );
+    expect(defaultPolicyResult.cachedInputTokens).toBeGreaterThan(0);
+    expect(haikuPolicyResult.cachedInputTokens).toBe(0);
+    expect(haikuPolicyResult.calls[1]!.missReason).toBe("below-minimum");
+  });
+
+  it("carries the 1h TTL's own write multiplier through unchanged", () => {
+    const policy = anthropicCachePolicy(ANTHROPIC_CACHE_1H, "claude-haiku-5-5-latest");
+    expect(policy.writeMultiplier).toBe(ANTHROPIC_CACHE_1H.writeMultiplier);
+    expect(policy.ttlSeconds).toBe(ANTHROPIC_CACHE_1H.ttlSeconds);
+    expect(policy.minimumCacheableTokens).toBe(2_048);
   });
 });
 

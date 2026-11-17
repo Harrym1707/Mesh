@@ -1,4 +1,5 @@
 import { estimateTokenCost, type TokenPrice } from "./cost.js";
+import { anthropicCacheableMinimumTokens } from "./model-prices.js";
 
 /**
  * Composable cost-reduction model.
@@ -310,7 +311,7 @@ export function projectSavings(
   profile: WorkloadProfile,
   levers: Lever[],
   price: TokenPrice,
-  options: { minimumCacheableTokens?: number } = {},
+  options: { minimumCacheableTokens?: number; modelId?: string } = {},
 ): SavingsProjection {
   if (!Number.isInteger(profile.requests) || profile.requests < 1) {
     throw new Error("A workload profile needs at least one request.");
@@ -327,7 +328,14 @@ export function projectSavings(
       throw new Error(`Lever ${lever.id} roundTripMultiplier must be a positive finite number.`);
     }
   }
-  const minimumCacheable = options.minimumCacheableTokens ?? 1024;
+  // An explicit minimum wins outright; otherwise a known model id resolves
+  // the real per-class minimum (2,048 for Haiku-class, 1,024 otherwise) so a
+  // projection for a Haiku-class workload cannot assume a prefix caches
+  // below the length the provider actually requires. Unknown/absent model
+  // ids keep the previous 1,024 default.
+  const minimumCacheable =
+    options.minimumCacheableTokens ??
+    (options.modelId === undefined ? 1024 : anthropicCacheableMinimumTokens(options.modelId));
   const warnings: string[] = [];
 
   const remaining: Record<WorkloadSegment, number> = { ...profile.segments };
