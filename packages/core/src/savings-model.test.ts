@@ -110,6 +110,44 @@ describe("projectSavings", () => {
     expect(result.warnings.some((warning) => /cacheable minimum/.test(warning))).toBe(true);
   });
 
+  it("resolves the cacheable minimum from a Haiku-class model id, not the 1,024 default", () => {
+    const withBetween = profile({
+      segments: { ...profile().segments, toolSchemas: 1_500 },
+      stableSegments: ["toolSchemas"],
+      requests: 2,
+    });
+    const defaultMinimum = projectSavings(withBetween, [], cachingPrice);
+    expect(defaultMinimum.cachedInputTokens).toBeGreaterThan(0);
+
+    const haikuMinimum = projectSavings(withBetween, [], cachingPrice, { modelId: "claude-haiku-5-5-latest" });
+    expect(haikuMinimum.cachedInputTokens).toBe(0);
+    expect(haikuMinimum.warnings.some((warning) => /cacheable minimum/.test(warning))).toBe(true);
+  });
+
+  it("keeps the 1,024 default for a non-Haiku model id", () => {
+    const withBetween = profile({
+      segments: { ...profile().segments, toolSchemas: 1_500 },
+      stableSegments: ["toolSchemas"],
+      requests: 2,
+    });
+    const defaultMinimum = projectSavings(withBetween, [], cachingPrice);
+    const sonnetMinimum = projectSavings(withBetween, [], cachingPrice, { modelId: "claude-sonnet-5-5-latest" });
+    expect(sonnetMinimum.cachedInputTokens).toBe(defaultMinimum.cachedInputTokens);
+  });
+
+  it("lets an explicit minimumCacheableTokens override a model id", () => {
+    const withBetween = profile({
+      segments: { ...profile().segments, toolSchemas: 1_500 },
+      stableSegments: ["toolSchemas"],
+      requests: 2,
+    });
+    const result = projectSavings(withBetween, [], cachingPrice, {
+      modelId: "claude-haiku-5-5-latest",
+      minimumCacheableTokens: 1_024,
+    });
+    expect(result.cachedInputTokens).toBeGreaterThan(0);
+  });
+
   it("projects no caching saving when the price has no cached rate", () => {
     const result = projectSavings(profile({ stableSegments: ["toolSchemas"] }), [], plainPrice);
     expect(result.cachedInputTokens).toBe(0);

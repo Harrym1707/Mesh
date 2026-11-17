@@ -1,4 +1,5 @@
 import { estimateTokenCost, type TokenPrice } from "./cost.js";
+import { anthropicCacheableMinimumTokens } from "./model-prices.js";
 import type { BillableEvent } from "./savings-ledger.js";
 import { approximateTokenCount, type TokenCounter } from "./token-reduction.js";
 
@@ -91,6 +92,23 @@ export const ANTHROPIC_CACHE_1H: CachePolicy = {
   writeMultiplier: 2,
   readMultiplier: 0.1,
 };
+
+/**
+ * An Anthropic cache policy (`ANTHROPIC_CACHE_5M` or `ANTHROPIC_CACHE_1H`)
+ * with its minimum cacheable prefix corrected for the model actually being
+ * simulated: 2,048 tokens for Haiku-class models, 1,024 for everything else
+ * (`anthropicCacheableMinimumTokens`, the same rule the real stamping code
+ * in `packages/sdk-js/src/reduce-request.ts` already applies).
+ *
+ * The two exported constants above hardcode the 1,024 minimum, which is
+ * correct for every fixture MESH currently publishes (all Sonnet-class) but
+ * would silently overstate a cache hit below 2,048 tokens on Haiku-class
+ * traffic. Use this wherever the model being simulated is known; the bare
+ * constants remain the right choice when it is not (or is known non-Haiku).
+ */
+export function anthropicCachePolicy(base: CachePolicy, modelId: string): CachePolicy {
+  return { ...base, minimumCacheableTokens: anthropicCacheableMinimumTokens(modelId) };
+}
 
 export type SimulatedRequest = {
   /** Seconds since the run began. Drives TTL expiry. */
