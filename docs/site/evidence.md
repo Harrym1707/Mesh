@@ -30,6 +30,23 @@ generated fixtures (27/27).
 
 ## Open items (also stated wherever the affected number appears)
 
+- **Concurrent multi-agent fan-out races the cache (found 2026-11-18, see
+  `docs/rnd/2026-11-18-NOTES.md`).** The existing `cache-ttl-5m`/`cache-ttl-1h`
+  lever, applied with no concurrency awareness, LOSES money versus not
+  caching at all when several requests sharing one prefix are sent in the
+  same instant (every racer writes, none read) — measured at +16.2% worse
+  than uncached on a 3/5/10-sub-agent fixture
+  (`node --import tsx evals/run-fanout-race.ts`). No published figure above
+  is affected (they come from `run-agent-ab.ts`'s non-concurrent traffic),
+  but this is a real risk on multi-agent deployments today. A lossless fix
+  (`FanoutLatch`, `packages/sdk-js/src/fanout-latch.ts`) ships opt-in and
+  off by default, pending a real TTFB measurement to size its hold cap —
+  not yet validated on live traffic.
+- Anthropic's own docs (fetched 2026-11-18) list Sonnet 5.5's and Opus 5.5's
+  cacheable minimum as 512 tokens; `model-prices.ts`'s
+  `anthropicCacheableMinimumTokens` (captured 2026-10-08) still returns
+  1,024 for both. Flagged for verification, not yet corrected — see the
+  2026-11-18 NOTES.
 - Per-model cacheable minimums not yet simulated → 34.3% may overstate on some
   models.
 - Anthropic batch rate NOW catalogued (2026-10-27): the pricing page states a

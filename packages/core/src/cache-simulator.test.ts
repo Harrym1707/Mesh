@@ -32,6 +32,53 @@ function stream(prompts: string[], spacingSeconds = 10): SimulatedRequest[] {
   }));
 }
 
+describe("concurrent fan-out (respondsAfterSeconds)", () => {
+  const sharedPrefix = filler(3_000);
+
+  it("two true-concurrent racers on the same prefix both miss and both write, exactly as Anthropic documents", () => {
+    const requests: SimulatedRequest[] = [
+      { atSeconds: 0, prompt: `${sharedPrefix}\nTask A`, outputTokens: 50, respondsAfterSeconds: 1.5 },
+      { atSeconds: 0, prompt: `${sharedPrefix}\nTask B`, outputTokens: 50, respondsAfterSeconds: 1.5 },
+    ];
+    const result = simulateCache(requests, ANTHROPIC_CACHE_5M, price);
+    expect(result.hitRate).toBe(0);
+    expect(result.cachedInputTokens).toBe(0);
+    expect(result.calls.every((call) => call.writtenInputTokens > 0)).toBe(true);
+  });
+
+  it("holding the second racer past the first's response-start converts its write into a read", () => {
+    const requests: SimulatedRequest[] = [
+      { atSeconds: 0, prompt: `${sharedPrefix}\nTask A`, outputTokens: 50, respondsAfterSeconds: 1.5 },
+      // Held exactly to the leader's time-to-first-byte, as FanoutLatch would.
+      { atSeconds: 1.5, prompt: `${sharedPrefix}\nTask B`, outputTokens: 50 },
+    ];
+    const result = simulateCache(requests, ANTHROPIC_CACHE_5M, price);
+    expect(result.calls[0]!.writtenInputTokens).toBeGreaterThan(0);
+    expect(result.calls[1]!.writtenInputTokens).toBe(0);
+    expect(result.calls[1]!.cachedInputTokens).toBeGreaterThan(0);
+  });
+
+  it("releasing the follower even one second early still loses the race", () => {
+    const requests: SimulatedRequest[] = [
+      { atSeconds: 0, prompt: `${sharedPrefix}\nTask A`, outputTokens: 50, respondsAfterSeconds: 1.5 },
+      { atSeconds: 0.5, prompt: `${sharedPrefix}\nTask B`, outputTokens: 50 },
+    ];
+    const result = simulateCache(requests, ANTHROPIC_CACHE_5M, price);
+    expect(result.calls[1]!.cachedInputTokens).toBe(0);
+    expect(result.calls[1]!.writtenInputTokens).toBeGreaterThan(0);
+  });
+
+  it("omitting respondsAfterSeconds reproduces the prior instant-availability behaviour exactly", () => {
+    const requests: SimulatedRequest[] = [
+      { atSeconds: 0, prompt: `${sharedPrefix}\nTask A`, outputTokens: 50 },
+      { atSeconds: 0.001, prompt: `${sharedPrefix}\nTask B`, outputTokens: 50 },
+    ];
+    const result = simulateCache(requests, ANTHROPIC_CACHE_5M, price);
+    expect(result.calls[1]!.cachedInputTokens).toBeGreaterThan(0);
+    expect(result.calls[1]!.writtenInputTokens).toBe(0);
+  });
+});
+
 describe("cache simulator", () => {
   it("caches nothing below the provider's minimum prefix length", () => {
     const short = filler(200);

@@ -480,3 +480,100 @@ describe("MESH proxy — provably-blind learning stream", () => {
     expect(() => readFileSync(join(dir, "plain-anthropic.features.jsonl"), "utf8")).toThrow();
   });
 });
+
+describe("fanoutLatch (opt-in cache-race repair)", () => {
+  // Cleared past Anthropic's cacheable minimum, same margin as the cacheTtl
+  // fixtures in reduce-request.test.ts.
+  const STABLE_SYSTEM = "You are a support agent on a production team. Follow the escalation policy exactly before replying. ".repeat(50);
+
+  /** Records each request's arrival time and answers after `delayMs`, so a held follower's late arrival is observable. */
+  function delayedStubUpstream(delayMs: number, arrivals: number[]): Promise<{ server: Server; url: string }> {
+    const server = createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on("data", (c: Buffer) => chunks.push(c));
+      req.on("end", () => {
+        arrivals.push(Date.now());
+        const raw = Buffer.concat(chunks).toString("utf8");
+        const inputTokens = Math.ceil(raw.length / 4);
+        setTimeout(() => {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({
+            id: "msg_stub",
+            content: [{ type: "text", text: "ok" }],
+            usage: { input_tokens: inputTokens, output_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+          }));
+        }, delayMs);
+      });
+    });
+    return new Promise((resolve) => {
+      server.listen(0, "127.0.0.1", () => {
+        const port = (server.address() as { port: number }).port;
+        resolve({ server, url: `http://127.0.0.1:${port}` });
+      });
+    });
+  }
+
+  const request = (content: string): AnyObject => ({
+    model: "claude-sonnet-4-5",
+    max_tokens: 50,
+    system: STABLE_SYSTEM,
+    messages: [{ role: "user", content }],
+  });
+
+  it("holds a follower's upstream dispatch until the leader's response has started", async () => {
+    const DELAY_MS = 200;
+    const arrivals: number[] = [];
+    const delayedUpstream = await delayedStubUpstream(DELAY_MS, arrivals);
+    const dir = mkdtempSync(join(tmpdir(), "mesh-proxy-fanout-on-"));
+    const p = await startMeshProxy({
+      ledgerDirectory: dir,
+      anthropicUpstream: delayedUpstream.url,
+      openaiUpstream: delayedUpstream.url,
+      tokenReduction: { cacheTtl: "5m" },
+      fanoutLatch: { holdCapMs: 5_000 },
+    });
+    try {
+      const [resA, resB] = await Promise.all([
+        fetch(`${p.url}/v1/messages`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(request("Task A: advance the plan.")) }),
+        fetch(`${p.url}/v1/messages`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(request("Task B: advance the plan.")) }),
+      ]);
+      expect(resA.status).toBe(200);
+      expect(resB.status).toBe(200);
+      expect(arrivals).toHaveLength(2);
+      const [first, second] = [...arrivals].sort((left, right) => left - right);
+      // The follower must not reach upstream until the leader's own response
+      // (DELAY_MS out) has started — a generous margin below DELAY_MS still
+      // proves it waited rather than racing.
+      expect(second! - first!).toBeGreaterThanOrEqual(DELAY_MS - 40);
+    } finally {
+      await p.close();
+      delayedUpstream.server.close();
+    }
+  });
+
+  it("races both requests to upstream when fanoutLatch is not configured (default, unchanged)", async () => {
+    const DELAY_MS = 200;
+    const arrivals: number[] = [];
+    const delayedUpstream = await delayedStubUpstream(DELAY_MS, arrivals);
+    const dir = mkdtempSync(join(tmpdir(), "mesh-proxy-fanout-off-"));
+    const p = await startMeshProxy({
+      ledgerDirectory: dir,
+      anthropicUpstream: delayedUpstream.url,
+      openaiUpstream: delayedUpstream.url,
+      tokenReduction: { cacheTtl: "5m" },
+      // fanoutLatch intentionally omitted.
+    });
+    try {
+      await Promise.all([
+        fetch(`${p.url}/v1/messages`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(request("Task A: advance the plan.")) }),
+        fetch(`${p.url}/v1/messages`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(request("Task B: advance the plan.")) }),
+      ]);
+      expect(arrivals).toHaveLength(2);
+      const [first, second] = [...arrivals].sort((left, right) => left - right);
+      expect(second! - first!).toBeLessThan(DELAY_MS / 2);
+    } finally {
+      await p.close();
+      delayedUpstream.server.close();
+    }
+  });
+});
