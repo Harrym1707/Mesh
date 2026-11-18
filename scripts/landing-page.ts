@@ -453,6 +453,8 @@ h2.rise{opacity:1;transform:none;transition:none}
 .field-ocean .overlap circle{fill:#F1F7FB}
 .field-ocean .btn{background:#F1F7FB;color:var(--ocean)}
 .field-ocean .btn:hover{background:#fff}
+.field-ocean .price-more{margin:var(--s3) 0 0;font-size:14px}
+.field-ocean .price-more a{color:#eaf4fb}
 
 /* ---------- sections ---------- */
 section{padding:var(--s7) var(--s4);position:relative;z-index:1}
@@ -821,7 +823,8 @@ The ledger is yours; this command recomputes the invoice from it with no network
         <li>If a move loses money, that loss is ours, not yours</li>
         <li>Already efficient? Our quote will say: <strong>do not pay us</strong></li>
       </ul>
-      <a class="btn" href="start.html">Run the quote on your own export</a>
+      <a class="btn" href="pricing.html">How billing works</a>
+      <p class="price-more"><a href="start.html">Or run the quote on your own export first</a></p>
     </div>
   </div>
 </section>
@@ -859,7 +862,7 @@ The ledger is yours; this command recomputes the invoice from it with no network
 
 <footer class="quiet-foot">
   <span>mesh &mdash; verified LLM cost reduction</span>
-  <span class="links"><a href="overview.html">Overview</a><a href="segments.html">Savings</a><a href="methodology.html">Methodology</a><a href="evidence.html">Evidence</a><a href="comparison.html">Comparison</a><a href="start.html">Get started</a><a href="faq.html">FAQ</a><a href="${repoUrl}/issues/new">Contact</a><a href="${repoUrl}">GitHub</a><a href="llms.txt">llms.txt</a><a href="terms.html">Terms</a><a href="privacy.html">Privacy</a></span>
+  <span class="links"><a href="overview.html">Overview</a><a href="segments.html">Savings</a><a href="methodology.html">Methodology</a><a href="evidence.html">Evidence</a><a href="comparison.html">Comparison</a><a href="start.html">Get started</a><a href="pricing.html">Pricing</a><a href="faq.html">FAQ</a><a href="${repoUrl}/issues/new">Contact</a><a href="${repoUrl}">GitHub</a><a href="llms.txt">llms.txt</a><a href="terms.html">Terms</a><a href="privacy.html">Privacy</a></span>
   <span class="right">2026 &middot; BUSL-1.1</span>
 </footer>
 
