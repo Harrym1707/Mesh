@@ -101,9 +101,11 @@ Theo manages himself follow his policy, so adding one of those by hand does
 not last; and if he proves a lever from the same either-or group as yours
 (another output effort level, the other cache lifetime), his replaces yours.
 
-**MESH 0.2.2 does not do this.** On 0.2.2 Theo's first background cycle after
-any traffic removes a hand-added lever from the file. Until you are on a later
-build, start the proxy with `--no-theo`, or use the SDK option.
+**MESH 0.2.2 does not do this; 0.2.3 and later do.** On 0.2.2 Theo's first
+background cycle after any traffic removes a hand-added lever from the file.
+`mesh version` says which you have, and `mesh update` moves you to the
+latest. If you stay on 0.2.2, start the proxy with `--no-theo`, or use the
+SDK option.
 
 ## Your key never leaves
 

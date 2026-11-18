@@ -1823,7 +1823,23 @@ function stampedSystemPrefix(stamped) {
   return [stamped.model ?? null, stamped.tools ?? null, span];
 }
 function reduceRequest(request, config = {}) {
-  const countTokens = config.countTokens ?? approximateTokenCount;
+  return reduceRequestWithCounter(
+    request,
+    config,
+    memoizeTokenCounter(config.countTokens ?? approximateTokenCount)
+  );
+}
+function memoizeTokenCounter(countTokens) {
+  const counted = /* @__PURE__ */ new Map();
+  return (text) => {
+    const known = counted.get(text);
+    if (known !== void 0) return known;
+    const tokens = countTokens(text);
+    counted.set(text, tokens);
+    return tokens;
+  };
+}
+function reduceRequestWithCounter(request, config, countTokens) {
   const changes = [];
   const unchanged = (reason) => ({
     request,
@@ -3662,7 +3678,31 @@ function upsertRoutePolicy(bundle, policy, at) {
   routes.push(policy);
   return { ...bundle, routes, updatedAt: at };
 }
-function mergePolicyIntoBundle(existing, policy, route, at) {
+function keptOperatorLevers(existing, policy, route, theoLeverIds2) {
+  if (existing === void 0) return [];
+  const routed = route !== void 0 && route !== "";
+  const governing = (routed ? (existing.routes ?? []).find((stored2) => stored2?.route === route) : void 0) ?? existing.default;
+  const stored = governing?.levers;
+  if (!Array.isArray(stored)) return [];
+  const theoOwned = new Set(theoLeverIds2);
+  const incomingLevers = Array.isArray(policy.levers) ? policy.levers : [];
+  const incoming = new Set(incomingLevers.map((lever) => lever.lever));
+  const groupOf = (id) => ENFORCEABLE_LEVERS.find((group) => group.members.includes(id))?.id ?? id;
+  const incomingGroups = new Set([...incoming].map(groupOf));
+  const kept = /* @__PURE__ */ new Map();
+  for (const entry3 of stored) {
+    if (typeof entry3 !== "object" || entry3 === null) continue;
+    const lever = entry3;
+    if (typeof lever.lever !== "string" || lever.lever === "") continue;
+    if (theoOwned.has(lever.lever) || incoming.has(lever.lever)) continue;
+    if (incomingGroups.has(groupOf(lever.lever))) continue;
+    kept.set(lever.lever, lever);
+  }
+  return [...kept.values()];
+}
+function mergePolicyIntoBundle(existing, incomingPolicy, route, at, options = {}) {
+  const kept = options.theoLeverIds === void 0 ? [] : keptOperatorLevers(existing, incomingPolicy, route, options.theoLeverIds);
+  const policy = kept.length === 0 ? incomingPolicy : { ...incomingPolicy, levers: [...incomingPolicy.levers, ...kept] };
   if (route !== void 0 && route !== "") {
     const base2 = existing ?? asBundle(defaultPolicy(policy.user, at));
     return upsertRoutePolicy(base2, { ...policy, route }, at);
@@ -4685,6 +4725,11 @@ var init_savings_model2 = __esm({
 });
 
 // packages/sdk-js/src/theo-agent.ts
+function theoLeverIds() {
+  const ids = new Set(defaultPolicy("", "").levers.map((lever) => lever.lever));
+  for (const entry3 of Object.values(ENFORCEABLE_BY_CONCEPT)) ids.add(entry3.lever);
+  return [...ids];
+}
 function recentDriftRates(events, windowEvents = DRIFT_WINDOW_EVENTS) {
   const size = Math.max(1, Math.floor(windowEvents));
   const recent = [...events].sort((a, b) => {
@@ -5932,9 +5977,10 @@ ${renderProposals(result.memory)}`);
   say(`
 Memory saved to ${memoryPath}`);
   if (args.apply) {
-    const policyPath = applyPolicyToProxy(result.memory.policy, args.route, args.policyPath);
+    const { policyPath, kept } = applyPolicyToProxy(result.memory.policy, args.route, args.policyPath);
     const where = args.route ? `route '${args.route}'` : "the default route";
     say(`Applied policy to ${where} in ${policyPath} \u2014 a running proxy picks it up on its next request.`);
+    if (kept.length > 0) say(keptLeversLine(kept));
   }
   return result;
 }
@@ -5980,9 +6026,10 @@ function runTheoDecision(args) {
   saveTheoMemory(memoryPath, decision.memory);
   console.log(decision.message);
   if (args.accept !== void 0) {
-    const policyPath = applyPolicyToProxy(decision.memory.policy, args.route, args.policyPath);
+    const { policyPath, kept } = applyPolicyToProxy(decision.memory.policy, args.route, args.policyPath);
     const where = args.route ? `route '${args.route}'` : "the default route";
     console.log(`Live on ${where} via ${policyPath} \u2014 a running proxy picks it up on its next request.`);
+    if (kept.length > 0) console.log(keptLeversLine(kept));
   }
 }
 function parseDuration(text) {
@@ -6019,10 +6066,15 @@ function applyPolicyToProxy(policy, route, path) {
       existing = void 0;
     }
   }
-  const bundle = mergePolicyIntoBundle(existing, policy, route, (/* @__PURE__ */ new Date()).toISOString());
+  const owned = theoLeverIds();
+  const kept = keptOperatorLevers(existing, policy, route, owned).map((lever) => lever.lever);
+  const bundle = mergePolicyIntoBundle(existing, policy, route, (/* @__PURE__ */ new Date()).toISOString(), { theoLeverIds: owned });
   writeFileSync2(policyPath, `${JSON.stringify(bundle, null, 2)}
 `, { mode: 384 });
-  return policyPath;
+  return { policyPath, kept };
+}
+function keptLeversLine(kept) {
+  return `Kept ${kept.length === 1 ? "the lever" : "the levers"} you added by hand: ${kept.join(", ")}.`;
 }
 function startBackgroundTheo(opts, intervalMs, onCycle) {
   let running = false;
@@ -6907,7 +6959,7 @@ var init_start = __esm({
     init_claude_wiring();
     init_cta();
     init_update();
-    BUILD_COMMIT = true ? "d83ee89" : process.env.MESH_BUILD_COMMIT ?? "dev";
+    BUILD_COMMIT = true ? "65dcbec" : process.env.MESH_BUILD_COMMIT ?? "dev";
     MESH_HOME = join5(homedir3(), ".mesh");
     CLAUDE_SETTINGS = join5(homedir3(), ".claude", "settings.json");
     WIRING_STATE = join5(MESH_HOME, "claude-wiring.json");
@@ -7378,7 +7430,7 @@ var init_diag = __esm({
     init_start();
     init_claude_wiring();
     WIRING_PATHS = { settingsPath: CLAUDE_SETTINGS, statePath: WIRING_STATE };
-    VERSION = true ? "0.2.2" : process.env.MESH_VERSION ?? "0.0.0";
+    VERSION = true ? "0.2.3" : process.env.MESH_VERSION ?? "0.0.0";
     LAUNCHD_LABEL = "dev.meshtoken.mesh";
     nodeMajor = () => Number.parseInt(process.versions.node.split(".")[0] ?? "0", 10);
   }
