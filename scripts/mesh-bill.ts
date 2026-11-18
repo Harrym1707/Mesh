@@ -129,8 +129,17 @@ async function main(): Promise<void> {
   console.log(`\nMode: ${isLive ? "LIVE" : "TEST"}  ·  period: ${period}  ·  fee: ${args.fee}%`);
   console.log(
     `Events in period: ${invoice.eventsConsidered}  ·  billed: ${invoice.eventsBilled}  ·  ` +
-    `unpriced (excluded, never billed): ${invoice.unpricedEvents}`,
+    `marked unpriced: ${invoice.unpricedEvents}`,
   );
+  if (invoice.unpricedEvents > 0) {
+    // An unpriced event bills only where a lever on it still carries a measured
+    // saving (an exact-cache hit has no provider usage to price). Say so, so the
+    // operator checks the statement before a draft goes to the customer.
+    console.log(
+      "  Note: events marked unpriced had no catalogue price for their usage. Any lever on them without a " +
+      "measured saving is not billed; check the mesh-verify statement for what was and was not billed.",
+    );
+  }
   console.log(`Net verified savings: $${invoice.netVerifiedSavingsUsd.toFixed(4)}  ·  verdict: ${invoice.verdict}`);
 
   if (plan.action === "do_not_bill") {
