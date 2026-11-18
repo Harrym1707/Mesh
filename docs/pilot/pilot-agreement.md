@@ -4,7 +4,7 @@
 > founder's act, not an agent's. This is a deliberately minimal,
 > plain-language understanding for a **pilot** — see "Still needed before
 > general availability" at the end. Have a lawyer review it before relying on
-> it. Updated 2026-11-16 for the MESH 0.2.1 setup path.
+> it. Updated 2026-11-18; the current release is MESH 0.2.3.
 >
 > **Nobody needs this document to use MESH.** MESH is open to everyone: no
 > signup, no account, no waiting list ([Get started](../site/start.md)). A

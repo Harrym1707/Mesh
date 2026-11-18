@@ -3,8 +3,8 @@
 Since release 0.2.1 (2026-11-16) there is one way to set MESH up: install it
 from the website, then run `mesh start` (Claude Code) or `mesh proxy` (any
 other app or agent). Everyone sets it up this way, in a pilot or not, so every
-ledger lands in the same place. The current release is 0.2.2 (also
-2026-11-16); it does not change the path.
+ledger lands in the same place. The current release is 0.2.3 (read
+2026-11-18); it does not change the path.
 
 **MESH is open to everyone:** no signup, no account, no waiting list. Nobody
 needs to ask before installing or using it ([Get started](../site/start.md)).
@@ -39,8 +39,9 @@ curl -fsSL https://www.mesh-technology.com/install.sh | sh
 
 Prefer npm? `npm install -g @harrym1707/mesh` gives the same `mesh` command.
 
-`mesh version` should print `mesh 0.2.1` or later (0.2.2 on a fresh install
-as of 2026-11-16). `mesh doctor` checks Node,
+`mesh version` should print `mesh 0.2.3` or later on a fresh install (read
+2026-11-18). An older install moves to it on its own, or at once with
+`mesh update`. `mesh doctor` checks Node,
 the proxy, the Claude Code wiring, the background service and the ledger.
 
 ### 2. Connect — one of two commands
@@ -130,12 +131,13 @@ in the [engagement list](./engagement-list.md):
    real traffic.
 4. **Levers.** A fresh install enforces three lossless levers: tool-schema
    compaction, duplicate-context removal and cache-prefix repair. A lossy
-   lever runs only if the partner accepts a proposal for it. Release 0.2.2
-   adds one opt-in lever, JSON tool-result compaction. It is off by default,
-   Theo does not adopt it, and it is left off in a pilot: on 0.2.2 a lever
-   added by hand to the policy file is removed again by Theo's next
-   background cycle (fixed on `main`, not yet released; see the
-   [configure guide](../guide/configure.md#optional-compact-json-tool-results)).
+   lever runs only if the partner accepts a proposal for it. There is also
+   one opt-in lever, JSON tool-result compaction, added in 0.2.2. It is off
+   by default and Theo does not adopt it. Whether to use it in a pilot is
+   agreed at kickoff; the
+   [configure guide](../guide/configure.md#optional-compact-json-tool-results)
+   says how, and when not to. It needs 0.2.3 or later: 0.2.2 dropped a lever
+   added by hand at Theo's next background cycle.
 5. **How the ledger reaches us** at the end of the window: the partner sends
    the ledger files from `~/.mesh/ledger/` (not the `.features.jsonl` files)
    after looking at them.
@@ -206,7 +208,8 @@ itself as `mesh 0.0.0 (build dev)` and does not update itself.
 
 The commands on this page were checked against the code on `main` on
 2026-11-16, and the `mesh proxy` path was run from source that day against a
-stand-in provider, with no real provider key. The details are in the dated
-section at the end of [VERIFICATION.md](./VERIFICATION.md). The release's own
-checks on the installed 0.2.1 and 0.2.2 builds are in
+stand-in provider, with no real provider key. On 2026-11-18 the same steps
+were run on 0.2.3 as installed from the website. The details are in the dated
+sections at the end of [VERIFICATION.md](./VERIFICATION.md). The release's own
+checks on the installed builds, 0.2.1 to 0.2.3, are in
 [the release runbook](../ops/release-0.2.0-runbook.md).

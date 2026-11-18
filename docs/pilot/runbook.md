@@ -10,7 +10,7 @@
 > second, the [Operator playbook](#operator-playbook--manual-billing), is the
 > founder's side: onboarding a partner, collecting and checking their ledger,
 > and drafting an invoice by hand. Setup follows the one path in
-> [onboarding.md](./onboarding.md), written for MESH 0.2.1 (2026-11-16).
+> [onboarding.md](./onboarding.md). Current release: MESH 0.2.3 (2026-11-18).
 >
 > **Draft.** Nothing here has been sent to anyone, and MESH has not yet run on
 > a customer's real traffic.

@@ -2,9 +2,8 @@
 
 For anyone running MESH on their own traffic. MESH is open to everyone: no
 signup, no account, no waiting list, and nobody to ask before you start.
-Written 2026-11-16 for MESH 0.2.1. It takes about five minutes to set up.
-
-**Draft.** This has not been sent to anyone. Sending it is the founder's act.
+Written 2026-11-16 and checked again on 2026-11-18 against MESH 0.2.3, the
+current release. It takes about five minutes to set up.
 
 ## What you are testing
 
@@ -39,7 +38,7 @@ Then check it:
 mesh version
 ```
 
-It should print `mesh 0.2.1` or later. If the command is not found, open a new
+It should print `mesh 0.2.3` or later. If the command is not found, open a new
 terminal window and try again, or run it by its full path:
 `~/.mesh/bin/mesh version`. `mesh doctor` checks the rest of the setup.
 

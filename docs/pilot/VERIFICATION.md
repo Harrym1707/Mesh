@@ -9,13 +9,15 @@
 >
 > - the release's own checks on the installed 0.2.1 build:
 >   [docs/ops/release-0.2.0-runbook.md](../ops/release-0.2.0-runbook.md),
->   section "Update 2026-11-16 (later)"; release 0.2.2, which followed the
->   same day and is what the website and npm serve now, is the section
->   "Update 2026-11-16 (evening)" of the same file;
+>   section "Update 2026-11-16 (later)"; releases 0.2.2 and 0.2.3 followed
+>   and have their own sections there ("evening" and "night"). 0.2.3 is what
+>   the website and npm serve on 2026-11-18;
 > - what the 0.2.1 path was and was not tested with: the tester guide's
 >   ["Known limits"](./TESTER-GUIDE.md#known-limits-2026-11-16);
 > - the smaller set of checks run for this document refresh:
->   [Checks run on 2026-11-16](#checks-run-on-2026-11-16) at the end of this
+>   [Checks run on 2026-11-16](#checks-run-on-2026-11-16) and, on the
+>   installed 0.2.3 build,
+>   [Checks run on 2026-11-18](#checks-run-on-2026-11-18), at the end of this
 >   file.
 >
 > Statements in the 2026-11-07 record about which path is canonical, the
@@ -145,3 +147,42 @@ against the stand-in; they are not savings figures.
   `mesh install`, Windows.
 - Any real provider, any real traffic, and creating a Stripe draft (that needs
   the operator's own test key).
+
+---
+
+# Checks run on 2026-11-18
+
+Run on **MESH 0.2.3 as installed from the live website**, for the tester
+guide. A separate record; nothing above was re-run or rewritten.
+
+**Setup.** A throwaway `HOME`. A stand-in provider on `127.0.0.1` that records
+what reaches it and returns a fixed answer. No real provider was called, no
+real key was used, and Claude Code itself was not run. Dollar amounts are
+artefacts of one test request; they are not savings figures.
+
+| Step | Result |
+|---|---|
+| `curl -fsSL https://www.mesh-technology.com/install.sh \| sh` | Installs `~/.mesh/bin/mesh` and adds it to the shell profile. |
+| `mesh version` | `mesh 0.2.3 (build 65dcbec)`. The live `mesh-version.json` names the same build; npm has `@harrym1707/mesh` and `@harrym1707/sdk` at 0.2.3 and `@harrym1707/verify` at 0.1.0. |
+| `mesh doctor` | Node, runtime `cached 65dcbec`, Claude Code wiring, service and ledger all reported; `Looks healthy.` |
+| `mesh proxy --port 18787 --anthropic-base <stand-in>` | Starts; prints the two `connect` lines, `claude left alone`, Theo at `autonomy: recommend`. |
+| `curl http://127.0.0.1:18787/mesh/health` | `{"status":"ok","service":"mesh-proxy"}` |
+| One `POST /v1/messages` with a made-up key | 200. The stand-in received `x-api-key` verbatim. The window printed `1 request seen` with `nothing to bill yet — do not pay us`. |
+| A second `mesh proxy` on the same port | `MESH is already running on port 18787 …`, and it names a free port. |
+| `mesh verify` | Four checks pass, including `cached runtime matches its download checksum`; `All checks passed.` |
+| `mesh status` | `1 requests seen · … (do_not_charge)`. It still reports `proxy not responding` for a proxy on a port other than 8787. |
+| Published `@harrym1707/verify@0.1.0` on `~/.mesh/ledger/proxy-anthropic.jsonl` | `chain verified: 1 record(s), every hash links`, the same verdict and figure as `mesh verify`. |
+| Ctrl+C on the proxy | `session done: 1 request …` and exit. |
+| `mesh start` in the same throwaway home | Writes `ANTHROPIC_BASE_URL` into `~/.claude/settings.json`; Ctrl+C prints `Claude Code restored.` and the file is gone again (there was none before). |
+| `mesh restore` afterwards | `Nothing to repair`. |
+
+**Read, not run:** both command tables in `packages/cli/src/main.ts` and
+`mesh-runtime.ts` on `main` at `51bee22` list every command the tester guide
+names, and every message the guide quotes is in the code. Since the guide was
+written, the only change under `packages/cli/src` and in the proxy is to
+`theo.ts` (0.2.3: Theo keeps a lever added by hand).
+
+**Not checked:** a real provider, real traffic, Claude Code driving the
+proxy, the OpenAI-style path, `mesh dashboard`, `mesh install`, Linux, and
+Windows under WSL.
+

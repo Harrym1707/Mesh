@@ -1,7 +1,7 @@
 # MESH pilot — plan
 
-> **Draft, updated 2026-11-16 for MESH 0.2.1.** No partner has been
-> approached or signed. Setup follows the one path in
+> **Draft, updated 2026-11-18. Current release: MESH 0.2.3.** No partner has
+> been approached or signed. Setup follows the one path in
 > [onboarding.md](./onboarding.md).
 >
 > **MESH is open to everyone:** no signup, no account, no waiting list.
@@ -124,10 +124,12 @@ net verified savings**, monthly; `do_not_charge` → $0.
   [docs/NUMBERS.md](../NUMBERS.md), and this pilot exists to replace them with
   real-traffic numbers.
 - **Billing outside a pilot.** The website states the price (1% of verified
-  savings, monthly, nothing else). How someone who uses MESH without a pilot
-  is invoiced is not defined in this kit; there are no accounts, no
-  self-serve signup and no automatic billing.
-- **First real traffic.** The 0.2.1 path was tested with Claude Code and the
+  savings, monthly, nothing else) and that no fee is due unless billing is
+  agreed in writing. The draft [order form](./order-form.md) is that
+  agreement in outline; it is unreviewed and leaves the contact address,
+  smallest invoice, currency, VAT wording and payment route blank. There are
+  no accounts, no self-serve signup and no automatic billing.
+- **First real traffic.** The setup path was tested with Claude Code and the
   official Anthropic and OpenAI SDKs against a stand-in provider, not against
   a real provider under a partner's workload. The tester guide's
   ["Known limits"](./TESTER-GUIDE.md#known-limits-2026-11-16) lists what is
