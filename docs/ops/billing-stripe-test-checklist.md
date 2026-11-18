@@ -19,7 +19,7 @@ and these steps create real objects only in Stripe **test mode**.
 ## Closed without Stripe
 
 Proven by `vitest run`, no live key, no network (820 passing when written
-against `integration/trunk` on 2026-11-10; 1,104 passing on
+against `integration/trunk` on 2026-11-10; 1,105 passing on
 `product/billing-safety-on-main`, 2026-11-18):
 
 - **Live-key guard** — the automated path (`createStripeClient` with no

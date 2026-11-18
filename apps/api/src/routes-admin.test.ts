@@ -165,6 +165,15 @@ describe("admin API", () => {
     expect(body.outcomes[0]!.outcome).toMatchObject({ status: "billed", rail: "bank_transfer" });
   });
 
+  it("refuses a billing run with no explicit period (400), and bills nothing", async () => {
+    const { ctx, accountId } = context();
+    const out = await call(ctx, "POST", "/v1/admin/billing/run", {}, "admin-secret");
+    expect(out.status).toBe(400);
+    expect((out.body as { error: string }).error).toBe("period_required");
+    // No durable billed-record was written: nothing was settled.
+    expect(ctx.accounts.get(accountId)!.billedPeriods ?? []).toHaveLength(0);
+  });
+
   it("issues a refund", async () => {
     const { ctx } = context();
     const out = await call(ctx, "POST", "/v1/admin/refunds", { paymentIntentId: "pi_123" }, "admin-secret");
