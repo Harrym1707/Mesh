@@ -58,15 +58,20 @@ reports `mode: "test"` by fiat).
 ### 2. `mesh-bill` creates a real DRAFT invoice in test mode
 Build core first (`corepack pnpm -s exec tsc -b`), have a test customer
 `cus_…`, and a valid ledger spool (e.g. from `mesh verify`'s export, or a
-synthetic chain). Then:
+synthetic chain). Run it with `--dry-run` first (no key needed, nothing sent) and
+read what it says it would create; then run it for real:
 ```bash
+node --import tsx scripts/mesh-bill.ts --dry-run \
+  --customer cus_TEST --period 2026-10 --fee 1 your-spool.jsonl
 STRIPE_TEST_SECRET_KEY=sk_test_xxx node --import tsx scripts/mesh-bill.ts \
   --customer cus_TEST --period 2026-10 --fee 1 your-spool.jsonl
 ```
 Proves: the create-invoice-then-attach-item sequence lands a non-empty **draft**
 in the Stripe dashboard (the empty-draft fix against Stripe's real
-`auto_advance=false` behaviour). Leave it as a draft; do not finalize unless you
-mean to.
+`auto_advance=false` behaviour), and that Stripe accepts the draft as a
+send-an-invoice draft: collection method "send invoice", due 14 days out
+(`--days-until-due <n>` changes it), no automatic collection. Leave it as a
+draft; do not finalize unless you mean to.
 
 ### 3. End-to-end settle through the worker (bank_transfer rail)
 Point the worker at a data dir holding a test account (`paymentChoice:
@@ -126,7 +131,13 @@ proves works independently of Stripe's 24h window).
 - `mesh-bill` requires `--period YYYY-MM` and refuses to run without it. It
   keeps no durable billed-record (only the worker does), so before finalizing
   check the dashboard for an existing invoice for the same customer and period.
+- `mesh-bill --dry-run` reads no key and sends nothing; run it before every
+  real run and compare the two outputs.
 - `mesh-bill` leaves a **draft** unless you pass `--finalize`; review it in the
-  dashboard before finalizing anything, even in test mode.
+  dashboard before finalizing anything, even in test mode. The draft is created
+  with `collection_method=send_invoice`: the customer is sent an invoice to pay
+  and nothing is collected from a saved payment method. Whether `--finalize`
+  also emails the invoice has not been checked against Stripe; send from the
+  dashboard.
 - These create objects in your Stripe **test** data only — clear them from the
   test dashboard afterwards if you like; they never touch live.

@@ -4,9 +4,15 @@
  * Reads the spools, recomputes the invoice (pure, from the hash-chained ledger),
  * verifies the chain, builds the Stripe plan (packages/core/stripe-billing),
  * and — through the shared, hardened createStripeClient — creates the Stripe
- * objects: a one-off invoice item for the fee and a DRAFT invoice. Nothing is
- * charged: the invoice is left as a draft for a human to review and finalize in
+ * objects: a DRAFT invoice and a one-off invoice item for the fee. Nothing is
+ * charged: the invoice is left as a draft for a human to review and send from
  * the dashboard, unless --finalize is passed explicitly.
+ *
+ * The draft is a SEND-AN-INVOICE draft (collection_method=send_invoice with
+ * days_until_due, default 14 — the same request the billing worker's
+ * bank-transfer rail makes): the customer is sent an invoice and pays it
+ * themselves. This script never asks Stripe to collect from a saved payment
+ * method.
  *
  * SAFETY RAILS (deliberate, do not remove):
  *   - LIVE path goes through createStripeClient's sk_live_ guard (allowLive is
@@ -22,13 +28,20 @@
  *     (about 24 hours). This script keeps NO durable billed-record: a re-run
  *     after that, or for a different amount, creates a second draft. Check the
  *     dashboard for an existing invoice for the period before finalizing.
+ *   - --dry-run reads NO Stripe key and never creates the Stripe client: it
+ *     verifies, recomputes, prints exactly what would be created, and exits.
+ *     Run it first, every time.
  *   - No prompt content is read or sent — only the usage-derived invoice totals.
  *
  * Usage:
+ *   node --import tsx scripts/mesh-bill.ts --dry-run \
+ *     --customer cus_XXX --period 2026-10 --fee 1 spool1.jsonl [spool2.jsonl ...]
  *   STRIPE_TEST_SECRET_KEY=... node --import tsx scripts/mesh-bill.ts \
  *     --customer cus_XXX --period 2026-10 --fee 1 spool1.jsonl [spool2.jsonl ...]
  *   Required: --customer cus_…, --period YYYY-MM, at least one spool.
- *   Optional: --finalize (finalize+send instead of leaving a draft),
+ *   Optional: --dry-run (no key needed, nothing sent to Stripe),
+ *             --days-until-due <n> (payment terms on the invoice, default 14),
+ *             --finalize (finalize instead of leaving a draft),
  *             --label "acme-anthropic",
  *             --live --confirm-amount-cents <cents> (live charge, re-type gated).
  */
@@ -51,12 +64,24 @@ type Args = {
   label?: string;
   finalize: boolean;
   live: boolean;
+  dryRun: boolean;
+  daysUntilDue: number;
   confirmAmountCents?: number;
   spools: string[];
 };
 
+/** Payment terms on the sent invoice; the billing worker's bank-transfer rail uses the same default. */
+const DEFAULT_DAYS_UNTIL_DUE = 14;
+
 function parseArgs(argv: string[]): Args {
-  const args: Args = { fee: 1, finalize: false, live: false, spools: [] };
+  const args: Args = {
+    fee: 1,
+    finalize: false,
+    live: false,
+    dryRun: false,
+    daysUntilDue: DEFAULT_DAYS_UNTIL_DUE,
+    spools: [],
+  };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i]!;
     if (a === "--customer") args.customer = argv[++i];
@@ -65,6 +90,8 @@ function parseArgs(argv: string[]): Args {
     else if (a === "--label") args.label = argv[++i];
     else if (a === "--finalize") args.finalize = true;
     else if (a === "--live") args.live = true;
+    else if (a === "--dry-run") args.dryRun = true;
+    else if (a === "--days-until-due") args.daysUntilDue = Number(argv[++i]);
     else if (a === "--confirm-amount-cents") args.confirmAmountCents = Number(argv[++i]);
     else if (!a.startsWith("--")) args.spools.push(a);
     else throw new Error(`Unknown flag ${a}`);
@@ -79,8 +106,15 @@ function loadRecords(path: string): LedgerRecord[] {
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
-  const key = process.env.STRIPE_TEST_SECRET_KEY ?? process.env.STRIPE_SECRET_KEY ?? "";
-  if (!key) throw new Error("Set STRIPE_TEST_SECRET_KEY (source ~/.config/mesh/stripe.env).");
+  // A dry run never reads a Stripe key: with no key in hand there is nothing it
+  // could send. Everything below that touches Stripe is behind `!args.dryRun`.
+  const key = args.dryRun ? "" : (process.env.STRIPE_TEST_SECRET_KEY ?? process.env.STRIPE_SECRET_KEY ?? "");
+  if (!args.dryRun && !key) {
+    throw new Error(
+      "Set STRIPE_TEST_SECRET_KEY (source ~/.config/mesh/stripe.env), or pass --dry-run to see what " +
+      "would be created without any key.",
+    );
+  }
   if (!args.customer) throw new Error("--customer cus_… is required.");
   if (args.spools.length === 0) throw new Error("Pass at least one ledger spool (.jsonl).");
   // MANDATORY period: one invoice settles ONE explicit calendar month. Billing
@@ -92,6 +126,9 @@ async function main(): Promise<void> {
     );
   }
   const period = args.period;
+  if (!Number.isInteger(args.daysUntilDue) || args.daysUntilDue < 1) {
+    throw new Error("--days-until-due must be a whole number of days, 1 or more (default 14).");
+  }
 
   // sk_live_… and restricted rk_live_… keys both create real invoices.
   const isLive = isLiveStripeKey(key);
@@ -126,11 +163,30 @@ async function main(): Promise<void> {
     ...(args.label ? { customerLabel: args.label } : {}),
   });
 
-  console.log(`\nMode: ${isLive ? "LIVE" : "TEST"}  ·  period: ${period}  ·  fee: ${args.fee}%`);
+  const modeLabel = args.dryRun ? "DRY RUN (no Stripe key read, nothing sent)" : isLive ? "LIVE" : "TEST";
+  console.log(`\nMode: ${modeLabel}  ·  period: ${period}  ·  fee: ${args.fee}%`);
+
+  // A broken chain is the hard stop. Say so once and print no totals: figures
+  // recomputed from a ledger that fails verification mean nothing, and a
+  // "savings" line above the refusal reads as if there were something to bill.
+  if (plan.action === "do_not_bill" && plan.chainUnverified) {
+    console.log(`\nDO NOT BILL — ${plan.reason}`);
+    console.log("No totals are shown: figures from a ledger that fails verification mean nothing.");
+    process.exitCode = 1;
+    return;
+  }
+
   console.log(
     `Events in period: ${invoice.eventsConsidered}  ·  billed: ${invoice.eventsBilled}  ·  ` +
     `marked unpriced: ${invoice.unpricedEvents}`,
   );
+  if (invoice.eventsConsidered === 0) {
+    // The usual cause is a mistyped period, so show what the spools do hold.
+    const perPeriod = new Map<string, number>();
+    for (const event of allEvents) perPeriod.set(event.invoicePeriod, (perPeriod.get(event.invoicePeriod) ?? 0) + 1);
+    const present = [...perPeriod.entries()].sort().map(([p, n]) => `${p} (${n} records)`).join(", ");
+    console.log(`  No events are recorded for ${period}. Periods in the spool(s): ${present || "none"}.`);
+  }
   if (invoice.unpricedEvents > 0) {
     // recomputeInvoice counts unpriced events but does not skip their levers: a
     // lever on one still bills if it carries a measured saving (an exact-cache
@@ -142,18 +198,21 @@ async function main(): Promise<void> {
       "measured saving is not billed; check the mesh-verify statement for what was and was not billed.",
     );
   }
-  console.log(`Net verified savings: $${invoice.netVerifiedSavingsUsd.toFixed(4)}  ·  verdict: ${invoice.verdict}`);
+  // The recompute's own verdict field is not printed: it reads "charge" for any
+  // positive net, including one whose fee rounds below a cent and is not billed.
+  // The outcome that matters is stated once, on the line that follows.
+  console.log(`Net verified savings: $${invoice.netVerifiedSavingsUsd.toFixed(4)}`);
 
   if (plan.action === "do_not_bill") {
     console.log(`\nDO NOT BILL — ${plan.reason}`);
-    if (plan.chainUnverified) process.exitCode = 1;
     return;
   }
 
   // LIVE human gate (Fix 6): require --live AND a matching amount re-type before
   // any live charge. Enforced here, BEFORE the Stripe client is even created, so
   // a live run without the correct re-type charges nothing.
-  const gate = checkLiveChargeConfirmation({
+  // A dry run has no key and sends nothing, so it has nothing to gate.
+  const gate = args.dryRun ? { ok: true as const } : checkLiveChargeConfirmation({
     isLive,
     requestedLive: args.live,
     amountCents: plan.amountCents,
@@ -165,28 +224,25 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Route through the shared client. allowLive is granted only once the gate
-  // above has passed, so the sk_live_ guard still protects every other path.
-  const stripe = createStripeClient(key, { allowLive: isLive });
-
-  console.log(`\nWill create (draft=${!plan.finalize}): ${plan.amountCents} ${plan.currency} cents to ${plan.customerId}`);
-  console.log(`  "${plan.description}"`);
-
-  // Create the draft invoice FIRST, then attach the fee item to it explicitly
-  // by id. (Relying on Stripe to auto-sweep pending items into a draft is
+  // Exactly the two requests a real run sends, built once so the dry run prints
+  // what would be created and nothing else.
+  //
+  // The draft is created FIRST and the fee item attached to it explicitly by
+  // id. (Relying on Stripe to auto-sweep pending items into a draft is
   // unreliable with auto_advance=false — it leaves an empty invoice.)
-  const inv = await stripe.createInvoice({
+  const invoiceParams = {
     customerId: plan.customerId,
     currency: plan.currency, // match the fee currency; the account default may differ (e.g. GBP)
-    collectionMethod: "charge_automatically",
-    autoAdvance: false, // never let the draft advance to payment on its own
+    // Send an invoice the customer pays themselves; never an automatic pull
+    // from a saved payment method. Same request as the worker's bank-transfer rail.
+    collectionMethod: "send_invoice" as const,
+    daysUntilDue: args.daysUntilDue,
+    autoAdvance: false, // never let the draft advance on its own
     description: `MESH statement ${plan.metadata.mesh_period ?? ""}`,
     idempotencyKey: `${plan.idempotencyKey}-inv`,
-  });
-
-  await stripe.createInvoiceItem({
+  };
+  const itemParams = {
     customerId: plan.customerId,
-    invoiceId: inv.id, // explicit attachment — the fix for the empty-draft bug
     amountCents: plan.amountCents,
     currency: plan.currency,
     description: plan.description,
@@ -196,14 +252,45 @@ async function main(): Promise<void> {
       mesh_net_verified_savings_usd: plan.metadata.mesh_net_verified_savings_usd ?? "",
     },
     idempotencyKey: `${plan.idempotencyKey}-item`,
+  };
+  const finalizeKey = `${plan.idempotencyKey}-fin`;
+  const dueIfCreatedToday = new Date(Date.now() + invoiceParams.daysUntilDue * 86_400_000).toISOString().slice(0, 10);
+
+  console.log(`\n${args.dryRun ? "Would create" : "Creating"} one Stripe ${plan.finalize ? "invoice, then finalize it" : "DRAFT invoice"}:`);
+  console.log(`  customer:            ${invoiceParams.customerId}`);
+  console.log(`  amount:              ${itemParams.amountCents} cents`);
+  console.log(`  currency:            ${itemParams.currency}`);
+  console.log(`  collection method:   ${invoiceParams.collectionMethod} (the customer is sent an invoice; nothing is collected automatically)`);
+  console.log(`  days until due:      ${invoiceParams.daysUntilDue} (due about ${dueIfCreatedToday} if created today; Stripe sets the date)`);
+  console.log(`  auto advance:        ${invoiceParams.autoAdvance}`);
+  console.log(`  invoice description: "${invoiceParams.description}"`);
+  console.log(`  line item:           "${itemParams.description}"`);
+  console.log(`  idempotency keys:    ${invoiceParams.idempotencyKey}`);
+  console.log(`                       ${itemParams.idempotencyKey}`);
+  if (plan.finalize) console.log(`                       ${finalizeKey}`);
+
+  if (args.dryRun) {
+    console.log("\nDRY RUN — nothing was sent to Stripe. Re-run without --dry-run (and with a Stripe key) to create it.");
+    return;
+  }
+
+  // Route through the shared client. allowLive is granted only once the gate
+  // above has passed, so the sk_live_ guard still protects every other path.
+  const stripe = createStripeClient(key, { allowLive: isLive });
+
+  const inv = await stripe.createInvoice(invoiceParams);
+  await stripe.createInvoiceItem({
+    ...itemParams,
+    invoiceId: inv.id, // explicit attachment — the fix for the empty-draft bug
   });
 
   console.log(`\nCreated Stripe invoice ${inv.id} — status ${inv.status} (${isLive ? "LIVE" : "TEST"} mode).`);
   if (plan.finalize) {
-    const final = await stripe.finalizeInvoice(inv.id, `${plan.idempotencyKey}-fin`);
+    const final = await stripe.finalizeInvoice(inv.id, finalizeKey);
     console.log(`Finalized: status ${final.status}, hosted at ${final.hosted_invoice_url ?? "(none)"}`);
+    console.log("Finalizing does not by itself show the customer was emailed: check in the Stripe dashboard that the invoice was sent, and send it from there if not.");
   } else {
-    console.log("Left as a DRAFT. Review it in the Stripe dashboard and finalize there, or re-run with --finalize.");
+    console.log("Left as a DRAFT. Review it in the Stripe dashboard (amount, currency, due date, line text) and send it from there.");
   }
 }
 
