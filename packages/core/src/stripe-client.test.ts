@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createStripeClient } from "./stripe-client.js";
+import { createStripeClient, isLiveStripeKey } from "./stripe-client.js";
 
 /**
  * The sk_live_ guard — the single money-safety guarantee that "no amount of
@@ -54,6 +54,25 @@ describe("createStripeClient — the automated-path sk_live_ guard", () => {
   it("treats a restricted TEST key (rk_test_…) as test mode, not live", () => {
     const client = createStripeClient("rk_test_restricted", { fetch: explodingFetch });
     expect(client.mode).toBe("test");
+  });
+
+  it("REFUSES a restricted LIVE key (rk_live_…) exactly as it refuses sk_live_", () => {
+    // A restricted live key creates real invoices and charges. If the guard
+    // only knew the sk_live_ prefix, an rk_live_ key would be classified "test"
+    // and reach Stripe unguarded.
+    expect(isLiveStripeKey("rk_live_FAKE_NOT_A_KEY")).toBe(true);
+    expect(() => createStripeClient("rk_live_FAKE_NOT_A_KEY", { fetch: explodingFetch })).toThrow(
+      /Refusing a LIVE Stripe key/,
+    );
+    const allowed = createStripeClient("rk_live_FAKE_NOT_A_KEY", { allowLive: true, fetch: explodingFetch });
+    expect(allowed.mode).toBe("live");
+  });
+
+  it("isLiveStripeKey is anchored on the prefix", () => {
+    expect(isLiveStripeKey("sk_live_FAKE_NOT_A_KEY")).toBe(true);
+    expect(isLiveStripeKey("sk_test_FAKE_NOT_A_KEY")).toBe(false);
+    expect(isLiveStripeKey("rk_test_FAKE_NOT_A_KEY")).toBe(false);
+    expect(isLiveStripeKey("sk_test_rk_live_not_really")).toBe(false);
   });
 
   it("does not misclassify a key that merely CONTAINS 'sk_live_' later in the string", () => {
