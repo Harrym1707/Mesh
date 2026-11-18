@@ -99,9 +99,29 @@ function parseArgs(argv: string[]): Args {
   return args;
 }
 
+/**
+ * Read one spool. A line that is not JSON, or not a ledger record at all, is a
+ * hard stop with a plain message: a spool that cannot be read end to end is in
+ * the same position as one whose chain is broken.
+ */
 function loadRecords(path: string): LedgerRecord[] {
-  const lines = readFileSync(path, "utf8").trim().split("\n").filter(Boolean);
-  return lines.map((line) => JSON.parse(line) as LedgerRecord);
+  const lines = readFileSync(path, "utf8").split(/\r?\n/).filter((line) => line.trim() !== "");
+  return lines.map((line, index) => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      throw new Error(`DO NOT BILL — ${path}: line ${index + 1} is not valid JSON, so the spool cannot be verified.`);
+    }
+    const event = (parsed as { event?: unknown } | null)?.event;
+    if (typeof event !== "object" || event === null) {
+      throw new Error(
+        `DO NOT BILL — ${path}: line ${index + 1} is not a ledger record. Pass only ledger spools ` +
+        "(<application>-<provider>.jsonl).",
+      );
+    }
+    return parsed as LedgerRecord;
+  });
 }
 
 async function main(): Promise<void> {
@@ -145,7 +165,17 @@ async function main(): Promise<void> {
   // One invoice across all spools for this customer/period.
   const allEvents: BillableEvent[] = [];
   let chainVerified = true;
+  let spoolsRead = 0;
   for (const path of args.spools) {
+    // The proxy writes a <application>-<provider>.features.jsonl file beside
+    // each spool (request shape for Theo; not a ledger, never billed from).
+    // `mesh verify` leaves those out by name, and so does this script, so an
+    // operator can pass the customer's whole ledger folder as *.jsonl.
+    if (path.endsWith(".features.jsonl")) {
+      console.log(`Skipped (not a ledger spool): ${path}`);
+      continue;
+    }
+    spoolsRead += 1;
     const records = loadRecords(path);
     const chain = verifyLedgerChain(records);
     if (!chain.ok) {
@@ -155,6 +185,21 @@ async function main(): Promise<void> {
     for (const record of records) allEvents.push(record.event);
   }
 
+  if (spoolsRead === 0) throw new Error("None of the files passed is a ledger spool (<application>-<provider>.jsonl).");
+
+  const modeLabel = args.dryRun ? "DRY RUN (no Stripe key read, nothing sent)" : isLive ? "LIVE" : "TEST";
+  console.log(`\nMode: ${modeLabel}  ·  period: ${period}  ·  fee: ${args.fee}%  ·  spools read: ${spoolsRead}`);
+
+  // A broken chain is the hard stop. Say so once, recompute nothing and print
+  // no totals: figures from a ledger that fails verification mean nothing, and
+  // a "savings" line above the refusal reads as if there were something to bill.
+  if (!chainVerified) {
+    console.log("\nDO NOT BILL — the ledger chain failed verification (see CHAIN BROKEN above). A statement over an unverifiable ledger is not an invoice.");
+    console.log("No totals are shown: figures from a ledger that fails verification mean nothing.");
+    process.exitCode = 1;
+    return;
+  }
+
   const invoice = recomputeInvoice(allEvents, { period, feePercent: args.fee });
 
   const plan = buildStripeInvoicePlan(invoice, chainVerified, {
@@ -162,19 +207,6 @@ async function main(): Promise<void> {
     mode: args.finalize ? "finalize" : "draft",
     ...(args.label ? { customerLabel: args.label } : {}),
   });
-
-  const modeLabel = args.dryRun ? "DRY RUN (no Stripe key read, nothing sent)" : isLive ? "LIVE" : "TEST";
-  console.log(`\nMode: ${modeLabel}  ·  period: ${period}  ·  fee: ${args.fee}%`);
-
-  // A broken chain is the hard stop. Say so once and print no totals: figures
-  // recomputed from a ledger that fails verification mean nothing, and a
-  // "savings" line above the refusal reads as if there were something to bill.
-  if (plan.action === "do_not_bill" && plan.chainUnverified) {
-    console.log(`\nDO NOT BILL — ${plan.reason}`);
-    console.log("No totals are shown: figures from a ledger that fails verification mean nothing.");
-    process.exitCode = 1;
-    return;
-  }
 
   console.log(
     `Events in period: ${invoice.eventsConsidered}  ·  billed: ${invoice.eventsBilled}  ·  ` +
