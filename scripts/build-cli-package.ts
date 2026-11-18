@@ -136,6 +136,14 @@ if (!theoHelp.includes("Usage: mesh theo") || !theoHelp.includes("--accept")) {
   process.exit(1);
 }
 
+// The download must expose the statement command: it is how a customer produces
+// the figure for a billing period on their own machine.
+const statementHelp = execSync(`node ${JSON.stringify(runtimeFile)} statement --help`, { cwd: root }).toString();
+if (!statementHelp.includes("Usage: mesh statement") || !statementHelp.includes("--period")) {
+  console.error("Smoke test FAILED — runtime has no working `statement` command:\n" + statementHelp);
+  process.exit(1);
+}
+
 const kb = (n: number): string => `${(n / 1024).toFixed(0)}KB`;
 console.log(`built CLI artifacts  (build ${commit}, v${version})`);
 console.log(`  mesh (bootstrap)   ${kb(readFileSync(bootstrapFile).length)}  → the download`);
@@ -143,4 +151,5 @@ console.log(`  mesh-runtime       ${kb(runtimeBytes.length)}  sha256 ${runtimeSh
 console.log(`  mesh-version.json  update manifest`);
 console.log(`  smoke test: mesh-runtime verify — All checks passed`);
 console.log(`  smoke test: mesh-runtime theo --help — command present`);
+console.log(`  smoke test: mesh-runtime statement --help — command present`);
 console.log(`  publish npm with:  (cd ${path.relative(root, outDir)} && npm publish --access public)`);
