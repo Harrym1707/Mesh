@@ -100,6 +100,7 @@ function context(withStripe = true, adminToken: string | null = "admin-secret"):
     dataDir: dir,
     directDebitPaymentMethods: ["us_bank_account"],
     defaultFeePercent: 1,
+    maxChargeCents: 50_000,
     ...(withStripe ? { stripe: fakeStripe() } : {}),
     ...(adminToken ? { adminToken } : {}),
   };
