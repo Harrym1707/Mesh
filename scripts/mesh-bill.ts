@@ -14,13 +14,20 @@
  *     the exact amount (--confirm-amount-cents) before any live charge. Without
  *     the matching re-type, a --live run charges nothing.
  *   - A broken/unverified ledger chain is a hard stop: DO NOT BILL.
- *   - Idempotency key on customer+period+amount: re-running a month is a no-op
- *     at Stripe, never a double charge.
+ *   - MANDATORY period: --period YYYY-MM is required. Without it the script
+ *     refuses to run, so it can never bill the cumulative total of every
+ *     recorded period in the spool.
+ *   - Idempotency key on customer+period+amount: re-running the same month for
+ *     the same amount is a no-op at Stripe while Stripe still holds the key
+ *     (about 24 hours). This script keeps NO durable billed-record: a re-run
+ *     after that, or for a different amount, creates a second draft. Check the
+ *     dashboard for an existing invoice for the period before finalizing.
  *   - No prompt content is read or sent — only the usage-derived invoice totals.
  *
  * Usage:
  *   STRIPE_TEST_SECRET_KEY=... node --import tsx scripts/mesh-bill.ts \
  *     --customer cus_XXX --period 2026-10 --fee 1 spool1.jsonl [spool2.jsonl ...]
+ *   Required: --customer cus_…, --period YYYY-MM, at least one spool.
  *   Optional: --finalize (finalize+send instead of leaving a draft),
  *             --label "acme-anthropic",
  *             --live --confirm-amount-cents <cents> (live charge, re-type gated).
@@ -30,6 +37,7 @@ import {
   buildStripeInvoicePlan,
   checkLiveChargeConfirmation,
   createStripeClient,
+  isLiveStripeKey,
   recomputeInvoice,
   verifyLedgerChain,
   type BillableEvent,
@@ -75,8 +83,27 @@ async function main(): Promise<void> {
   if (!key) throw new Error("Set STRIPE_TEST_SECRET_KEY (source ~/.config/mesh/stripe.env).");
   if (!args.customer) throw new Error("--customer cus_… is required.");
   if (args.spools.length === 0) throw new Error("Pass at least one ledger spool (.jsonl).");
+  // MANDATORY period: one invoice settles ONE explicit calendar month. Billing
+  // "everything in the spool" would re-bill earlier months on every later run.
+  if (args.period === undefined || !/^\d{4}-(0[1-9]|1[0-2])$/.test(args.period)) {
+    throw new Error(
+      "--period YYYY-MM is REQUIRED (for example --period 2026-10). mesh-bill invoices one explicit " +
+      "period at a time; it will not bill the cumulative total of all recorded periods.",
+    );
+  }
+  const period = args.period;
 
-  const isLive = key.startsWith("sk_live_");
+  // sk_live_… and restricted rk_live_… keys both create real invoices.
+  const isLive = isLiveStripeKey(key);
+  // Refuse a live key up front unless --live was passed, before any spool is
+  // read (the behaviour main had before the amount re-type gate was added; the
+  // gate below still demands the re-type once --live IS passed).
+  if (isLive && !args.live) {
+    throw new Error(
+      "Refusing to run against a LIVE Stripe key. This creates real charges. Use a test key " +
+      "(sk_test_…), or pass --live deliberately together with --confirm-amount-cents.",
+    );
+  }
 
   // One invoice across all spools for this customer/period.
   const allEvents: BillableEvent[] = [];
@@ -91,10 +118,7 @@ async function main(): Promise<void> {
     for (const record of records) allEvents.push(record.event);
   }
 
-  const invoice = recomputeInvoice(allEvents, {
-    ...(args.period ? { period: args.period } : {}),
-    feePercent: args.fee,
-  });
+  const invoice = recomputeInvoice(allEvents, { period, feePercent: args.fee });
 
   const plan = buildStripeInvoicePlan(invoice, chainVerified, {
     stripeCustomerId: args.customer,
@@ -102,7 +126,11 @@ async function main(): Promise<void> {
     ...(args.label ? { customerLabel: args.label } : {}),
   });
 
-  console.log(`\nMode: ${isLive ? "LIVE" : "TEST"}  ·  period: ${args.period ?? "all"}  ·  fee: ${args.fee}%`);
+  console.log(`\nMode: ${isLive ? "LIVE" : "TEST"}  ·  period: ${period}  ·  fee: ${args.fee}%`);
+  console.log(
+    `Events in period: ${invoice.eventsConsidered}  ·  billed: ${invoice.eventsBilled}  ·  ` +
+    `unpriced (excluded, never billed): ${invoice.unpricedEvents}`,
+  );
   console.log(`Net verified savings: $${invoice.netVerifiedSavingsUsd.toFixed(4)}  ·  verdict: ${invoice.verdict}`);
 
   if (plan.action === "do_not_bill") {

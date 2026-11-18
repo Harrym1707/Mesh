@@ -18,10 +18,13 @@ and these steps create real objects only in Stripe **test mode**.
 
 ## Closed without Stripe
 
-Proven on this branch by `vitest run` (820 passing), no live key, no network:
+Proven by `vitest run`, no live key, no network (820 passing when written
+against `integration/trunk` on 2026-11-10; 1,104 passing on
+`product/billing-safety-on-main`, 2026-11-18):
 
-- **`sk_live_` guard** — the automated path (`createStripeClient` with no
-  `allowLive`, and `buildContext` for the API server) refuses a live key before
+- **Live-key guard** — the automated path (`createStripeClient` with no
+  `allowLive`, and `buildContext` for the API server) refuses a live key
+  (`sk_live_…`, and a restricted `rk_live_…`) before
   any network call; only the deliberate human `mesh-bill --live` path may pass
   `allowLive`. `packages/core/src/stripe-client.test.ts`,
   `apps/api/src/context.test.ts`.
@@ -119,7 +122,10 @@ proves works independently of Stripe's 24h window).
 
 ### Safety reminders for every step
 - Only `sk_test_…` (or a restricted `rk_test_…`) keys. The guard refuses
-  `sk_live_…`; do not pass `--live` / `allowLive`.
+  `sk_live_…` and `rk_live_…`; do not pass `--live` / `allowLive`.
+- `mesh-bill` requires `--period YYYY-MM` and refuses to run without it. It
+  keeps no durable billed-record (only the worker does), so before finalizing
+  check the dashboard for an existing invoice for the same customer and period.
 - `mesh-bill` leaves a **draft** unless you pass `--finalize`; review it in the
   dashboard before finalizing anything, even in test mode.
 - These create objects in your Stripe **test** data only — clear them from the
