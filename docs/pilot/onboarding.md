@@ -66,7 +66,7 @@ OpenAI-compatible clients. The command prints both.
    `{"status":"ok","service":"mesh-proxy"}`.
 2. After the first request, the MESH window prints `1 request seen`.
 3. `mesh verify` ends with `All checks passed.`
-4. `mesh status` shows requests seen and the saving so far.
+4. `mesh status` shows requests seen and the saving since the ledger began.
 
 If the request count never moves, the app is still talking to the provider
 directly: the base URL has not reached it. `mesh doctor` checks the rest.
@@ -83,11 +83,14 @@ mesh verify
 ```
 
 It re-checks the hash chain of every ledger file in `~/.mesh/ledger/` and
-recomputes the invoice figure from them, with no network calls.
+recomputes the total from them, with no network calls. That total covers
+everything in the ledger since it began. `mesh verify` cannot show one month
+or one window on its own, and neither can `mesh status`. On a ledger that
+began at kickoff the total is the window's figure.
 
 For a second opinion that shares no code path with the installed `mesh`, the
 MIT-licensed `@harrym1707/verify` package (0.1.0) does the same recompute on
-one ledger file at a time:
+one ledger file at a time, again over the whole file:
 
 ```bash
 npx -y -p @harrym1707/verify mesh-verify ~/.mesh/ledger/proxy-anthropic.jsonl
@@ -122,6 +125,9 @@ These are agreed for a pilot. None of them is needed to use MESH. Record them
 in the [engagement list](./engagement-list.md):
 
 1. **Which command:** `mesh start` or `mesh proxy`, and on which machine.
+   If the team was already running MESH, note the kickoff time: the ledger
+   then holds earlier lines too, and the window's lines are picked out by
+   timestamp.
 2. **The window.** A pilot is about four weeks end to end; 14 days of that is
    measurement ([PILOT_PLAN.md](./PILOT_PLAN.md) has the timeline).
 3. **Theo stays on `recommend`,** the default. He applies lossless levers on

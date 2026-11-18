@@ -78,8 +78,8 @@ provider untouched.
   and hashes. A failed request bills nothing. Savings you already had
   (provider caching you placed or got by default, gateway cache hits) are
   recorded and never billed.
-- `mesh status` shows the running total; `mesh dashboard` opens a live page on
-  your own machine.
+- `mesh status` shows the running total since your ledger began;
+  `mesh dashboard` opens a live page on your own machine.
 - Theo, the part of MESH that studies your traffic, runs alongside at his
   default autonomy, `recommend`. He applies lossless levers himself. Anything
   that changes what is sent he puts to you as a proposal and waits for your
@@ -93,15 +93,23 @@ provider untouched.
 ## Day 14 — the invoice you can check
 
 1. `mesh verify` re-checks the hash chain of your ledger and recomputes the
-   figure, with no network calls. Tampering with any line is detected and the
+   total, with no network calls. Tampering with any line is detected and the
    position named.
 2. For a recompute that does not use the installed `mesh` at all, run the
    MIT-licensed tool on each ledger file:
    `npx -y -p @harrym1707/verify mesh-verify ~/.mesh/ledger/proxy-anthropic.jsonl`.
+
+   Both commands total everything in the ledger since it began; neither can
+   show one period on its own. If you installed MESH on day 1, that total is
+   the pilot window's figure. If you were already running it, the total
+   covers more than the window, and the invoice counts only the lines whose
+   timestamps fall inside it.
 3. Negative components **net against MESH** (for example a 1-hour cache-write
    surcharge that never earned its reads); they are never clamped to zero.
-4. Invoice = 1% of the net verified savings for the period, or
-   **do_not_charge**. If your recomputation disagrees with ours, yours wins.
+4. Invoice = 1% of the net verified savings for the period, rounded to the
+   nearest cent, or **do_not_charge**. On a small amount the rounding can
+   make the fee slightly more than 1% of the saving. If your recomputation
+   disagrees with ours, yours wins.
 
 ---
 
@@ -206,6 +214,8 @@ the files and the check are the same.
 
 `mesh-bill` recomputes one invoice across the ledger files you pass,
 re-verifies each chain, and creates a Stripe **draft**. It does not charge.
+`--period YYYY-MM` counts only the lines of that calendar month (UTC);
+without it, every line in the files is counted.
 
 ```bash
 source ~/.config/mesh/stripe.env    # exports STRIPE_TEST_SECRET_KEY
@@ -228,9 +238,8 @@ Will create (draft=true): <N> usd cents to cus_THEIR_ID
 
 **The honesty checks — respect every one:**
 
-- **`verdict: do_not_charge`** (no net saving, a deficit carried forward from
-  an earlier period, or a fee that rounds below one cent) → `mesh-bill` prints
-  `DO NOT BILL` and creates nothing. The invoice is
+- **`verdict: do_not_charge`** (no net saving), or a fee that rounds to zero
+  cents → `mesh-bill` prints `DO NOT BILL` and creates nothing. The invoice is
   **$0**. This is a correct, expected outcome; tell the partner so plainly.
 - **`CHAIN BROKEN` (exit 1)** → a file failed verification. Do not bill. Check
   that no `.features.jsonl` file was passed, then go back to the partner for a
@@ -239,11 +248,18 @@ Will create (draft=true): <N> usd cents to cus_THEIR_ID
   `--live` is passed. Never pass `--live` and never use a live key in a pilot.
 - Leave `--finalize` off. Without it the invoice stays a draft.
 - Re-running the same customer, period and amount is idempotent at Stripe.
+- **The fee is rounded to the nearest cent.** On a small amount it can be
+  slightly more than 1% of the saving (22 cents on $21.63; 1 cent on $0.50).
+  Do not tell a partner the fee is exactly, or never more than, 1% until the
+  founder has set a rounding rule or a smallest invoice.
 
 If the verdict is `charge`, the draft now exists in the **Stripe test
 dashboard**. Review it there and compare the amount with the partner's own
-`mesh verify` output and your `mesh-verify` runs. What the partner is then
-sent, and how they pay, is agreed with them by hand.
+`mesh verify` output and your `mesh-verify` runs. Those two total the whole
+ledger, so they match a `--period` invoice only when the ledger holds nothing
+outside that month. A 14-day window can also cross a month end, which one
+`--period` would cut in two; how such a window is invoiced is not decided.
+What the partner is then sent, and how they pay, is agreed with them by hand.
 
 ## 4. After the draft
 

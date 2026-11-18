@@ -40,9 +40,10 @@
 > four weeks.
 >
 > **How you're billed.** At the end we recompute, from your own ledger, the net
-> amount MESH saved you, and the fee is **1% of that**. If MESH saved you
-> nothing, the invoice is **$0** — and you can recompute our number yourself
-> with one command, `mesh verify`. During the pilot any invoice is drafted,
+> amount MESH saved you, and the fee is **1% of that**, rounded to the cent.
+> If MESH saved you nothing, the invoice is **$0** — and you can check our
+> number yourself: one command, `mesh verify`, recomputes the total from
+> everything in your ledger. During the pilot any invoice is drafted,
 > checked by a person and agreed with you before it is issued; nothing is ever
 > charged automatically.
 >
@@ -108,9 +109,18 @@ prompt or completion content.**
   recompute that does not use the installed program at all, the MIT-licensed
   `@harrym1707/verify` package does the same on one ledger file at a time:
   `npx -y -p @harrym1707/verify mesh-verify ~/.mesh/ledger/proxy-anthropic.jsonl`.
-- **No savings → no charge.** If savings are zero, negative, below a cent of fee,
-  or your stack was already optimised, the verdict is **`do_not_charge`** and the
-  invoice is **$0**.
+- **What those commands total.** Both add up everything in the ledger since it
+  began; neither shows one period on its own. If your ledger began at the
+  start of the pilot window, that total is the window's figure. If you were
+  already running MESH, it covers more than the window, and the invoice
+  counts only the lines whose timestamps fall inside it; we will show you
+  which.
+- **Rounding.** The fee is rounded to the nearest cent, so on a small amount
+  it can come to slightly more than 1% of the saving. [Rounding rule or
+  smallest invoice: founder to decide before this is sent.]
+- **No savings → no charge.** If savings are zero or negative, if the fee
+  rounds to zero cents, or if your stack was already optimised, nothing is
+  billed and the invoice is **$0**.
 - **If your recomputation disagrees with ours, yours wins.**
 - During the pilot, **any invoice is drafted, checked by a person and agreed
   with you before it is issued.** Nothing is ever charged automatically.

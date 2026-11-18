@@ -71,7 +71,7 @@ over the pilot window.
 
 | Measure | Source |
 |---|---|
-| Net verified savings ($ and %) | the partner's `mesh verify`; `mesh-verify` and `mesh-bill` on the ledger files they send |
+| Net verified savings ($ and %) | the partner's `mesh verify`; `mesh-verify` and `mesh-bill` on the ledger files they send. `mesh verify` and `mesh-verify` give the total since the ledger began, which is the window's figure only on a ledger begun at kickoff |
 | Savings by lever (cache stamp, schema compaction, dup removal, tier arbitrage) | invoice line items |
 | `do_not_charge` events and why | invoice verdict + reasons |
 | Did the partner recompute and agree? | their `mesh verify` run (or `mesh-verify` on a ledger file) |
@@ -97,7 +97,8 @@ it make a pilot about four weeks end to end.
 - **Week 3 — invoice.** Operator runs the manual-billing playbook
   ([runbook.md](./runbook.md#operator-playbook--manual-billing)): collect the
   ledger, verify the chain, draft the invoice in Stripe test mode, review it.
-  The partner recomputes independently with `mesh verify`.
+  The partner recomputes independently with `mesh verify`, which totals the
+  whole ledger.
 - **Week 4 — debrief.** Did the number hold? Would they pay it ongoing? What
   blocked them? Decide: convert, extend, or close out.
 
@@ -129,6 +130,11 @@ net verified savings**, monthly; `do_not_charge` → $0.
   agreement in outline; it is unreviewed and leaves the contact address,
   smallest invoice, currency, VAT wording and payment route blank. There are
   no accounts, no self-serve signup and no automatic billing.
+- **Rounding and periods.** The fee is rounded to the nearest cent, so on a
+  small amount it can be slightly more than 1% of the saving; no rounding
+  rule or smallest invoice has been decided. And no installed command shows
+  one period's figure: `mesh verify`, `mesh status` and `mesh-verify` all
+  total the whole ledger.
 - **First real traffic.** The setup path was tested with Claude Code and the
   official Anthropic and OpenAI SDKs against a stand-in provider, not against
   a real provider under a partner's workload. The tester guide's
