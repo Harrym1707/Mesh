@@ -99,6 +99,19 @@ export type SimulatedRequest = {
   prompt: string;
   /** Output tokens the model produced, for costing. */
   outputTokens: number;
+  /**
+   * How long after `atSeconds` this request's response starts (time to first
+   * byte). Defaults to 0, which reproduces every prior simulation exactly:
+   * a cache entry this request writes is available to every other request
+   * instantly. Set it to model concurrent fan-out honestly — Anthropic's own
+   * docs: "a cache entry only becomes available after the first response
+   * starts" (platform.claude.com/docs/en/build-with-claude/prompt-caching,
+   * "Cache limitations") — so two requests sent at the same `atSeconds`
+   * sharing a prefix both miss and both write, exactly as they would for
+   * real, unless one is deliberately held past the other's TTFB (see
+   * `FanoutLatch` in the SDK package).
+   */
+  respondsAfterSeconds?: number;
 };
 
 export type SimulatedCall = {
@@ -129,7 +142,7 @@ export type SimulationResult = {
   missReasons: Record<string, number>;
 };
 
-type Entry = { prompt: string; lastUsedAt: number };
+type Entry = { prompt: string; lastUsedAt: number; availableAt: number };
 
 function commonPrefixLength(left: string, right: string): number {
   const limit = Math.min(left.length, right.length);
@@ -186,9 +199,13 @@ export function simulateCache(
       missReason = calls.length === 0 ? "first-request" : "expired";
     } else {
       // Longest exact prefix across live entries, as the providers describe.
+      // An entry another in-flight request is about to write is not yet a
+      // match: the provider itself says a cache entry exists only once that
+      // request's own response has started.
       let bestChars = 0;
       let bestEntry: Entry | undefined;
       for (const entry of entries) {
+        if (entry.availableAt > request.atSeconds) continue;
         const shared = commonPrefixLength(entry.prompt, request.prompt);
         if (shared > bestChars) {
           bestChars = shared;
@@ -232,7 +249,11 @@ export function simulateCache(
       ...(missReason === undefined ? {} : { missReason }),
     });
 
-    entries.push({ prompt: request.prompt, lastUsedAt: request.atSeconds });
+    entries.push({
+      prompt: request.prompt,
+      lastUsedAt: request.atSeconds,
+      availableAt: request.atSeconds + (request.respondsAfterSeconds ?? 0),
+    });
     // Providers keep a bounded cache; holding every prompt forever would
     // overstate hit rates on long runs.
     if (entries.length > 64) entries.shift();

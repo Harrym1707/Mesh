@@ -10,6 +10,7 @@ import { collectRequestText, measureOutputReEmission } from "../../core/dist/src
 import { normalizeProviderUsage, responseServiceTier } from "../../core/dist/src/provider-usage.js";
 import { responseText } from "./replay-gate.js";
 import { CachePrefixVolatilityGuard } from "./cache-volatility-guard.js";
+import { FanoutLatch } from "./fanout-latch.js";
 import { reduceRequest, type MeshTokenReductionConfig } from "./reduce-request.js";
 import { extractBlindFeatures } from "./blind-features.js";
 import { createSavingsLedger, type SavingsLedger } from "./savings-ledger.js";
@@ -92,6 +93,24 @@ export type MeshProxyOptions = {
    * `mesh theo --gate <path>` reads it.
    */
   requestCapture?: { path: string; limit?: number; maxBytes?: number };
+  /**
+   * Opt-in, off by default. Repairs the Anthropic cache race on concurrent
+   * requests that share a MESH-stamped prefix (a multi-agent orchestrator
+   * fanning sub-agent calls out in the same instant is the shape this is
+   * for): Anthropic's own docs say a cache entry "only becomes available
+   * after the first response starts," so N simultaneous racers on one
+   * prefix otherwise all pay the write premium instead of N-1 of them
+   * reading at the cached rate. When set, the first Anthropic request on a
+   * stamped prefix dispatches immediately; every other request on that same
+   * prefix waits for the first one's response to start (or `holdCapMs`,
+   * whichever comes first) before making its own real call. Bytes sent are
+   * unchanged — only send timing moves, so this is lossless — but holding a
+   * real request back is a latency risk of its own: `holdCapMs` must be
+   * sized to the shared prefix's own measured cold-write time-to-first-byte,
+   * never guessed, and this has not been validated against real traffic.
+   * See `FanoutLatch` and docs/rnd/ for the open measurement this owes.
+   */
+  fanoutLatch?: { holdCapMs: number };
 };
 
 export type MeshProxy = {
@@ -317,6 +336,9 @@ export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
       ? reductionOption
       : () => reductionOption ?? LOSSLESS_DEFAULT;
   let volatilityGuard: CachePrefixVolatilityGuard | undefined;
+  const fanoutLatch = options.fanoutLatch !== undefined
+    ? new FanoutLatch({ holdCapMs: options.fanoutLatch.holdCapMs })
+    : undefined;
   const currentReduction = (modelId?: string): MeshTokenReductionConfig => {
     let base: MeshTokenReductionConfig;
     try {
@@ -614,16 +636,36 @@ export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
     }
 
     const startedAt = Date.now();
-    let upstreamResponse: Response;
-    try {
-      const query = (req.url ?? "").includes("?") ? (req.url ?? "").slice((req.url ?? "").indexOf("?")) : "";
-      upstreamResponse = await fetch(`${upstreams[surface.provider]}${surface.upstreamPath}${query}`, {
+    const query = (req.url ?? "").includes("?") ? (req.url ?? "").slice((req.url ?? "").indexOf("?")) : "";
+    const dispatchUpstream = (): Promise<Response> =>
+      fetch(`${upstreams[surface.provider]}${surface.upstreamPath}${query}`, {
         method: "POST",
         headers,
         body: sendBody,
         signal: upstreamControl.signal,
         redirect: "manual", // never carry the caller's key to a redirect target
       });
+    // Fan-out race repair: only for Anthropic requests MESH actually stamped
+    // with a cache TTL (nothing else races on a cache entry), and only when
+    // the operator opted in. Every other request dispatches exactly as
+    // before — this never changes the default path.
+    const cacheTtlLever = summary.changes.find(
+      (change) => change.lever === "cache-ttl-5m" || change.lever === "cache-ttl-1h",
+    );
+    const fanoutPrefixKey = fanoutLatch !== undefined && surface.provider === "anthropic" && cacheTtlLever !== undefined
+      ? createHash("sha256")
+        .update(JSON.stringify([
+          (reducedRequest as AnyObject).model ?? null,
+          (reducedRequest as AnyObject).tools ?? null,
+          (reducedRequest as AnyObject).system ?? null,
+        ]))
+        .digest("hex")
+      : undefined;
+    let upstreamResponse: Response;
+    try {
+      upstreamResponse = fanoutPrefixKey !== undefined
+        ? (await fanoutLatch!.run(fanoutPrefixKey, dispatchUpstream)).result
+        : await dispatchUpstream();
     } catch (cause) {
       clearTimeout(phaseTimer);
       if (!res.headersSent && !res.destroyed) {
