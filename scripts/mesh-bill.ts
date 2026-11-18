@@ -132,9 +132,11 @@ async function main(): Promise<void> {
     `marked unpriced: ${invoice.unpricedEvents}`,
   );
   if (invoice.unpricedEvents > 0) {
-    // An unpriced event bills only where a lever on it still carries a measured
-    // saving (an exact-cache hit has no provider usage to price). Say so, so the
-    // operator checks the statement before a draft goes to the customer.
+    // recomputeInvoice counts unpriced events but does not skip their levers: a
+    // lever on one still bills if it carries a measured saving (an exact-cache
+    // lever takes its saving from the recorded cost avoided, whatever the
+    // event's pricing status). Say so, so the operator checks the statement
+    // before a draft goes to the customer.
     console.log(
       "  Note: events marked unpriced had no catalogue price for their usage. Any lever on them without a " +
       "measured saving is not billed; check the mesh-verify statement for what was and was not billed.",
