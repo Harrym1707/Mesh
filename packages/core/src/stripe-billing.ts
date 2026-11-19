@@ -96,20 +96,22 @@ export function checkLiveChargeConfirmation(params: {
         "(sk_test_…), or pass --live deliberately.",
     };
   }
+  // Neither refusal prints the amount or a ready-made flag: the operator has to
+  // read it off the plan and type it, or the re-type confirms nothing.
   if (params.confirmAmountCents === undefined) {
     return {
       ok: false,
       reason:
-        `A LIVE charge must be confirmed by re-typing the exact amount. Re-run with ` +
-        `--confirm-amount-cents ${params.amountCents}.`,
+        "A LIVE charge must be confirmed by re-typing the amount it will charge, in cents, with " +
+        "--confirm-amount-cents. Read the amount from the plan printed above. Charging nothing.",
     };
   }
   if (params.confirmAmountCents !== params.amountCents) {
     return {
       ok: false,
       reason:
-        `Amount re-type mismatch: you typed ${params.confirmAmountCents}¢ but the plan charges ` +
-        `${params.amountCents}¢. Charging nothing.`,
+        `Amount re-type mismatch: you typed ${params.confirmAmountCents}¢, which is not the amount the plan ` +
+        "charges. Read the amount from the plan printed above. Charging nothing.",
     };
   }
   return { ok: true };

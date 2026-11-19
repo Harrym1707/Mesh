@@ -247,13 +247,35 @@ describe("Fix 6 — checkLiveChargeConfirmation (live amount re-type gate)", () 
   it("refuses a --live charge with no amount re-type", () => {
     const gate = checkLiveChargeConfirmation({ isLive: true, requestedLive: true, amountCents: 1234 });
     expect(gate.ok).toBe(false);
-    if (!gate.ok) expect(gate.reason).toMatch(/re-typing|--confirm-amount-cents 1234/);
+    if (gate.ok) throw new Error("expected a refusal");
+    expect(gate.reason).toBe(
+      "A LIVE charge must be confirmed by re-typing the amount it will charge, in cents, with " +
+      "--confirm-amount-cents. Read the amount from the plan printed above. Charging nothing.",
+    );
+    // The refusal must not hand over the number, or a ready-made flag to paste.
+    expect(gate.reason).not.toContain("1234");
+    expect(gate.reason).not.toMatch(/--confirm-amount-cents \d/);
   });
 
   it("refuses a --live charge when the re-typed amount does not match the plan", () => {
     const gate = checkLiveChargeConfirmation({ isLive: true, requestedLive: true, amountCents: 1234, confirmAmountCents: 1200 });
     expect(gate.ok).toBe(false);
-    if (!gate.ok) expect(gate.reason).toMatch(/mismatch/);
+    if (gate.ok) throw new Error("expected a refusal");
+    expect(gate.reason).toMatch(/mismatch/);
+    // It may say what was typed, never what was expected.
+    expect(gate.reason).toContain("1200¢");
+    expect(gate.reason).not.toContain("1234");
+  });
+
+  it("never prints the expected amount, whatever it is", () => {
+    for (const amountCents of [1, 9, 10, 21, 977, 50_000]) {
+      const missing = checkLiveChargeConfirmation({ isLive: true, requestedLive: true, amountCents });
+      const wrong = checkLiveChargeConfirmation({ isLive: true, requestedLive: true, amountCents, confirmAmountCents: 77_777 });
+      for (const gate of [missing, wrong]) {
+        if (gate.ok) throw new Error("expected a refusal");
+        expect(gate.reason).not.toMatch(new RegExp(`(^|\\D)${amountCents}(\\D|$)`));
+      }
+    }
   });
 
   it("allows a --live charge only when the re-typed amount matches exactly", () => {
