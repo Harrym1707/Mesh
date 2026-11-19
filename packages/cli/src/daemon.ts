@@ -213,11 +213,13 @@ export async function runStatus(_argv: string[]): Promise<void> {
   console.log(`  service   ${loaded ? "installed (launchd)" : "not installed"}`);
   console.log(`  proxy     ${up ? `up on http://127.0.0.1:${port}` : "not responding"}`);
   if (s.events > 0) {
-    console.log(`  ⬢ theo    ${s.events} requests seen · $${s.savedUsd.toFixed(4)} verified saved (${s.verdict})`);
+    console.log(`  ⬢ theo    ${s.events} requests seen · $${s.savedUsd.toFixed(4)} verified saved (${s.verdictNote})`);
   } else {
     console.log(`  ⬢ theo    no traffic yet — use Claude Code and check back`);
   }
-  if (s.chainOk && s.verdict === "charge" && s.savedUsd > 0) {
+  // The invitation is about savings existing, not about a bill being due, so
+  // it keys on verified savings rather than the billing verdict.
+  if (s.chainOk && s.hasVerifiedSavings) {
     console.log(`  claim     keep these savings metered → ${MESH_SIGNUP_URL}`);
   }
   const cov = policyCoverage(readPolicy());

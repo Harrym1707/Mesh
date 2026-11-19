@@ -88,6 +88,8 @@ export function groupWorkflowSessions(
 }
 
 function summarise(applicationId: string, events: BillableEvent[]): WorkflowSession {
+  // No fee on purpose: a session is not a billing period, so its verdict only
+  // says whether the session's net verified savings are positive.
   const invoice = recomputeInvoice(events);
   const models: string[] = [];
   for (const event of events) if (!models.includes(event.model)) models.push(event.model);

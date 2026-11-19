@@ -55,8 +55,9 @@ export type MeshSavingsSummary = {
   requests: number;
   /** Net verified savings in USD (never MESH's token estimate; from provider usage). */
   savedUsd: number;
-  /** MESH's fee at 1% of verified savings. */
+  /** MESH's fee at 1% of verified savings, as billed: rounded down to the whole cent. */
   feeUsd: number;
+  /** The bill's verdict: "charge" only when `feeUsd` is at least one cent. */
   verdict: "charge" | "do_not_charge";
   ledgerPath: string;
 };
@@ -122,7 +123,8 @@ export function wrapMesh<T extends object>(client: T, options: WrapMeshOptions =
       return {
         requests: invoice.eventsConsidered,
         savedUsd: invoice.netVerifiedSavingsUsd,
-        feeUsd: invoice.amountDueUsd ?? 0,
+        // The fee as billed: the recompute's whole cents, never re-rounded here.
+        feeUsd: (invoice.amountDueCents ?? 0) / 100,
         verdict: invoice.verdict,
         ledgerPath,
       };

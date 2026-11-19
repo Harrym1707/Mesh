@@ -4,12 +4,12 @@
  * We start the server, read the port it prints, hit /data and /, then stop it.
  */
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { BillableEvent } from "../../core/src/savings-ledger.js";
+import { chainLedgerRecord, type BillableEvent } from "../../core/src/savings-ledger.js";
 import type { TheoLever, TheoPolicy } from "../../sdk-js/src/theo-policy.js";
 import { computeHealth } from "./dashboard.js";
 
@@ -147,5 +147,45 @@ describe("mesh dashboard (subprocess, isolated HOME + ledger)", () => {
     expect(html).toContain("/data"); // the page polls this endpoint
     expect(html).toContain("Workflows"); // the per-session panel is present
     expect(html).toContain("Quality &amp; health"); // the quality/health panel is present
+  });
+
+  const writeSpool = (savedUsd: number): void => {
+    mkdirSync(ledger, { recursive: true });
+    const record = chainLedgerRecord({
+      schemaVersion: 1,
+      requestId: "r1",
+      applicationId: "proxy",
+      invoicePeriod: "2026-11",
+      timestamp: "2026-11-10T10:00:00.000Z",
+      provider: "anthropic",
+      model: "claude-sonnet-5-5",
+      executionMode: "standard",
+      pricingStatus: "priced",
+      levers: [{ leverId: "duplicate-context-removal", kind: "lossless", savedUsd }],
+      status: "succeeded",
+    }, undefined);
+    writeFileSync(join(ledger, "proxy-anthropic.jsonl"), `${JSON.stringify(record)}\n`);
+  };
+  type Savings = { netUsd: number; verdict: string; feePercent: number; feeCents: number; feeBelowOneCent: boolean };
+  const savingsOf = async (): Promise<{ savings: Savings; html: string }> => {
+    const started = await startDashboard(home, ledger);
+    child = started.child;
+    const base = `http://127.0.0.1:${started.port}`;
+    const data = await (await fetch(`${base}/data`, { cache: "no-store" })).json() as { savings: Savings };
+    return { savings: data.savings, html: await (await fetch(`${base}/`)).text() };
+  };
+
+  it("the savings verdict is the bill's: $0.3609 saved is do_not_charge because the 1% fee is below one cent", { timeout: 30_000 }, async () => {
+    writeSpool(0.3609);
+    const { savings, html } = await savingsOf();
+    expect(savings).toMatchObject({ netUsd: 0.3609, verdict: "do_not_charge", feePercent: 1, feeCents: 0, feeBelowOneCent: true });
+    // The page says why, in words, instead of a bare "do not charge".
+    expect(html).toContain("% fee is below one cent");
+  });
+
+  it("the savings verdict is the bill's: $21.6267 saved is charge, with the fee rounded down to 21 cents", { timeout: 30_000 }, async () => {
+    writeSpool(21.6267);
+    const { savings } = await savingsOf();
+    expect(savings).toMatchObject({ netUsd: 21.6267, verdict: "charge", feePercent: 1, feeCents: 21, feeBelowOneCent: false });
   });
 });

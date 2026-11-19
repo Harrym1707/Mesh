@@ -230,9 +230,9 @@ async function main(): Promise<void> {
       "measured saving is not billed; check the mesh-verify statement for what was and was not billed.",
     );
   }
-  // The recompute's own verdict field is not printed: it reads "charge" for any
-  // positive net, including one whose fee rounds below a cent and is not billed.
-  // The outcome that matters is stated once, on the line that follows.
+  // The recompute's verdict field is not printed here. It now agrees with the
+  // plan (do_not_charge whenever the fee, rounded down, is below one cent), but
+  // the outcome is stated once, with its reason, on the line that follows.
   console.log(`Net verified savings: $${invoice.netVerifiedSavingsUsd.toFixed(4)}`);
 
   if (plan.action === "do_not_bill") {

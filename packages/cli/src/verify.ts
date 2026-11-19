@@ -16,8 +16,9 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { recomputeInvoice, verifyLedgerChain, type LedgerRecord } from "../../core/src/savings-ledger.js";
+import { verifyLedgerChain, type LedgerRecord } from "../../core/src/savings-ledger.js";
 import { reduceRequest } from "../../sdk-js/src/reduce-request.js";
+import { recomputeBillInvoice, verdictNote } from "./bill-verdict.js";
 import { BUILD_COMMIT } from "./start.js";
 
 const LEDGER_DIR = join(homedir(), ".mesh", "ledger");
@@ -105,14 +106,17 @@ export async function runVerify(_argv: string[]): Promise<void> {
     });
 
     const events = all.map((r) => r.event);
-    const once = JSON.stringify(recomputeInvoice(events));
-    const twice = JSON.stringify(recomputeInvoice(events));
-    const invoice = recomputeInvoice(events);
+    // Recomputed at the contracted fee, with the same options on every call, so
+    // the comparison is still a like-for-like determinism check and the verdict
+    // printed is the bill's own (do_not_charge when the fee is below one cent).
+    const once = JSON.stringify(recomputeBillInvoice(events));
+    const twice = JSON.stringify(recomputeBillInvoice(events));
+    const invoice = recomputeBillInvoice(events);
     checks.push({
       name: "determinism",
       ok: once === twice,
       detail: once === twice
-        ? `invoice recomputes identically: $${invoice.netVerifiedSavingsUsd.toFixed(4)} verified (${invoice.verdict})`
+        ? `invoice recomputes identically: $${invoice.netVerifiedSavingsUsd.toFixed(4)} verified (${verdictNote(invoice)})`
         : "invoice is NON-deterministic — this should never happen; please report it",
     });
   }

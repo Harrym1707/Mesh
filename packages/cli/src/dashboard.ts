@@ -16,7 +16,8 @@ import { createServer } from "node:http";
 import { connect } from "node:net";
 import { platform } from "node:os";
 import { join } from "node:path";
-import { recomputeInvoice, type BillableEvent } from "../../core/src/savings-ledger.js";
+import type { BillableEvent } from "../../core/src/savings-ledger.js";
+import { CONTRACTED_FEE_PERCENT, feeIsBelowOneCent, recomputeBillInvoice } from "./bill-verdict.js";
 import { groupWorkflowSessions } from "../../core/src/workflow-sessions.js";
 import { policyCoverage, withheldLevers, type TheoPolicy } from "../../sdk-js/src/theo-policy.js";
 import { defaultTheoMemoryPath, loadTheoMemory } from "../../sdk-js/src/theo-agent-store.js";
@@ -148,7 +149,9 @@ export function computeHealth(
 
 async function buildData(args: DashArgs): Promise<unknown> {
   const { records, chainOk, brokenAt } = readLedger(args.ledgerDir);
-  const invoice = records.length ? recomputeInvoice(records.map((r) => r.event)) : null;
+  // At the contracted fee, so the verdict shown beside the savings is the
+  // bill's own: positive savings whose fee is below one cent are do_not_charge.
+  const invoice = records.length ? recomputeBillInvoice(records.map((r) => r.event)) : null;
   const bundle = readPolicyBundle();
   const policy = bundle.default;
   const active = (policy.levers ?? []).map((l) => ({ lever: l.lever, class: l.class }));
@@ -174,11 +177,14 @@ async function buildData(args: DashArgs): Promise<unknown> {
       ? {
           netUsd: invoice.netVerifiedSavingsUsd,
           verdict: invoice.verdict,
+          feePercent: CONTRACTED_FEE_PERCENT,
+          feeCents: invoice.amountDueCents ?? 0,
+          feeBelowOneCent: feeIsBelowOneCent(invoice),
           eventsConsidered: invoice.eventsConsidered,
           eventsBilled: invoice.eventsBilled,
           unpricedEvents: invoice.unpricedEvents,
         }
-      : { netUsd: 0, verdict: "do_not_charge", eventsConsidered: 0, eventsBilled: 0, unpricedEvents: 0 },
+      : { netUsd: 0, verdict: "do_not_charge", feePercent: CONTRACTED_FEE_PERCENT, feeCents: 0, feeBelowOneCent: false, eventsConsidered: 0, eventsBilled: 0, unpricedEvents: 0 },
     lineItems: invoice?.lineItems ?? [],
     recordedUnbilled: invoice?.recordedUnbilled ?? [],
     health,
@@ -407,7 +413,7 @@ async function tick(){
     const d=await (await fetch('/data',{cache:'no-store'})).json();
     $('build').textContent='build '+d.build;
     $('saved').innerHTML='<span class="cur">$</span>'+usd(d.savings.netUsd);
-    const v=$('verdict'); v.textContent=d.savings.verdict==='charge'?'billing':'do not charge'; v.className='verdict '+d.savings.verdict;
+    const v=$('verdict'); v.textContent=d.savings.verdict==='charge'?'billing':(d.savings.feeBelowOneCent?('do not charge · the '+d.savings.feePercent+'% fee is below one cent'):'do not charge'); v.className='verdict '+d.savings.verdict;
     $('events').textContent=d.savings.eventsConsidered+' requests'+(d.savings.unpricedEvents?(' · '+d.savings.unpricedEvents+' unpriced (recorded, not billed)'):'');
     const h=d.health;
     const hlabel=h.status==='protected'?'Quality protected':h.status==='watch'?'Watching drift':'No traffic yet';
