@@ -4611,9 +4611,9 @@ var init_billing_worker = __esm({
 });
 
 // packages/core/src/manual-billing-checks.ts
-import { createHash as createHash8 } from "node:crypto";
+import { createHash as createHash8, createPrivateKey, createPublicKey, generateKeyPairSync, sign, verify } from "node:crypto";
 function statementSeal(body) {
-  const { sha256: _sha256, sha256Of: _sha256Of, ...content } = body;
+  const { sha256: _sha256, sha256Of: _sha256Of, signature: _signature, ...content } = body;
   return createHash8("sha256").update(canonicalJson(content)).digest("hex");
 }
 function checkStatementSeal(document) {
@@ -4621,13 +4621,144 @@ function checkStatementSeal(document) {
   const record = document;
   return typeof record.sha256 === "string" && record.sha256 === statementSeal(record);
 }
-var STATEMENT_SCHEMA, STATEMENT_SEAL_RULE;
+function exactBase64(value, length) {
+  if (typeof value !== "string") return void 0;
+  const bytes = Buffer.from(value, "base64");
+  return bytes.length === length && bytes.toString("base64") === value ? bytes : void 0;
+}
+function publicKeyObject(raw) {
+  return createPublicKey({ key: Buffer.concat([ED25519_SPKI_PREFIX, raw]), format: "der", type: "spki" });
+}
+function privateKeyObject(rawSeed) {
+  return createPrivateKey({ key: Buffer.concat([ED25519_PKCS8_PREFIX, rawSeed]), format: "der", type: "pkcs8" });
+}
+function statementKeyFingerprint(publicKey) {
+  const raw = typeof publicKey === "string" ? exactBase64(publicKey, 32) : Buffer.from(publicKey);
+  if (raw === void 0 || raw.length !== 32) throw new Error("A statement public key is 32 bytes (base64).");
+  return createHash8("sha256").update(raw).digest("hex");
+}
+function statementKeyFromPrivate(privateKey) {
+  const seed = exactBase64(privateKey, 32);
+  if (seed === void 0) throw new Error("A statement private key is 32 bytes (base64).");
+  const spki = createPublicKey(privateKeyObject(seed)).export({ format: "der", type: "spki" });
+  const raw = Buffer.from(spki.subarray(spki.length - 32));
+  const publicKey = raw.toString("base64");
+  return { publicKey, privateKey, fingerprint: statementKeyFingerprint(raw) };
+}
+function generateStatementKey() {
+  const { privateKey } = generateKeyPairSync("ed25519");
+  const pkcs8 = privateKey.export({ format: "der", type: "pkcs8" });
+  return statementKeyFromPrivate(Buffer.from(pkcs8.subarray(pkcs8.length - 32)).toString("base64"));
+}
+function serializeStatementKeyFile(key, createdAt) {
+  return `${JSON.stringify({
+    schema: STATEMENT_KEY_SCHEMA,
+    note: STATEMENT_KEY_NOTE,
+    algorithm: STATEMENT_SIGNATURE_ALGORITHM,
+    createdAt,
+    fingerprint: key.fingerprint,
+    publicKey: key.publicKey,
+    privateKey: key.privateKey
+  }, null, 2)}
+`;
+}
+function parseStatementKeyFile(text) {
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error("it is not JSON");
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("it is not a statement key file");
+  const file = parsed;
+  if (file.schema !== STATEMENT_KEY_SCHEMA) throw new Error(`its schema is not ${STATEMENT_KEY_SCHEMA}`);
+  if (file.algorithm !== STATEMENT_SIGNATURE_ALGORITHM) throw new Error(`its algorithm is not ${STATEMENT_SIGNATURE_ALGORITHM}`);
+  if (exactBase64(file.privateKey, 32) === void 0) throw new Error("its private key is missing or is not 32 bytes of base64");
+  let key;
+  try {
+    key = statementKeyFromPrivate(file.privateKey);
+  } catch {
+    throw new Error("its private key is not a usable ed25519 key");
+  }
+  if (file.publicKey !== key.publicKey) throw new Error("its public key is not the one its private key produces");
+  if (file.fingerprint !== key.fingerprint) throw new Error("its fingerprint is not the fingerprint of its public key");
+  return key;
+}
+function signStatementSeal(seal, privateKey) {
+  if (!HEX_64.test(seal)) throw new Error("A statement seal is 64 lowercase hexadecimal characters.");
+  const key = statementKeyFromPrivate(privateKey);
+  const seed = exactBase64(privateKey, 32);
+  return {
+    algorithm: STATEMENT_SIGNATURE_ALGORITHM,
+    publicKey: key.publicKey,
+    fingerprint: key.fingerprint,
+    signs: STATEMENT_SIGNATURE_RULE,
+    value: sign(null, Buffer.from(seal, "utf8"), privateKeyObject(seed)).toString("base64")
+  };
+}
+function verifyStatementSignature(statement) {
+  const bad = (code, reason) => ({ ok: false, code, reason });
+  if (typeof statement !== "object" || statement === null || Array.isArray(statement)) {
+    return bad("seal", "it is not a statement (not a JSON object).");
+  }
+  const record = statement;
+  if (!checkStatementSeal(record)) return bad("seal", "its content does not match its sha256 seal.");
+  const signature = record.signature;
+  if (signature === void 0) return bad("unsigned", "it carries no signature.");
+  if (typeof signature !== "object" || signature === null || Array.isArray(signature)) {
+    return bad("malformed", "its signature field is not a signature object.");
+  }
+  const { algorithm, publicKey, fingerprint, signs, value } = signature;
+  if (algorithm !== STATEMENT_SIGNATURE_ALGORITHM) return bad("malformed", `its signature algorithm is not ${STATEMENT_SIGNATURE_ALGORITHM}.`);
+  if (signs !== STATEMENT_SIGNATURE_RULE) return bad("malformed", "its signature does not say it signs the statement's seal by the rule this build uses.");
+  const rawPublicKey = exactBase64(publicKey, 32);
+  if (rawPublicKey === void 0) return bad("malformed", "its signature's public key is not 32 bytes of base64.");
+  const rawValue = exactBase64(value, 64);
+  if (rawValue === void 0) return bad("malformed", "its signature value is not 64 bytes of base64.");
+  const actualFingerprint = statementKeyFingerprint(rawPublicKey);
+  if (fingerprint !== actualFingerprint) return bad("malformed", "its signature's fingerprint is not the fingerprint of its public key.");
+  let verified = false;
+  try {
+    verified = verify(null, Buffer.from(record.sha256, "utf8"), publicKeyObject(rawPublicKey), rawValue);
+  } catch {
+    verified = false;
+  }
+  if (!verified) return bad("invalid", "the signature does not verify against the public key in the file.");
+  return { ok: true, fingerprint: actualFingerprint };
+}
+function unsignedStatementOrigin(statement) {
+  const mesh = isRecord(statement) ? statement.mesh : void 0;
+  const text = isRecord(mesh) && typeof mesh.version === "string" ? mesh.version : "";
+  const parts = PLAIN_VERSION.exec(text);
+  const version = parts === null ? {} : { version: text };
+  if (isRecord(statement) && statement.sha256Of === STATEMENT_SEAL_RULE) return { ...version, predatesSigning: false };
+  if (parts === null) return { predatesSigning: true };
+  const since = PLAIN_VERSION.exec(STATEMENT_SIGNING_SINCE);
+  for (let index = 1; index <= 3; index += 1) {
+    const difference = Number(parts[index]) - Number(since[index]);
+    if (difference !== 0) return { ...version, predatesSigning: difference < 0 };
+  }
+  return { ...version, predatesSigning: false };
+}
+var STATEMENT_SCHEMA, STATEMENT_SEAL_RULE, STATEMENT_SIGNING_SINCE, STATEMENT_SIGNATURE_ALGORITHM, STATEMENT_SIGNATURE_RULE, STATEMENT_KEY_SCHEMA, STATEMENT_KEY_DIR, STATEMENT_KEY_FILE, STATEMENT_KEY_NOTE, HEX_64, ED25519_PKCS8_PREFIX, ED25519_SPKI_PREFIX, isRecord, PLAIN_VERSION;
 var init_manual_billing_checks = __esm({
   "packages/core/src/manual-billing-checks.ts"() {
     "use strict";
     init_price_catalogue();
     STATEMENT_SCHEMA = "mesh-statement/1";
-    STATEMENT_SEAL_RULE = "sha256 of this document as canonical JSON (keys sorted, no whitespace) without the sha256 and sha256Of fields";
+    STATEMENT_SEAL_RULE = "sha256 of this document as canonical JSON (keys sorted, no whitespace) without the sha256, sha256Of and signature fields";
+    STATEMENT_SIGNING_SINCE = "0.2.5";
+    STATEMENT_SIGNATURE_ALGORITHM = "ed25519";
+    STATEMENT_SIGNATURE_RULE = "ed25519 signature, by the statement key of the MESH install that wrote this file, over the value of this document's sha256 field (its 64 lowercase hexadecimal characters as UTF-8 bytes)";
+    STATEMENT_KEY_SCHEMA = "mesh-statement-key/1";
+    STATEMENT_KEY_DIR = "identity";
+    STATEMENT_KEY_FILE = "statement-key.json";
+    STATEMENT_KEY_NOTE = "PRIVATE. This is the statement key of this MESH install: it signs the statements `mesh statement` writes. Never share, send or commit this file. The only part to give MESH is the fingerprint, printed by `mesh statement --key`.";
+    HEX_64 = /^[0-9a-f]{64}$/;
+    ED25519_PKCS8_PREFIX = Buffer.from("302e020100300506032b657004220420", "hex");
+    ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
+    isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
+    PLAIN_VERSION = /^(\d{1,4})\.(\d{1,4})\.(\d{1,4})$/;
   }
 });
 
@@ -5623,10 +5754,13 @@ var init_billing_worker2 = __esm({
 });
 
 // packages/core/dist/src/manual-billing-checks.js
+var ED25519_PKCS8_PREFIX2, ED25519_SPKI_PREFIX2;
 var init_manual_billing_checks2 = __esm({
   "packages/core/dist/src/manual-billing-checks.js"() {
     "use strict";
     init_price_catalogue2();
+    ED25519_PKCS8_PREFIX2 = Buffer.from("302e020100300506032b657004220420", "hex");
+    ED25519_SPKI_PREFIX2 = Buffer.from("302a300506032b6570032100", "hex");
   }
 });
 
@@ -7219,7 +7353,7 @@ var init_start = __esm({
     init_cta();
     init_bill_verdict();
     init_update();
-    BUILD_COMMIT = true ? "5316e36" : process.env.MESH_BUILD_COMMIT ?? "dev";
+    BUILD_COMMIT = true ? "59363e8" : process.env.MESH_BUILD_COMMIT ?? "dev";
     MESH_HOME = join5(homedir3(), ".mesh");
     CLAUDE_SETTINGS = join5(homedir3(), ".claude", "settings.json");
     WIRING_STATE = join5(MESH_HOME, "claude-wiring.json");
@@ -7718,9 +7852,116 @@ var init_diag = __esm({
     init_start();
     init_claude_wiring();
     WIRING_PATHS = { settingsPath: CLAUDE_SETTINGS, statePath: WIRING_STATE };
-    VERSION = true ? "0.2.4" : process.env.MESH_VERSION ?? "0.0.0";
+    VERSION = true ? "0.2.5" : process.env.MESH_VERSION ?? "0.0.0";
     LAUNCHD_LABEL = "dev.meshtoken.mesh";
     nodeMajor = () => Number.parseInt(process.versions.node.split(".")[0] ?? "0", 10);
+  }
+});
+
+// packages/cli/src/statement-key.ts
+import {
+  chmodSync as chmodSync2,
+  closeSync,
+  copyFileSync as copyFileSync3,
+  constants,
+  existsSync as existsSync10,
+  fsyncSync,
+  linkSync,
+  mkdirSync as mkdirSync9,
+  openSync,
+  readFileSync as readFileSync10,
+  rmSync as rmSync3,
+  statSync as statSync4,
+  writeSync
+} from "node:fs";
+import { dirname as dirname7, join as join9 } from "node:path";
+function statementKeyPath(meshHome) {
+  return join9(meshHome, STATEMENT_KEY_DIR, STATEMENT_KEY_FILE);
+}
+function ownerOnly(path, mode) {
+  try {
+    if ((statSync4(path).mode & 511) !== mode) chmodSync2(path, mode);
+  } catch {
+  }
+}
+function readStatementKey(path) {
+  if (!existsSync10(path)) return void 0;
+  let text;
+  try {
+    text = readFileSync10(path, "utf8");
+  } catch (error) {
+    const code = error.code ?? "unreadable";
+    throw new Error(`The statement key file ${path} exists but could not be read (${code}). ${HOW_TO_REPLACE}`);
+  }
+  let key;
+  try {
+    key = parseStatementKeyFile(text);
+  } catch (error) {
+    throw new Error(
+      `The statement key file ${path} exists but is not a usable statement key: ${error.message}. ${HOW_TO_REPLACE}`
+    );
+  }
+  ownerOnly(dirname7(path), 448);
+  ownerOnly(path, 384);
+  return key;
+}
+function loadOrCreateStatementKey(path, now = /* @__PURE__ */ new Date()) {
+  const existing = readStatementKey(path);
+  if (existing !== void 0) return { key: existing, created: false };
+  const dir = dirname7(path);
+  const temporary = join9(dir, `.${STATEMENT_KEY_FILE}.${process.pid}.${Date.now()}.tmp`);
+  const fresh = generateStatementKey();
+  let created = true;
+  try {
+    try {
+      mkdirSync9(dir, { recursive: true, mode: 448 });
+      ownerOnly(dir, 448);
+      const handle = openSync(temporary, "wx", 384);
+      try {
+        writeSync(handle, serializeStatementKeyFile(fresh, now.toISOString()));
+        fsyncSync(handle);
+      } finally {
+        closeSync(handle);
+      }
+    } catch (error) {
+      throw new Error(
+        `This MESH install has no statement key yet, and one could not be created in ${dir} (${error.code ?? "error"}). A statement is signed with that key, so none was written. Make that folder writable by you and run the command again.`
+      );
+    }
+    ownerOnly(temporary, 384);
+    try {
+      linkSync(temporary, path);
+    } catch (error) {
+      const code = error.code;
+      if (code === "EEXIST") {
+        created = false;
+      } else {
+        try {
+          copyFileSync3(temporary, path, constants.COPYFILE_EXCL);
+        } catch (copyError) {
+          if (copyError.code !== "EEXIST") {
+            throw new Error(`The statement key could not be written to ${path} (${copyError.code ?? "error"}).`);
+          }
+          created = false;
+        }
+      }
+    }
+  } finally {
+    try {
+      rmSync3(temporary, { force: true });
+    } catch {
+    }
+  }
+  ownerOnly(path, 384);
+  const key = readStatementKey(path);
+  if (key === void 0) throw new Error(`The statement key could not be written to ${path}.`);
+  return { key, created: created && key.fingerprint === fresh.fingerprint };
+}
+var HOW_TO_REPLACE;
+var init_statement_key = __esm({
+  "packages/cli/src/statement-key.ts"() {
+    init_manual_billing_checks();
+    HOW_TO_REPLACE = "MESH will not replace it for you: a new key has a new fingerprint, and MESH bills only against the fingerprint you registered. If the file is damaged, restore it from a backup. To start a new key on purpose, move the file aside, run `mesh statement --key`, and register the new fingerprint with MESH through the channel agreed in writing.";
   }
 });
 
@@ -7739,12 +7980,13 @@ __export(statement_exports, {
   renderInvalid: () => renderInvalid,
   renderStatement: () => renderStatement,
   runStatement: () => runStatement,
+  signStatement: () => signStatement,
   statementSeal: () => statementSeal,
   usd: () => usd
 });
 import { createHash as createHash11 } from "node:crypto";
-import { existsSync as existsSync10, mkdirSync as mkdirSync9, readFileSync as readFileSync10, readdirSync as readdirSync4, writeFileSync as writeFileSync7 } from "node:fs";
-import { basename, dirname as dirname7, join as join9, resolve as resolve3 } from "node:path";
+import { existsSync as existsSync11, mkdirSync as mkdirSync10, readFileSync as readFileSync11, readdirSync as readdirSync4, writeFileSync as writeFileSync7 } from "node:fs";
+import { basename, dirname as dirname8, join as join10, resolve as resolve3 } from "node:path";
 function parseSpool(name, text) {
   const records = [];
   const lines = text.split(/\r?\n/);
@@ -7766,14 +8008,14 @@ function parseSpool(name, text) {
   return { name, records };
 }
 function listSpools(ledgerDir) {
-  if (!existsSync10(ledgerDir)) return [];
-  return readdirSync4(ledgerDir).filter((file) => file.endsWith(".jsonl") && !file.endsWith(".features.jsonl")).sort().map((file) => join9(ledgerDir, file));
+  if (!existsSync11(ledgerDir)) return [];
+  return readdirSync4(ledgerDir).filter((file) => file.endsWith(".jsonl") && !file.endsWith(".features.jsonl")).sort().map((file) => join10(ledgerDir, file));
 }
 function plainId(value) {
   return typeof value === "string" && PLAIN_ID.test(value) ? value : WITHHELD;
 }
 function hash64(value) {
-  return typeof value === "string" && HEX_64.test(value) ? value : WITHHELD;
+  return typeof value === "string" && HEX_642.test(value) ? value : WITHHELD;
 }
 function isoTime(value) {
   return typeof value === "string" && ISO_TIME.test(value) ? value : WITHHELD;
@@ -7945,7 +8187,16 @@ ${model}`;
       repricing
     }
   };
-  return { valid: true, statement: { ...body, sha256Of: SEAL_RULE, sha256: statementSeal(body) }, spoolNames };
+  const sealed = { ...body, sha256Of: SEAL_RULE, sha256: statementSeal(body) };
+  return {
+    valid: true,
+    statement: input.signingKey === void 0 ? sealed : signStatement(sealed, input.signingKey),
+    spoolNames
+  };
+}
+function signStatement(statement, signingKey) {
+  const { signature: _previous, ...sealed } = statement;
+  return { ...sealed, signature: signStatementSeal(statement.sha256, signingKey) };
 }
 function usd(amount, places = 4) {
   const text = Math.abs(amount).toFixed(places);
@@ -8094,7 +8345,7 @@ function renderInvalid(result) {
   return lines.join("\n");
 }
 function parse2(argv) {
-  const args = { ledgerDir: join9(MESH_HOME, "ledger"), json: false, spools: [] };
+  const args = { ledgerDir: join10(MESH_HOME, "ledger"), json: false, key: false, spools: [] };
   for (let index = 0; index < argv.length; index += 1) {
     const key = argv[index];
     if (key === "--help" || key === "-h") {
@@ -8103,6 +8354,10 @@ function parse2(argv) {
     }
     if (key === "--json") {
       args.json = true;
+      continue;
+    }
+    if (key === "--key") {
+      args.key = true;
       continue;
     }
     if (!key.startsWith("--")) {
@@ -8134,7 +8389,7 @@ function parse2(argv) {
 function runCheck(file) {
   let document;
   try {
-    document = JSON.parse(readFileSync10(file, "utf8"));
+    document = JSON.parse(readFileSync11(file, "utf8"));
   } catch {
     throw new Error(`${file} could not be read as a statement file.`);
   }
@@ -8146,11 +8401,57 @@ function runCheck(file) {
   console.log(`  \u2713 ${file} matches its sha256 seal (${statement.sha256}).`);
   console.log("    The seal shows the file was not altered by accident. The proof of the figures is");
   console.log("    recomputing them from the ledger itself.");
+  const signature = verifyStatementSignature(document);
+  if (signature.ok) {
+    console.log("  \u2713 Its signature verifies against the statement key named in the file.");
+    console.log(`    Signed by statement key: ${signature.fingerprint}`);
+    console.log("    This shows the file is consistent with itself: whoever holds that key signed it.");
+    console.log("    It does not show whose key it is. MESH compares the fingerprint with the one the");
+    console.log("    customer registered; your own is printed by: mesh statement --key");
+    return;
+  }
+  const period = isPeriod(statement.period?.id) ? statement.period.id : "YYYY-MM";
+  if (signature.code === "unsigned") {
+    const { version, predatesSigning } = unsignedStatementOrigin(document);
+    if (predatesSigning) {
+      console.log("  \u2717 It is NOT signed: it was written by a MESH release that does not sign statements");
+      console.log(`    (${version === void 0 ? "it does not say which" : `it says MESH ${version}`}; signing starts with ${STATEMENT_SIGNING_SINCE}). MESH does not bill from an unsigned`);
+      console.log(`    statement. Update MESH to ${STATEMENT_SIGNING_SINCE} or later and write it again with:`);
+    } else {
+      console.log("  \u2717 It is NOT signed, although it was written by a MESH build that signs every statement");
+      console.log(`    ${version === void 0 ? "" : `(it says MESH ${version}): `}its signature was removed, or it was not written by this command.`);
+      console.log("    MESH does not bill from an unsigned statement. Write it again with:");
+    }
+    console.log(`    mesh statement --period ${period}`);
+    process.exit(1);
+  }
+  console.log(`  \u2717 Its signature does NOT verify: ${signature.reason}`);
+  console.log("    The signature or the key in the file was changed after it was signed. Write the");
+  console.log(`    statement again with: mesh statement --period ${period}`);
+  process.exit(1);
 }
-async function runStatement(argv) {
+function runKey(keyFile) {
+  const { key, created } = loadOrCreateStatementKey(keyFile);
+  console.log("");
+  console.log(`  Statement key fingerprint for this MESH install${created ? " (key created just now)" : ""}:`);
+  console.log(`  ${key.fingerprint}`);
+  console.log("");
+  console.log("  Send it to MESH once, when billing is agreed, through the channel agreed in writing. It is public");
+  console.log("  and safe to share; the private half never leaves this machine. If you reinstall or move machine");
+  console.log("  the fingerprint changes, and you must register the new one the same way before your next statement.");
+  console.log("");
+  console.log(`  Key file (private, do not share): ${keyFile}`);
+  console.log("");
+}
+async function runStatement(argv, options = {}) {
   const args = parse2(argv);
+  const keyFile = statementKeyPath(options.meshHome ?? MESH_HOME);
   if (args.check !== void 0) {
     runCheck(args.check);
+    return;
+  }
+  if (args.key) {
+    runKey(keyFile);
     return;
   }
   if (args.period === void 0) throw new Error(`--period YYYY-MM is required.
@@ -8163,7 +8464,7 @@ ${USAGE2}`);
       `No ledger found in ${args.ledgerDir}. Run MESH on some traffic first, or pass --ledger <dir> or the spool files.`
     );
   }
-  const spools = paths.map((path) => parseSpool(basename(path), readFileSync10(path, "utf8")));
+  const spools = paths.map((path) => parseSpool(basename(path), readFileSync11(path, "utf8")));
   const result = buildStatement({ spools, period: args.period });
   if (!result.valid) {
     if (args.json) {
@@ -8180,23 +8481,25 @@ ${USAGE2}`);
     }
     process.exit(1);
   }
+  const statement = signStatement(result.statement, loadOrCreateStatementKey(keyFile).key.privateKey);
   const out = args.out ?? resolve3(`mesh-statement-${args.period}.json`);
-  const file = `${JSON.stringify(result.statement, null, 2)}
+  const file = `${JSON.stringify(statement, null, 2)}
 `;
-  mkdirSync9(dirname7(out), { recursive: true });
+  mkdirSync10(dirname8(out), { recursive: true });
   writeFileSync7(out, file);
   if (args.json) {
     process.stdout.write(file);
     return;
   }
-  console.log(renderStatement(result.statement, result.spoolNames));
+  console.log(renderStatement(statement, result.spoolNames));
   console.log(`  Statement file  ${out}`);
-  console.log(`  sha256 seal     ${result.statement.sha256}`);
+  console.log(`  sha256 seal     ${statement.sha256}`);
+  console.log(`  Signed by this install's statement key: ${statement.signature.fingerprint}`);
   console.log("  It holds numbers, lever names, model ids and hashes only. Send it to MESH with");
   console.log("  your ledger files; check it later with: mesh statement --check <file>");
   console.log("");
 }
-var STATEMENT_NOTICE, PERIOD_RULE, PLAN_PREVIEW_CUSTOMER, USAGE2, HEX_64, HEX_VERSION, PLAIN_ID, ISO_TIME, WITHHELD, SEAL_RULE, plural;
+var STATEMENT_NOTICE, PERIOD_RULE, PLAN_PREVIEW_CUSTOMER, USAGE2, HEX_642, HEX_VERSION, PLAIN_ID, ISO_TIME, WITHHELD, SEAL_RULE, plural;
 var init_statement = __esm({
   "packages/cli/src/statement.ts"() {
     init_accounts();
@@ -8207,6 +8510,7 @@ var init_statement = __esm({
     init_stripe_billing();
     init_diag();
     init_start();
+    init_statement_key();
     STATEMENT_NOTICE = "This is a statement of verified savings that you can recompute from your own ledger. It is not an invoice: MESH issues the invoice separately, from this same ledger. If your recomputation disagrees with ours, yours wins.";
     PERIOD_RULE = "A request belongs to the period stamped on its ledger event (invoicePeriod), which is the UTC calendar month of the time the request started. The bill selects events by the same stamp.";
     PLAN_PREVIEW_CUSTOMER = "cus_statement_preview";
@@ -8223,13 +8527,22 @@ recomputation disagrees with ours, yours wins.
                      Default ./mesh-statement-YYYY-MM.json.
   --json             Print the statement as JSON instead of text.
   --check <file>     Check that a statement file has not been edited since it
-                     was written (its sha256 seal), then exit.
+                     was written (its sha256 seal) and that its signature
+                     verifies against the key the file names, then exit.
+  --key              Print the fingerprint of this install's statement key
+                     (creating the key if there is none yet), then exit. Give
+                     the fingerprint to MESH once, when billing is agreed.
   --help             Show this message.
 
 Pass spool files to read exactly those instead of a ledger directory.
 Amounts are US dollars. The file holds numbers, lever names, model ids and
-hashes only: no prompts, no request content, no keys. No network calls.`;
-    HEX_64 = /^[0-9a-f]{64}$/;
+hashes only: no prompts, no request content, no keys. No network calls.
+
+The statement is signed with this install's statement key, kept in
+~/.mesh/identity/statement-key.json. The private half never leaves this
+machine and is never printed; MESH bills only from a statement signed by the
+key whose fingerprint you registered.`;
+    HEX_642 = /^[0-9a-f]{64}$/;
     HEX_VERSION = /^[0-9a-f]{8,64}$/;
     PLAIN_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}$/;
     ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?Z$/;
@@ -8249,9 +8562,9 @@ import { spawn } from "node:child_process";
 import { createServer as createServer2 } from "node:http";
 import { connect as connect3 } from "node:net";
 import { platform as platform3 } from "node:os";
-import { join as join10 } from "node:path";
+import { join as join11 } from "node:path";
 function parseArgs(argv) {
-  const args = { port: 8799, proxyPort: DEFAULT_PORT, ledgerDir: join10(MESH_HOME, "ledger"), open: true };
+  const args = { port: 8799, proxyPort: DEFAULT_PORT, ledgerDir: join11(MESH_HOME, "ledger"), open: true };
   for (let i = 0; i < argv.length; i += 1) {
     const key = argv[i];
     if (key === "--help" || key === "-h") {
@@ -8646,10 +8959,10 @@ __export(compaction_exports, {
   runCompaction: () => runCompaction
 });
 import { writeFileSync as writeFileSync8 } from "node:fs";
-import { join as join11, resolve as resolve4 } from "node:path";
+import { join as join12, resolve as resolve4 } from "node:path";
 function parse3(argv) {
   const args = {
-    ledgerDir: join11(MESH_HOME, "ledger"),
+    ledgerDir: join12(MESH_HOME, "ledger"),
     atTokens: 6e4,
     summaryTokens: 2e3,
     minTurns: 3,
@@ -8747,8 +9060,8 @@ function estimateLedger(events, args) {
   return { estimates, skipped };
 }
 function money(value) {
-  const sign = value < 0 ? "-" : "";
-  return `${sign}$${Math.abs(value).toFixed(4)}`;
+  const sign2 = value < 0 ? "-" : "";
+  return `${sign2}$${Math.abs(value).toFixed(4)}`;
 }
 async function runCompaction(argv) {
   const args = parse3(argv);
