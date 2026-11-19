@@ -14,10 +14,12 @@ pays it themselves.
 - **Which code this matches.** The commands below match `scripts/mesh-bill.ts`
   as of two pull requests together: the billing-safety pull request (branch
   `product/billing-safety-on-main`, commit `c91f635`) and the fee-rounding pull
-  request (branch `product/verdict-agrees-with-fee`). **Merge both before using
-  this runbook.** On `main` at `51bee22` the script has no `--dry-run`, creates
-  a draft that Stripe may collect automatically, and rounds the fee to the
-  nearest cent.
+  request (branch `product/verdict-agrees-with-fee`, which is built on top of
+  it). **Merge both before using this runbook.** Every `mesh-bill` figure and
+  every line of `mesh-bill` output quoted below was run on commit `c3605c1` of
+  the fee-rounding branch. On `main` at `51bee22` the script has no `--dry-run`,
+  creates a draft that Stripe may collect automatically, and rounds the fee to
+  the nearest cent.
 - **Which release the customer needs.** `mesh statement` ships in the release
   after 0.2.3 (planned as 0.2.4). It is **not available** in 0.2.3: there,
   `mesh statement --period 2026-11` prints the general usage text, exits 0 and
@@ -172,8 +174,8 @@ node --import tsx scripts/mesh-bill.ts --dry-run \
 ```
 
 No Stripe key is read and nothing is sent. What it must look like when there is
-something to bill (dry-run example, stand-in provider, not a customer result;
-**figures from commit `c91f635`, to be re-run on the round-down branch**):
+something to bill (dry-run example on commit `c3605c1`, stand-in provider, not
+a customer result):
 
 ```text
 Mode: DRY RUN (no Stripe key read, nothing sent)  ·  period: 2026-11  ·  fee: 1%  ·  spools read: 6
@@ -186,10 +188,10 @@ Would create one Stripe DRAFT invoice:
   amount:              2 cents
   currency:            usd
   collection method:   send_invoice (the customer is sent an invoice; nothing is collected automatically)
-  days until due:      14 (due about 2026-12-02 if created today; Stripe sets the date)
+  days until due:      14 (due about 2026-12-03 if created today; Stripe sets the date)
   auto advance:        false
   invoice description: "MESH statement 2026-11"
-  line item:           (to be quoted from a run of the round-down branch, which rewords it)
+  line item:           "MESH fee — 1% of $2.45 net verified savings, period 2026-11. Check it on your own machine: mesh statement --period 2026-11. Independent check: npx -y -p @harrym1707/verify mesh-verify <your spool>. If your recomputation disagrees, yours wins."
   idempotency keys:    mesh-cus_TEST-2026-11-2-inv
                        mesh-cus_TEST-2026-11-2-item
 
@@ -200,6 +202,12 @@ Check: `spools read` equals the number of spools in the statement; the period is
 right; the collection method is `send_invoice`; the customer id is right.
 
 Payment terms default to 14 days; `--days-until-due <n>` changes them.
+
+The line item tells the customer to run `mesh statement --period 2026-11`. That
+command exists only from 0.2.4. Do not send an invoice carrying that line to a
+customer who is still on 0.2.3: have them update first (step 1). The second
+command on the line, the standalone verify package, was not run in this dry
+run.
 
 ### 7. Compare the dry run with the statement
 
@@ -216,8 +224,11 @@ figure or nothing.
 
 One difference is expected until the release that carries the round-down rule
 reaches the customer: a statement written by an earlier build rounds the fee to
-the nearest cent and can show one cent more than `mesh-bill`. The invoice uses
-the lower figure. Tell the customer why.
+the nearest cent and can show one cent more than `mesh-bill`. Seen in the dry
+run: a statement built from the statement branch at `a8d2c6f` said 3 cents on
+US$2.6330 and 10 cents on US$9.5947, where `mesh-bill` on `c3605c1` said 2 cents
+and 9 cents. The invoice uses the lower figure. Tell the customer why. Any
+other difference is a stop.
 
 ### 8. Apply a carried deficit, by hand
 
@@ -318,7 +329,7 @@ Add an entry to the operator log, the same day:
 | `Skipped (not a ledger spool): ….features.jsonl` | The proxy's features file, sent along with the spools | Nothing; it is never billed from |
 | `No events are recorded for 2026-10. Periods in the spool(s): 2026-11 (4800 records).` then `DO NOT BILL` | The wrong period was typed, or the customer sent the wrong month | Check the period; nothing was created |
 | `DO NOT BILL — do_not_charge: the period's net verified savings were not positive…` | A month with no saving, or a net loss | No invoice. Tell the customer nothing is owed. Record any deficit in the log |
-| `DO NOT BILL — do_not_charge: the 1% fee on $0.3558 net verified savings rounds below one cent…` | There were savings, but the fee is under one cent | No invoice. See the next section |
+| `DO NOT BILL — do_not_charge: the 1% fee on $0.3558 net verified savings is below one cent, so nothing is billed yet.` | There were savings, but the fee is under one cent | No invoice. See the next section |
 | The statement and the dry run disagree | See step 7 | Stop. The customer's recomputation wins |
 | A spool is missing or shorter than the statement says | See step 5 | Stop. Ask for the ledger again |
 | A second draft for the same period | The script was run twice with different spool sets or amounts | Delete the wrong draft before anything is sent; find out which spool set was right |
@@ -339,7 +350,7 @@ and `mesh status` printed `696 requests seen · $0.3558 verified saved (charge)`
 ```text
 Net verified savings: $0.3558
 
-DO NOT BILL — do_not_charge: the 1% fee on $0.3558 net verified savings rounds below one cent, so nothing is billed yet.
+DO NOT BILL — do_not_charge: the 1% fee on $0.3558 net verified savings is below one cent, so nothing is billed yet.
 ```
 
 and made no request to Stripe: no invoice, no zero-value draft, with `--dry-run`
@@ -363,22 +374,28 @@ provider, default lossless levers, period 2026-11. **These are not customer
 results and say nothing about what MESH saves on real traffic.** One further
 ledger of the same kind was made by the overwatch session.
 
-**Fee figures in this table come from commit `c91f635` (fee rounded to the
-nearest cent) and are to be re-run on the round-down branch.** Statement figures
-come from the statement branch at `a8d2c6f`, which also still rounds to the
-nearest cent.
+Which code each figure came from: `mesh verify` and `mesh status` are the
+shipped 0.2.3 runtime (build `51bee22`). The statement is the statement branch
+at `a8d2c6f`, which still rounds the fee to the nearest cent. `mesh-bill` and
+the stubbed Stripe request are commit `c3605c1` (fee rounded down). The
+"before" column shows what `mesh-bill` planned on `c91f635`, before the rounding
+change.
 
-| Ledger | Requests | `mesh verify` 0.2.3: net | Statement: net, fee | `mesh-bill --dry-run` | Stubbed Stripe request |
-|---|---|---|---|---|---|
-| one round | 24 | $0.0131 (charge) | US$0.0131, 0 cents, do_not_charge | DO NOT BILL | none made |
-| sub-cent | 696 | $0.3558 (charge) | US$0.3558, 0 cents, do_not_charge | DO NOT BILL | none made |
-| volume | 4,800 | $2.4494 (charge) | US$2.4494, 2 cents, charge | 2 cents | `amount=2`, key `mesh-cus_TEST-2026-11-2-item` |
-| volume B | 5,160 | $2.6330 (charge) | US$2.6330, 3 cents, charge | 3 cents | `amount=3`, key `mesh-cus_TEST-2026-11-3-item` |
-| overwatch | 2,500 | $9.5947 (charge) | US$9.5947, 10 cents, charge | 10 cents | `amount=10`, key `mesh-cus_TEST-2026-11-10-item` |
+| Ledger | Requests | `mesh verify` 0.2.3: net | Statement `a8d2c6f`: net, fee | `mesh-bill` before (`c91f635`) | `mesh-bill --dry-run` (`c3605c1`) | Stubbed Stripe request (`c3605c1`) |
+|---|---|---|---|---|---|---|
+| one round | 24 | $0.0131 (charge) | US$0.0131, 0 cents, do_not_charge | DO NOT BILL | DO NOT BILL | none made |
+| sub-cent | 696 | $0.3558 (charge) | US$0.3558, 0 cents, do_not_charge | DO NOT BILL | DO NOT BILL | none made |
+| volume | 4,800 | $2.4494 (charge) | US$2.4494, 2 cents, charge | 2 cents | 2 cents | `amount=2`, key `mesh-cus_TEST-2026-11-2-item` |
+| volume B | 5,160 | $2.6330 (charge) | US$2.6330, 3 cents, charge | 3 cents | 2 cents | `amount=2`, key `mesh-cus_TEST-2026-11-2-item` |
+| overwatch | 2,500 | $9.5947 (charge) | US$9.5947, 10 cents, charge | 10 cents | 9 cents | `amount=9`, key `mesh-cus_TEST-2026-11-9-item` |
 
-In every row the three sources agreed with each other. Two rows show the
-defect the round-down rule fixes: 3 cents on US$2.6330 is 1.14%, and 10 cents on
-US$9.5947 is 1.04%. On the round-down branch they must be 2 cents and 9 cents.
+Net verified savings agreed across all three tools in every row. The fee in
+cents agreed between `mesh-bill --dry-run` and the stubbed Stripe request in
+every row. The two rows where the statement shows one cent more are the defect
+the round-down rule fixes: 3 cents on US$2.6330 is 1.14%, and 10 cents on
+US$9.5947 is 1.04%; on `c3605c1` they are 2 cents and 9 cents. The statement
+is expected to agree once the release merges the two branches; that has not
+been run.
 
 Things the dry run showed that an operator should know:
 
@@ -389,8 +406,9 @@ Things the dry run showed that an operator should know:
   The customer's own `mesh verify` 0.2.3 on that same ledger marked the ledger
   line `✗` and still printed `$102.4494 verified (charge)` on the next line.
 - Billing the same period from five of six spools and then from all six planned
-  two different drafts with different idempotency keys (`…-2026-11-1-…` and
-  `…-2026-11-2-…`). Nothing in the script would have stopped the second.
+  two different drafts, 1 cent and 2 cents, with different idempotency keys
+  (`…-2026-11-1-…` and `…-2026-11-2-…`). Nothing in the script would have
+  stopped the second.
 - `mesh-bill` does not check that the month has ended. The statement does.
 - Requests to a model the price list does not carry were recorded and not
   billed; no unpriced request carried a billed saving in these ledgers.
@@ -444,7 +462,8 @@ the customer record has no email address.
   founder prefers another rule. Before that change the fee was rounded to the
   nearest cent and could exceed 1%: 22 cents on US$21.63 of net verified savings
   is 1.017%, and US$0.50 of savings billed 1 cent, which is 2%. Under round-down
-  US$21.63 bills 21 cents, US$0.99 bills nothing and US$1.00 bills 1 cent.
+  (checked on `c3605c1`) US$21.63 bills 21 cents, US$0.50 and US$0.99 bill
+  nothing and US$1.00 bills 1 cent.
   **Until both pull requests are merged, nobody should promise "never more than
   1%"**, and the shipped 0.2.3 `mesh verify` can print "(charge)" for a customer
   who owes nothing; that wording is fixed for customers only by the next
