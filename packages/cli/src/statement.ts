@@ -23,7 +23,13 @@ import { basename, dirname, join, resolve } from "node:path";
 // Direct module imports, not the package barrels (see start.ts).
 import { DEFAULT_FEE_PERCENT } from "../../core/src/accounts.js";
 import { publishedModelPrices } from "../../core/src/model-prices.js";
-import { canonicalJson, catalogueVersion } from "../../core/src/price-catalogue.js";
+import {
+  STATEMENT_SCHEMA,
+  STATEMENT_SEAL_RULE,
+  checkStatementSeal,
+  statementSeal,
+} from "../../core/src/manual-billing-checks.js";
+import { catalogueVersion } from "../../core/src/price-catalogue.js";
 import {
   auditEventPricing,
   recomputeInvoice,
@@ -36,7 +42,7 @@ import { buildStripeInvoicePlan } from "../../core/src/stripe-billing.js";
 import { VERSION } from "./diag.js";
 import { BUILD_COMMIT, MESH_HOME } from "./start.js";
 
-export const STATEMENT_SCHEMA = "mesh-statement/1";
+export { STATEMENT_SCHEMA };
 
 export const STATEMENT_NOTICE =
   "This is a statement of verified savings that you can recompute from your own ledger. " +
@@ -223,18 +229,25 @@ export type StatementBody = {
   };
   fee: {
     ratePercent: number;
-    /** The fee as billed: whole cents. Zero whenever the verdict is do_not_charge. */
+    /**
+     * The fee as billed: whole cents, rounded DOWN, so it is never more than
+     * the rate. Zero whenever the verdict is do_not_charge.
+     */
     amountUsd: number;
     amountCents: number;
     /**
-     * The recompute's fee before rounding to cents. Zero when the recompute
-     * itself says do_not_charge (net savings that round to zero cents or less).
+     * The fee before it is rounded down to the cent. Zero whenever the verdict
+     * is do_not_charge, including when the fee is below one cent.
      */
     unroundedUsd: number;
   };
   /** What the bill does with this period: the plan's decision, not a separate rule. */
   verdict: "charge" | "do_not_charge";
-  /** The invoice recompute's own verdict, before the fee is rounded to whole cents. */
+  /**
+   * The invoice recompute's own verdict. The recompute rounds the fee itself
+   * and says do_not_charge whenever it is below one cent, so this agrees with
+   * `verdict` for any ledger that verifies.
+   */
   recomputeVerdict: "charge" | "do_not_charge";
   verdictReason?: string;
   /** A shortfall this period that offsets fees in later periods. Zero when there is none. */
@@ -257,20 +270,10 @@ export type StatementResult =
   | { valid: true; statement: Statement; spoolNames: string[] }
   | { valid: false; period: string; ledger: StatementLedger; spoolNames: string[]; reason: string };
 
-export const SEAL_RULE = "sha256 of this document as canonical JSON (keys sorted, no whitespace) without the sha256 and sha256Of fields";
-
-/** The seal over a statement's content. */
-export function statementSeal(body: Record<string, unknown>): string {
-  const { sha256: _sha256, sha256Of: _sha256Of, ...content } = body;
-  return createHash("sha256").update(canonicalJson(content)).digest("hex");
-}
-
-/** True when a statement file's content still matches its seal. */
-export function checkStatementSeal(document: unknown): boolean {
-  if (typeof document !== "object" || document === null || Array.isArray(document)) return false;
-  const record = document as Record<string, unknown>;
-  return typeof record.sha256 === "string" && record.sha256 === statementSeal(record);
-}
+// The seal has ONE definition, in core, shared with the operator's billing
+// script (scripts/mesh-bill.ts --statement) so the two cannot drift.
+export const SEAL_RULE = STATEMENT_SEAL_RULE;
+export { checkStatementSeal, statementSeal };
 
 export function isPeriod(value: string | undefined): value is string {
   return value !== undefined && /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
@@ -396,15 +399,11 @@ export function buildStatement(input: BuildStatementInput): StatementResult {
   const ledgerVersions = invoice.catalogueVersions.map((version) =>
     (HEX_VERSION.test(version) ? version : WITHHELD));
   const charge = plan.action === "bill";
-  // The reason is the bill's own sentence, with one correction: for savings
-  // above zero that round to zero cents the plan says they "were not positive".
-  // They were; they are too small to bill. Say that instead.
-  const net = invoice.netVerifiedSavingsUsd;
-  const verdictReason = charge
-    ? undefined
-    : net > 0 && invoice.verdict === "do_not_charge" && (invoice.carryForwardDeficitOutUsd ?? 0) === 0
-      ? `net verified savings of ${usd(net)} round to zero cents, so nothing is billed.`
-      : plan.reason.replace(/^do_not_charge:\s*/, "");
+  // The reason is the bill's own sentence, unedited. The plan already tells
+  // savings that are positive but too small to bill ("the 1% fee ... is below
+  // one cent") apart from savings that were not positive, so nothing is
+  // corrected here.
+  const verdictReason = charge ? undefined : plan.reason.replace(/^do_not_charge:\s*/, "");
 
   const body: StatementBody = {
     schema: STATEMENT_SCHEMA,
@@ -591,7 +590,7 @@ export function renderStatement(statement: Statement, spoolNames: readonly strin
     `Fee at ${s.fee.ratePercent}% of net verified savings`,
     usd(s.fee.amountUsd, 2),
     s.fee.unroundedUsd > 0
-      ? `(${plural(s.fee.amountCents, "cent")}; ${usd(s.fee.unroundedUsd, 6)} before rounding to the nearest cent)`
+      ? `(${plural(s.fee.amountCents, "cent")}; ${usd(s.fee.unroundedUsd, 6)} rounded down to the cent, so never more than ${s.fee.ratePercent}%)`
       : `(${plural(s.fee.amountCents, "cent")})`,
   ));
   lines.push(row("Verdict", s.verdict));
