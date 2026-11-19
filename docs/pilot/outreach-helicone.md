@@ -7,6 +7,9 @@ framing must be re-confirmed against Helicone's repo/announcements on the day
 of sending; if it cannot be confirmed, use the alternate opening below.
 Personalise the [bracketed] fields.
 
+Savings figures refreshed 2026-11-16 to [docs/NUMBERS.md](../NUMBERS.md) (last
+reconciled 2026-10-27). Re-check them against that file on the day of sending.
+
 ---
 
 **Subject:** Your Helicone request data is still worth something
@@ -24,20 +27,31 @@ to you and excluded, unpriced models flagged rather than zeroed — and an
 explicit "do not pay us" verdict when your traffic is already well-optimised.
 It's a quote derived from your traffic, not a benchmark slide.
 
-Two things it is **not**: it is not a gateway (nothing sits in your request
-path; the SDK piece is a provider-client wrapper you can read in an afternoon),
-and it is not a migration pitch (the quote is useful whatever you do about
-observability).
+Two things the quote is **not**: it is not a gateway (it reads a file you
+already have, and nothing is added to your request path to get it), and it is
+not a migration pitch (the quote is useful whatever you do about
+observability). Trying MESH itself afterwards is a separate decision; that
+part runs as a small proxy on your own machine.
 
-Calibration from our harness (synthetic traffic, quality held per completed
-task): interactive agents 26.0–29.4% **(measured)**, one-shot 45.5%
-**(measured)**, latency-tolerant workloads on discounted execution tiers 64.3%
-**(measured, OpenAI-priced)**. Segment bands, not promises — your export
-produces your number, with every caveat printed in the report.
+Calibration, our own numbers as of 27 October 2026. On real API traffic we
+have one measured figure: 18.2% **(LIVE)**, the net saving on a mixed
+30-request basket of our own test agents, run on 26 October 2026. The rest is
+modelled on a simulator and not yet proven on anyone's real bill: busy
+interactive agents 25.9–29.4% **(SIMULATOR)**, one-shot templated workloads
+45.5% **(SIMULATOR)**, latency-tolerant workloads on discounted execution
+tiers 57.7% net **(SIMULATOR, OpenAI-priced, assumes some requests fall back
+to the standard tier)**. The command behind each figure is at
+https://github.com/Harrym1707/Mesh/blob/main/docs/NUMBERS.md. Not
+promises — your export produces your number, with every caveat printed in the
+report.
 
-If you'd run it on one export and tell me where it's wrong, you'd be one of the
-2–3 design partners I'm looking for. Five minutes, one JSON file out, full
-methodology shared.
+If you'd run it on one export and tell me where it's wrong, that is the most
+useful thing you could do for it. Five minutes, one JSON file out, full
+methodology shared. You don't need anything from me first: MESH is open to
+everyone, with no signup and no waiting list, and you can install it today
+(https://www.mesh-technology.com/start.html). If you would rather have a hand, I
+can run it with you as a hands-on pilot: an agreed measuring window, help
+with setup and an invoice you can check yourself.
 
 [sign-off]
 
@@ -59,8 +73,14 @@ free and stays on your machine regardless.
 | Claim in letter | Label | Source |
 |---|---|---|
 | Helicone "maintenance mode" | **UNVERIFIED in repo** — carried from sprint brief; re-verify on send day or use alternate opening | sprint-chain brief 2026-10-13 |
-| 26.0–29.4% / 45.5% / 64.3% | measured | run-agent-ab.ts at 4e9e774; async figure OpenAI-priced only |
+| 18.2% on a mixed 30-request basket | LIVE, run 2026-10-26 | docs/NUMBERS.md, LIVE table: `MESH_LIVE_KEEP=1 evals/run-live-agents.ts`, claude-sonnet-5-5, spools in `evals/live-exports-2026-10-26/`. MESH's own test basket, not a customer's traffic |
+| 25.9–29.4% busy interactive agents | SIMULATOR | docs/NUMBERS.md, SIMULATOR table: arm J, `4e51734` (commit of 2026-10-13) |
+| 45.5% one-shot templated | SIMULATOR | docs/NUMBERS.md, SIMULATOR table: arm H of arms H/I, `7b08666` (commit of 2026-10-12). The other arm, 72.8%, is left out of the letter |
+| 57.7% net async | SIMULATOR | docs/NUMBERS.md, SIMULATOR table: arm K, `4e51734` (commit of 2026-10-13), served-tier priced. Net of assumed fallback rates; the 64.3% ceiling is never quoted on its own. OpenAI-priced |
+| The quote is "not a gateway"; MESH itself is a local proxy | code | `mesh-quote` reads an export file (`packages/core/src/quote-report.ts`); the pilot path is `mesh start` / `mesh proxy` ([onboarding.md](./onboarding.md)) |
+| "open to everyone, no signup, no waiting list", install today | site | `docs/site/start.md` and `docs/site/faq.md` on `main`; the link is the built start page |
+| "hands-on pilots: measuring window, help with setup, an invoice you can check" | plan | [PILOT_PLAN.md](./PILOT_PLAN.md). Optional; no number of places is stated in the letter |
 | "no upload, your machine" | code-enforced | quote-report.ts + packaged local bin, no network path |
 | Helicone export parsing works | implemented, fixture-tested | packages/core/src/helicone.ts; gateway-triage gate 9/9 |
 | 1% of verified savings / $0 verdict | implemented | savings-ledger.ts recomputeInvoice, do_not_charge verdict |
-| 34.1% sparse-1h | omitted deliberately | simulator-measured only |
+| 34.3% sparse interactive, 1h TTL | omitted deliberately | SIMULATOR (docs/NUMBERS.md, arm L, `6f08b72`) |
