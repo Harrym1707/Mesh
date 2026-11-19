@@ -11,16 +11,17 @@ pays it themselves.
 
 ## Read this first
 
-- **Which code this matches.** The commands below match `scripts/mesh-bill.ts`
-  as of two pull requests together: the billing-safety pull request (branch
-  `product/billing-safety-on-main`, commit `c91f635`) and the pull request built
-  on top of it (branch `product/verdict-agrees-with-fee`), which carries the
-  fee-rounding rule, the `mesh statement` command and the checks `mesh-bill`
-  now makes for itself. **Merge both before using this runbook.** Every figure
-  and every line of output quoted below was run on commit `133e8d6` of that
-  second branch, unless a line says otherwise. On `main` at `51bee22` the script
-  has no `--dry-run`, takes no statement, creates a draft that Stripe may
-  collect automatically, and rounds the fee to the nearest cent.
+- **Which code this matches.** The commands and the output quoted below match
+  the release branch `release/0.2.4` at commit `5316e36`. Every figure and every
+  line of `mesh-bill`, `mesh verify`, `mesh status` and `mesh statement` output
+  was run on that commit, unless a line says otherwise. That branch contains two
+  pull requests: billing safety (branch `product/billing-safety-on-main`) and
+  the one built on top of it (branch `product/verdict-agrees-with-fee`), which
+  carries the fee-rounding rule, the `mesh statement` command and the checks
+  `mesh-bill` now makes for itself. **Use this runbook only with a checkout that
+  has that release merged.** On `main` at `51bee22` the script has no
+  `--dry-run`, takes no statement, creates a draft that Stripe may collect
+  automatically, and rounds the fee to the nearest cent.
 - **Which release the customer needs.** `mesh statement` ships in the release
   after 0.2.3 (planned as 0.2.4). It is **not available** in 0.2.3: there,
   `mesh statement --period 2026-11` prints the general usage text, exits 0 and
@@ -66,7 +67,7 @@ pays it themselves.
 On the operator's machine:
 
 ```bash
-# A checkout that contains both pull requests named above.
+# A checkout that contains the release named above.
 cd <your checkout of the Mesh repo>
 corepack pnpm install
 corepack pnpm exec tsc -b        # mesh-bill imports the built core package
@@ -186,7 +187,7 @@ node --import tsx scripts/mesh-bill.ts --dry-run \
 ```
 
 No Stripe key is read and nothing is sent. What it looks like when there is
-something to bill (dry-run example on commit `133e8d6`, stand-in provider, not a
+something to bill (dry-run example on commit `5316e36`, stand-in provider, not a
 customer result; the two WARNING lines are there only because this example
 month had not ended when it was run):
 
@@ -207,7 +208,7 @@ Would create one Stripe DRAFT invoice:
   days until due:      14 (due about 2026-12-03 if created today; Stripe sets the date)
   auto advance:        false
   invoice description: "MESH statement 2026-11"
-  line item:           "MESH fee — 1% of $9.59 net verified savings, period 2026-11. Check it on your own machine: mesh statement --period 2026-11. Independent check: npx -y -p @harrym1707/verify mesh-verify <your spool>. If your recomputation disagrees, yours wins."
+  line item:           "MESH fee — 1% of $9.59 net verified savings, period 2026-11. Check it on your own machine: mesh statement --period 2026-11. Independent check of the savings: npx -y -p @harrym1707/verify mesh-verify <your spool>. If your recomputation disagrees, yours wins."
   idempotency keys:    mesh-cus_TEST-2026-11-9-inv
                        mesh-cus_TEST-2026-11-9-item
 
@@ -234,7 +235,9 @@ Payment terms default to 14 days; `--days-until-due <n>` changes them.
 
 The line item tells the customer to run `mesh statement --period 2026-11`,
 which they can, having produced the statement with it. The second command on
-the line, the standalone verify package, was not run in this dry run.
+the line is an independent check of the savings only: the published verify
+package checks the net savings; the fee in cents is checked by `mesh statement`.
+The verify package itself was not run in this dry run.
 
 ### 7. The figures: the script compares them, and a mismatch stops it
 
@@ -307,7 +310,7 @@ Left as a DRAFT. Review it in the Stripe dashboard (amount, currency, due date, 
 
 Do not pass `--finalize`. Leave the draft for review.
 
-Refusals, quoted from the dry run on `133e8d6`. Every one exits 1 and sends
+Refusals, quoted from the dry run on `5316e36`. Every one exits 1 and sends
 nothing. The spool and statement checks print the same `DO NOT BILL` line in a
 dry run, so you see them at step 6.
 
@@ -408,8 +411,8 @@ Why: in 0.2.3 the word in brackets only says that net savings are positive. It
 is not the bill's decision. The fee is 1% of US$0.3558, which is about a third
 of a cent, and the smallest amount that can be invoiced is one cent.
 
-The fix is in the release that carries these branches. Built from `133e8d6`,
-the same ledger prints:
+The fix is in the release that carries these branches. Built from `5316e36`
+(which reports itself as `mesh 0.2.4`), the same ledger prints:
 
 ```text
 ✓ determinism  invoice recomputes identically: $0.3558 verified (do_not_charge: the 1% fee is below one cent)
@@ -435,7 +438,7 @@ ledger of the same kind was made by the overwatch session.
 
 Which code each figure came from: the `mesh verify` column is the shipped 0.2.3
 runtime (build `51bee22`). The statement, `mesh-bill --dry-run --statement` and
-the stubbed Stripe request are all commit `133e8d6`. The "before" column is what
+the stubbed Stripe request are all commit `5316e36`. The "before" column is what
 `mesh-bill` planned on `c91f635`, when the fee was still rounded to the nearest
 cent.
 
@@ -467,7 +470,7 @@ and the recorder logged no request.
 - **Shown with a hand-made sample:** a four-record sample spool dated October
   2026, built with the repository's own chain helper and not by the shipped
   runtime, with a statement produced from it by the runtime built from
-  `133e8d6`. With a fake test key and the network replaced by a recorder, the
+  `5316e36`. With a fake test key and the network replaced by a recorder, the
   real-mode run printed `Statement: statement matched: 1 spool, 4 records (3 in
   2026-10), net verified savings $1234.5600, fee 1234 cents.`, then the two
   requests it would have sent (`collection_method=send_invoice`,
@@ -475,7 +478,7 @@ and the recorder logged no request.
   status draft (TEST mode).` Nothing was sent.
 - **Covered by unit tests:** the statement, spool and period checks are pure
   functions in `packages/core/src/manual-billing-checks.ts`, with tests beside
-  them in `manual-billing-checks.test.ts` (20 tests, passing on `133e8d6`).
+  them in `manual-billing-checks.test.ts` (20 tests, passing on `5316e36`).
 - **Still to do:** Stripe test-mode step 2 below, with a real test key, on a
   month that has ended.
 
@@ -487,11 +490,11 @@ Other things the dry run showed that an operator should know:
 - A spool with one saving edited fails in `mesh-bill` (`CHAIN BROKEN`, exit 1).
   The customer's own `mesh verify` 0.2.3 on that ledger marked the ledger line
   `✗` and still printed `$102.4494 verified (charge)` on the next line. Built
-  from `133e8d6` it prints `– determinism  not checked: the ledger did not
-  verify` and exits 1. `mesh status` built from `133e8d6` still printed
-  `4800 requests seen · $102.4494 verified saved (charge)` for that ledger: it
-  does not check the chain, so do not take a figure from `mesh status` as
-  verified.
+  from `5316e36`, `mesh verify` prints `– determinism  not checked: the ledger
+  did not verify` and exits 1, and `mesh status` prints
+  `4800 requests seen · ledger did NOT verify, so no savings figure · run: mesh verify`
+  with no figure and no sign-up line. A customer on 0.2.3 with a damaged ledger
+  still sees a dollar figure from both commands; do not take it as verified.
 - Two different ledgers whose fee comes to the same number of cents get the same
   idempotency key (volume and volume B above). That only matters for one
   customer and period, where it is the intended behaviour.
