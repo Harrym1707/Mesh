@@ -57,15 +57,23 @@ reports `mode: "test"` by fiat).
 
 ### 2. `mesh-bill` creates a real DRAFT invoice in test mode
 Build core first (`corepack pnpm -s exec tsc -b`), have a test customer
-`cus_…`, and a valid ledger spool (e.g. from `mesh verify`'s export, or a
-synthetic chain). Run it with `--dry-run` first (no key needed, nothing sent) and
-read what it says it would create; then run it for real:
+`cus_…`, the ledger spools for a month that has ENDED (UTC), and the statement
+file for that month written from those same spools by `mesh statement --period
+YYYY-MM` (the release after 0.2.3). A real run refuses without `--statement`,
+refuses a month that has not ended, and refuses if the spools passed are not
+exactly the spools the statement was computed from. Run it with `--dry-run`
+first (no key needed, nothing sent) and read what it says it would create; the
+dry run must print `statement matched: …` and no WARNING lines. Then run it for
+real:
 ```bash
 node --import tsx scripts/mesh-bill.ts --dry-run \
-  --customer cus_TEST --period 2026-10 --fee 1 your-spool.jsonl
+  --statement mesh-statement-2026-10.json \
+  --customer cus_TEST --period 2026-10 --fee 1 your-ledger-folder/*.jsonl
 STRIPE_TEST_SECRET_KEY=sk_test_xxx node --import tsx scripts/mesh-bill.ts \
-  --customer cus_TEST --period 2026-10 --fee 1 your-spool.jsonl
+  --statement mesh-statement-2026-10.json \
+  --customer cus_TEST --period 2026-10 --fee 1 your-ledger-folder/*.jsonl
 ```
+Operator steps in full: `docs/ops/first-invoice-runbook.md`.
 Proves: the create-invoice-then-attach-item sequence lands a non-empty **draft**
 in the Stripe dashboard (the empty-draft fix against Stripe's real
 `auto_advance=false` behaviour), and that Stripe accepts the draft as a
@@ -128,7 +136,9 @@ proves works independently of Stripe's 24h window).
 ### Safety reminders for every step
 - Only `sk_test_…` (or a restricted `rk_test_…`) keys. The guard refuses
   `sk_live_…` and `rk_live_…`; do not pass `--live` / `allowLive`.
-- `mesh-bill` requires `--period YYYY-MM` and refuses to run without it. It
+- `mesh-bill` requires `--period YYYY-MM` and refuses to run without it. A real
+  run also requires `--statement <file>` (the customer's own `mesh statement`
+  file, checked against the spools passed) and a month that has ended. It
   keeps no durable billed-record (only the worker does), so before finalizing
   check the dashboard for an existing invoice for the same customer and period.
 - `mesh-bill --dry-run` reads no key and sends nothing; run it before every
