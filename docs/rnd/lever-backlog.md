@@ -270,3 +270,17 @@ Deeper pull (Mooncake full trace, Azure full week n≈2.9M, SWE-rebench n=2,000 
   the heaviest single component; always >1024/2048 so independently cacheable.
 - **Dedup ceiling ~7-9%, history gates 3/2: CONFIRMED.** Output-side levers de-prioritized
   for Tier-1 (Azure out:in ≤0.05 median over 2.9M requests).
+
+## New candidate 2026-11-19 — crossTurnToolResultDedup (autonomous agents, retry loops)
+
+Full writeup: `docs/rnd/2026-11-19-NOTES.md`. A tool call retried after an identical
+transient failure produces a byte-identical `tool_result` error body per retry, which
+neither `duplicateContext` (single-message only) nor `crossTurnMemoryDedup` (leading-text
+only) reaches. New opt-in LOSSY lever `crossTurnToolResultDedup`
+(`packages/sdk-js/src/reduce-request.ts`) collapses every retry's failure after the first
+into a reference marker, keyed by exact byte match, never touching `tool_use` blocks or
+the required `tool_use_id` pairing. Measured on a constructed 24-turn fixture
+(`evals/run-retry-loop-dedup.ts`): **8.0% candidate**, isolated from caching. Same debt
+class as `crossTurnMemoryDedup`: needs a `replayGate` pass before any part of it bills.
+STILL OWED from this backlog: a lossy candidate for RAG and batch-classification (flagged
+2026-10-23, 2026-10-25, 2026-11-19 — not yet picked up).
