@@ -1,52 +1,70 @@
 # Reddit posts — one per community, in that community's register
 
+**Drafts, not posted.** Refreshed 2026-11-18 for Mesh 0.2.3. Posting is the
+founder's act.
+
 Rules of engagement (from research/reddit.md): text posts, no URL in the
 title, GitHub link mid-body after the numbers, one sub per day, warm the
 account with link-free helpful comments for 1–2 weeks first. Retype rather
 than paste — these drafts are skeletons for YOUR voice, and communities
-detect and punish copy that reads machine-written. Every number is published
-on the evidence page; add nothing that isn't.
+detect and punish copy that reads machine-written. Every savings number is in
+docs/NUMBERS.md and carries its label (LIVE or SIMULATOR); add nothing that
+isn't. Mesh has not run on anyone's traffic but our own test runs and has no
+customers: say so when asked and imply nothing else.
+
+Every post teaches the same one path: install
+(`curl -fsSL https://www.mesh-technology.com/install.sh | sh` on macOS, Linux
+or inside WSL, or `npm install -g @harrym1707/mesh`), then `mesh start` for
+Claude Code or `mesh proxy` for your own app
+(`ANTHROPIC_BASE_URL=http://127.0.0.1:8787` or
+`OPENAI_BASE_URL=http://127.0.0.1:8787/v1`), then `mesh verify`. Questions go
+to GitHub issues: https://github.com/Harrym1707/Mesh/issues/new
 
 ---
 
 ## 1. r/ClaudeCode — flair: Built with Claude (fire first)
 
-**Title:** I built a local proxy to cut my Claude API bill, and its own ledger caught one of my levers losing money
+**Title:** I built a local proxy to cut Claude API costs, and its own ledger caught one of my levers losing money
 
 **Body (skeleton):**
 
 The thing that started this: Anthropic's prompt cache is opt-in, and when I
-actually metered five typical agent workloads, a five-turn coding agent was
+actually metered five test agent workloads, a five-turn coding agent was
 re-paying full input rate for its entire history every single turn. Zero
 cache traffic. The cache just… wasn't on, because nobody turns it on.
 
-So I built mesh — a local proxy. One command, no signup:
+So I built mesh — a local proxy. No signup, no account:
 
-    npx -y -p @harrym1707/sdk mesh-proxy
+    curl -fsSL https://www.mesh-technology.com/install.sh | sh
+    mesh start
 
-(or read the source first: github.com/Harrym1707/Mesh — it's your API key
+(macOS, Linux, or inside WSL; `npm install -g @harrym1707/mesh` works too.
+Or read the source first: github.com/Harrym1707/Mesh — it's your API key
 going through it, you should.)
 
-Point your client's baseURL at it and it compacts tool schemas (decodes
+`mesh start` points Claude Code at it and puts it back on Ctrl+C. For your
+own agent it's `mesh proxy` and one setting,
+`ANTHROPIC_BASE_URL=http://127.0.0.1:8787`. It compacts tool schemas (decodes
 identically), removes exact duplicate context, moves the per-request
 timestamp that silently breaks the provider cache, and places cache_control
 on the actually-stable prefix. Responses come back byte-identical. Your key
-passes through and is never stored; nothing leaves your machine except the
-normal call to Anthropic.
+passes through and is never stored; your prompts go to Anthropic and nowhere
+else.
 
 The part I'm most proud of is also the embarrassing part. Every request
-writes one line to a hash-chained ledger on your disk, and the invoice is
-recomputed from that file — by you, with the same package. On our first live
-run that ledger caught one of our OWN levers losing money: a cache breakpoint
-placed over a volatile prefix cost −$0.0063 across 8 turns, writes every
-turn, zero reads. It counted against us, we published it, and the fix is in
-the repo with a test that prices both placements.
+writes one line to a hash-chained ledger on your disk, and `mesh verify`
+recomputes the total from that file — on your machine, no network. On an
+early live run that ledger caught one of our OWN levers losing money: a cache
+breakpoint placed over a volatile prefix paid the write premium every turn
+and got zero reads. It counted against us, we published it, and the guard
+that now refuses that placement is in the repo.
 
-Honest numbers: 37.9% from correct cache placement alone (simulator, same
-prompts both arms, labelled as such). 18.2% of real spend on a 30-request
-live run, receipt on the site line by line. If your stack already caches
-well, the quote output literally says "do not pay us" — that's a real
-verdict it produces.
+Honest numbers: 37.9% from correct cache placement alone (SIMULATOR: same
+prompts both arms, modelled, not proven on a real bill). 18.2% net on a
+30-request live basket, run 2026-10-26 (LIVE: real API traffic, but my own
+test agents, $0.0365 saved of $0.2010 spent; the spools are in the repo).
+Nobody else has run it yet. If your stack already caches well, it literally
+says "do not pay us" — that's a real verdict it produces.
 
 Happy to answer anything about cache_control placement — I've now stared at
 more cache-miss traces than I'd like to admit.
@@ -63,56 +81,69 @@ cache is OPT-IN; breakpoints define exact-byte prefixes; writes bill 1.25×
 breaks everything after it; TTL counts from request START so a long
 generation can expire its own cache ("bathroom breaks become a financial
 decision" — their joke, reuse the sentiment, not the phrasing). THEN the
-tool: npx one-liner, what it automates, the recomputable ledger, the
+tool: the install one-liner and `mesh start` (or `mesh proxy` + the base
+URL), what it automates, `mesh verify` and the recomputable ledger, the
 published loss story, the do-not-pay-us verdict. Same honesty block as the
-r/ClaudeCode post, compressed.
+r/ClaudeCode post, compressed, labels included.
 
 ---
 
 ## 3. r/LLMDevs — engineering writeup (no flair needed; disclosure required)
 
-**Title:** Cut token spend 18% on live traffic — and here's the hash-chained ledger so you can check the math, including where it lost
+**Title:** 18.2% net on a 30-request LIVE test basket (2026-10-26) — and here's the hash-chained ledger so you can check the math, including where it lost
 
 **Body (skeleton):** This community's live anxiety is *proving* savings
 claims, so structure as method-first:
 
 1. The measurement problem: every router/optimizer claims a percentage;
    none let you recompute it. Baselines are counterfactuals, so the only
-   honest move is provider-verbatim usage + a deterministic pricing function
-   + an append-only ledger the customer holds.
+   honest move is to say which side is which: the "after" is the provider's
+   own reported usage, the "before" is a baseline we compute with a
+   deterministic pricing function, and both sit in an append-only ledger you
+   hold.
 2. The mechanism: hash-chained JSONL per app; invoice = pure function over
-   events; verifyLedgerChain + recomputeInvoice in the published package;
-   if your recompute disagrees with ours, yours wins.
-3. The numbers with tradeoffs: 37.9% cache-only (simulator, both arms clean
-   38/40); the 57.3% full-stack figure FAILS our own quality gate (−5pp) and
-   is published as a non-win; live run 18.2%; already-lean stacks 0–5% and a
+   events; `mesh verify` re-checks the chain and recomputes the all-time
+   total with no network calls, and the MIT `@harrym1707/verify` package
+   does the same independently; if your recompute disagrees with ours, yours
+   prevails.
+3. The numbers with tradeoffs: 37.9% cache-only (SIMULATOR, both arms clean
+   38/40); the 57.3% full-stack figure (SIMULATOR) FAILS our own quality gate
+   (−5pp) and is published as a non-win; 18.2% net on the live basket (LIVE,
+   run 2026-10-26, our own test agents); already-lean stacks 0–5% and a
    do-not-pay-us verdict.
-4. The loss: our own stamp lever lost $0.0063 live; root cause (volatile
-   prefix inside the breakpoint span); fix; the economics test.
-5. Disclosure: I built it; BUSL source-available (not open source — free to
-   evaluate and use non-commercially, Apache-2.0 in 2030); production is 1%
-   of verified savings and a month that saves nothing bills nothing.
+4. The loss: our own stamp lever lost money on an early live run; root cause
+   (volatile prefix inside the breakpoint span); the guard that fixed it.
+5. Try it: the one path above (install, `mesh proxy`, set the base URL,
+   `mesh verify`).
+6. Disclosure: I built it; no customers yet, it has only run on our own test
+   agents; BUSL source-available (not open source — free to evaluate and use
+   non-commercially, Apache-2.0 in 2030); production is 1% of verified
+   savings, monthly, and a month that saves nothing bills nothing.
 
 ---
 
 ## 4. r/mlops — flair: Self-Promotion
 
-**Title:** Our own cost lever was losing money on live traffic. The ledger caught it.
+**Title:** Our own cost lever was losing money on a live test run. The ledger caught it.
 
 **Body (skeleton):** The post-mortem register — one measured fact, then the
 anatomy: what the lever did (Anthropic cache stamping), why it lost (volatile
 prefix inside the breakpoint span = write premium every turn, zero reads),
 how the billing design surfaced it (negatives are never clamped; losses
 count against the vendor), the fix, and the attribution angle this community
-cares about: per-request, per-lever, per-app cost attribution from provider-
-verbatim usage, recomputable from a file you hold. Disclosure + link mid-body.
+cares about: per-request, per-lever, per-app cost attribution from the
+provider's own reported usage, recomputable from a file you hold. Say plainly
+it was our own test traffic, not a customer's. Disclosure + link mid-body,
+then the one path (install, `mesh proxy` + base URL, `mesh verify`).
 
 ---
 
 ## 5. r/ChatGPTCoding — the weekly Self Promotion Thread only
 
-Three sentences: what it does (OpenAI + Claude, one baseURL change), the npx
-one-liner, the recomputable ledger + do-not-pay-us verdict. No more.
+Three sentences: what it does (OpenAI + Claude, one base URL setting), the
+install one-liner plus `mesh proxy` and
+`OPENAI_BASE_URL=http://127.0.0.1:8787/v1`, then `mesh verify` for the
+recomputable ledger + do-not-pay-us verdict. No more.
 
 ## 6. r/AI_Agents + r/OpenAI — comments only
 
@@ -125,5 +156,6 @@ one week.
 
 r/LocalLLaMA (cloud-API tooling is read as working for the enemy; disclosed
 comments in hybrid-stack threads only), r/MachineLearning, r/artificial.
-r/selfhosted only after the MIT-verifier decision, on a Wednesday, with the
-"what leaves the machine: nothing new" security framing up top.
+r/selfhosted only on a Wednesday, leading with the MIT verifier
+(`@harrym1707/verify`, on npm) and the "what leaves the machine: nothing
+new" security framing up top.
