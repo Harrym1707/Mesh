@@ -82,8 +82,9 @@ function summarise(): void {
   const saved = invoice.netVerifiedSavingsUsd;
   console.log(`  requests metered : ${invoice.eventsConsidered} (${spoolCount} spool${spoolCount === 1 ? "" : "s"})`);
   console.log(`  verified savings : $${saved.toFixed(4)}  [verdict: ${invoice.verdict}]`);
-  if (invoice.amountDueUsd !== undefined) {
-    console.log(`  MESH fee (1%)    : $${invoice.amountDueUsd.toFixed(4)}`);
+  if (invoice.amountDueCents !== undefined) {
+    // The fee as billed: the recompute's whole cents (rounded down), never re-rounded here.
+    console.log(`  MESH fee (1%)    : $${(invoice.amountDueCents / 100).toFixed(2)}`);
   }
   if (invoice.unpricedEvents > 0) console.log(`  (${invoice.unpricedEvents} request(s) excluded: no catalogued price)`);
   if (broken) console.log("  WARNING: a ledger chain failed verification — do not rely on the number above.");

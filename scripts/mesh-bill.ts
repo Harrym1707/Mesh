@@ -31,14 +31,30 @@
  *   - --dry-run reads NO Stripe key and never creates the Stripe client: it
  *     verifies, recomputes, prints exactly what would be created, and exits.
  *     Run it first, every time.
+ *   - A real run REQUIRES --statement <file>: the customer's own sealed
+ *     `mesh statement` file for the period. Before any Stripe client exists the
+ *     script checks its seal, that it is a closed-period statement valid for
+ *     billing, that the spools passed are exactly the spools it was computed
+ *     from (by head hash and record counts: this is what catches a missing
+ *     spool or a cut-off tail, which still verify as a chain), and that its
+ *     net savings and fee in cents equal this script's own recompute. Any
+ *     mismatch is DO NOT BILL, exit 1, nothing sent. A dry run without it
+ *     still works and warns that a real run will need it.
+ *   - A real run refuses a period that has not ended yet in UTC; a dry run
+ *     prints the same sentence as a warning and carries on. There is
+ *     deliberately no flag or environment variable to override the clock.
+ *   - The checks themselves are pure and unit-tested in
+ *     packages/core/src/manual-billing-checks.ts; this script only calls them.
  *   - No prompt content is read or sent — only the usage-derived invoice totals.
  *
  * Usage:
  *   node --import tsx scripts/mesh-bill.ts --dry-run \
  *     --customer cus_XXX --period 2026-10 --fee 1 spool1.jsonl [spool2.jsonl ...]
  *   STRIPE_TEST_SECRET_KEY=... node --import tsx scripts/mesh-bill.ts \
- *     --customer cus_XXX --period 2026-10 --fee 1 spool1.jsonl [spool2.jsonl ...]
- *   Required: --customer cus_…, --period YYYY-MM, at least one spool.
+ *     --customer cus_XXX --period 2026-10 --fee 1 \
+ *     --statement mesh-statement-2026-10.json spool1.jsonl [spool2.jsonl ...]
+ *   Required: --customer cus_…, --period YYYY-MM, at least one spool, and
+ *             --statement <file> unless --dry-run.
  *   Optional: --dry-run (no key needed, nothing sent to Stripe),
  *             --days-until-due <n> (payment terms on the invoice, default 14),
  *             --finalize (finalize instead of leaving a draft),
@@ -46,13 +62,18 @@
  *             --live --confirm-amount-cents <cents> (live charge, re-type gated).
  */
 import { readFileSync } from "node:fs";
+import { basename } from "node:path";
 import {
   buildStripeInvoicePlan,
   checkLiveChargeConfirmation,
+  checkPeriodEnded,
+  checkStatementForBilling,
   createStripeClient,
+  describeBillSpool,
   isLiveStripeKey,
   recomputeInvoice,
   verifyLedgerChain,
+  type BillSpool,
   type BillableEvent,
   type LedgerRecord,
 } from "../packages/core/dist/src/index.js";
@@ -60,6 +81,8 @@ import {
 type Args = {
   customer?: string;
   period?: string;
+  /** The customer's own `mesh statement` file for the period. Required unless --dry-run. */
+  statement?: string;
   fee: number;
   label?: string;
   finalize: boolean;
@@ -86,6 +109,7 @@ function parseArgs(argv: string[]): Args {
     const a = argv[i]!;
     if (a === "--customer") args.customer = argv[++i];
     else if (a === "--period") args.period = argv[++i];
+    else if (a === "--statement") args.statement = argv[++i];
     else if (a === "--fee") args.fee = Number(argv[++i]);
     else if (a === "--label") args.label = argv[++i];
     else if (a === "--finalize") args.finalize = true;
@@ -150,6 +174,40 @@ async function main(): Promise<void> {
     throw new Error("--days-until-due must be a whole number of days, 1 or more (default 14).");
   }
 
+  // A real run bills only against the customer's own statement for the period.
+  // Refused here, before any spool is read and long before a Stripe client exists.
+  if (!args.dryRun && args.statement === undefined) {
+    throw new Error(
+      "DO NOT BILL — a real run needs --statement <file>: the customer's own `mesh statement` file for " +
+      `period ${period}. The spools passed are checked against it before anything is sent. ` +
+      "(--dry-run works without one.)",
+    );
+  }
+  if (args.dryRun && args.statement === undefined) {
+    console.log(
+      "WARNING — no --statement was given. A real run will refuse to bill without the customer's own " +
+      `\`mesh statement\` file for period ${period}.`,
+    );
+  }
+
+  // A period is billed only once it is over in UTC: until then requests are
+  // still being added to it. The clock is the machine's; there is no override.
+  const periodCheck = checkPeriodEnded(period, new Date());
+  if (!periodCheck.ended) {
+    if (!args.dryRun) throw new Error(`DO NOT BILL — ${periodCheck.message}`);
+    console.log(`WARNING — ${periodCheck.message}. A real run will refuse to bill it until then.`);
+  }
+
+  // Read the statement before the ledger, so an unreadable file stops early.
+  let statementDocument: unknown;
+  if (args.statement !== undefined) {
+    try {
+      statementDocument = JSON.parse(readFileSync(args.statement, "utf8"));
+    } catch {
+      throw new Error(`DO NOT BILL — ${args.statement} could not be read as a statement file.`);
+    }
+  }
+
   // sk_live_… and restricted rk_live_… keys both create real invoices.
   const isLive = isLiveStripeKey(key);
   // Refuse a live key up front unless --live was passed, before any spool is
@@ -166,6 +224,8 @@ async function main(): Promise<void> {
   const allEvents: BillableEvent[] = [];
   let chainVerified = true;
   let spoolsRead = 0;
+  // What each spool looks like to the statement check: head hash and counts.
+  const billSpools: BillSpool[] = [];
   for (const path of args.spools) {
     // The proxy writes a <application>-<provider>.features.jsonl file beside
     // each spool (request shape for Theo; not a ledger, never billed from).
@@ -183,6 +243,7 @@ async function main(): Promise<void> {
       console.error(`CHAIN BROKEN in ${path}: ${chain.reason} (seq ${chain.seq})`);
     }
     for (const record of records) allEvents.push(record.event);
+    billSpools.push(describeBillSpool(basename(path), records, period));
   }
 
   if (spoolsRead === 0) throw new Error("None of the files passed is a ledger spool (<application>-<provider>.jsonl).");
@@ -230,10 +291,35 @@ async function main(): Promise<void> {
       "measured saving is not billed; check the mesh-verify statement for what was and was not billed.",
     );
   }
-  // The recompute's own verdict field is not printed: it reads "charge" for any
-  // positive net, including one whose fee rounds below a cent and is not billed.
-  // The outcome that matters is stated once, on the line that follows.
+  // The recompute's verdict field is not printed here. It now agrees with the
+  // plan (do_not_charge whenever the fee, rounded down, is below one cent), but
+  // the outcome is stated once, with its reason, on the line that follows.
   console.log(`Net verified savings: $${invoice.netVerifiedSavingsUsd.toFixed(4)}`);
+
+  // The customer's statement against this run: its seal, what it is, its
+  // period, the spools it was computed from, and its figures. Done before the
+  // plan is acted on in any way, so a mismatch stops with nothing sent.
+  if (statementDocument !== undefined) {
+    const statementCheck = checkStatementForBilling({
+      statement: statementDocument,
+      period,
+      spools: billSpools,
+      bill: {
+        netVerifiedSavingsUsd: invoice.netVerifiedSavingsUsd,
+        feeCents: plan.action === "bill" ? plan.amountCents : 0,
+        feePercent: args.fee,
+      },
+      // Only a rehearsal may look at a statement written during the month.
+      periodMustBeClosed: !args.dryRun,
+    });
+    if (!statementCheck.ok) {
+      console.log(`\nDO NOT BILL — ${statementCheck.reason}`);
+      process.exitCode = 1;
+      return;
+    }
+    for (const warning of statementCheck.warnings) console.log(`WARNING — ${warning}`);
+    console.log(`Statement: ${statementCheck.summary}.`);
+  }
 
   if (plan.action === "do_not_bill") {
     console.log(`\nDO NOT BILL — ${plan.reason}`);
@@ -302,7 +388,10 @@ async function main(): Promise<void> {
   if (plan.finalize) console.log(`                       ${finalizeKey}`);
 
   if (args.dryRun) {
-    console.log("\nDRY RUN — nothing was sent to Stripe. Re-run without --dry-run (and with a Stripe key) to create it.");
+    console.log(
+      "\nDRY RUN — nothing was sent to Stripe. To create it, re-run without --dry-run, with a Stripe key and " +
+      "--statement <the customer's statement file>, once the period has ended.",
+    );
     return;
   }
 

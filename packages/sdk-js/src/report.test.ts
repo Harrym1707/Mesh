@@ -58,9 +58,13 @@ describe("renderLedgerReport", () => {
       feePercent: 1,
       generatedAt: "2026-10-25T12:00:00Z",
     });
-    // Net = 0.012 - 0.002 (lossy unapproved never bills) = 0.010; fee 1% = 0.0001.
+    // Net = 0.012 - 0.002 (lossy unapproved never bills) = 0.010. The 1% fee on
+    // that is a hundredth of a cent, so the statement bills nothing and says why.
     expect(html).toContain("$0.0100");
-    expect(html).toContain("1% of $0.0100 net verified savings");
+    expect(html).toContain(
+      "Amount due: $0.0000 — do_not_charge. The 1% fee on $0.0100 net verified savings is below one cent, so nothing is billed.",
+    );
+    expect(html).not.toContain("Amount due: $0.0001");
     expect(html).toContain("−$0.0020");
     expect(html).toContain("no approved replay gate verdict");
     expect(html).toContain("1 unpriced (never guessed)");
@@ -86,6 +90,47 @@ describe("renderLedgerReport", () => {
     expect(html).toContain("Amount due: $0.0000");
   });
 
+  const savingSpool = (requestId: string, savedUsd: number): LedgerRecord[] => chain([event({
+    requestId,
+    actualUsd: 1,
+    levers: [{ leverId: "duplicate-context-removal", kind: "lossless", savedUsd }],
+  })]);
+
+  it("the amount due is the fee rounded down to the cent: $21.6267 at 1% is $0.21, not $0.22", () => {
+    const html = renderLedgerReport([{ name: "s.jsonl", records: savingSpool("a", 21.6267) }], { generatedAt: "t" });
+    expect(html).toContain("Amount due: $0.21 (1% of $21.6267 net verified savings, rounded down to the cent)");
+    expect(html).not.toContain("$0.22");
+    expect(html).toContain('<div class="due ">');
+  });
+
+  it("net $9.5947 at 1% is $0.09 due, never re-rounded up to $0.10", () => {
+    const html = renderLedgerReport([{ name: "s.jsonl", records: savingSpool("a", 9.5947) }], { generatedAt: "t" });
+    expect(html).toContain("Amount due: $0.09 (1% of $9.5947 net verified savings, rounded down to the cent)");
+    expect(html).not.toContain("Amount due: $0.10");
+  });
+
+  it("positive savings whose fee is below one cent bill nothing, and are not called a period that saved nothing", () => {
+    for (const net of [0.3609, 0.99]) {
+      const html = renderLedgerReport([{ name: "s.jsonl", records: savingSpool("a", net) }], { generatedAt: "t" });
+      expect(html).toContain(
+        `Amount due: $0.0000 — do_not_charge. The 1% fee on $${net.toFixed(4)} net verified savings is below one cent, so nothing is billed.`,
+      );
+      expect(html).not.toContain("saved nothing");
+      expect(html).toContain('<div class="due zero">');
+    }
+    const first = renderLedgerReport([{ name: "s.jsonl", records: savingSpool("a", 1) }], { generatedAt: "t" });
+    expect(first).toContain("Amount due: $0.01 (1% of $1.0000 net verified savings, rounded down to the cent)");
+  });
+
+  it("the fee is worked out once, on the total across spools", () => {
+    // $0.60 + $0.60: neither spool alone reaches a cent of fee, the $1.20 total owes 1 cent.
+    const html = renderLedgerReport([
+      { name: "one.jsonl", records: savingSpool("a", 0.6) },
+      { name: "two.jsonl", records: savingSpool("b", 0.6) },
+    ], { generatedAt: "t" });
+    expect(html).toContain("Amount due: $0.01 (1% of $1.2000 net verified savings, rounded down to the cent)");
+  });
+
   it("labels estimated-baseline line items", () => {
     const estimated = chain([event({
       requestId: "e",
@@ -104,6 +149,23 @@ describe("carry-forward and waste metering on the statement", () => {
     });
     expect(html).toContain("deficit carried in");
     expect(html).toContain("$0.0060");
+    // The $0.0060 left after the deficit is positive, but its fee is below one cent.
+    expect(html).toContain(
+      "Amount due: $0.0000 — do_not_charge. The 1% fee on $0.0060 net verified savings (after $0.0040 deficit carried in) is below one cent, so nothing is billed.",
+    );
+  });
+
+  it("bills the fee on what is left after a carried deficit, rounded down", () => {
+    const spool = chain([event({
+      requestId: "big",
+      actualUsd: 5,
+      levers: [{ leverId: "duplicate-context-removal", kind: "lossless", savedUsd: 30 }],
+    })]);
+    const html = renderLedgerReport([{ name: "s.jsonl", records: spool }], {
+      feePercent: 1, carryForwardDeficitUsd: 8.37, generatedAt: "t",
+    });
+    // 30 - 8.37 = 21.63; 1% is 21.63 cents; billed 21.
+    expect(html).toContain("Amount due: $0.21 (1% of $21.6300 net verified savings after $8.3700 deficit carried in, rounded down to the cent)");
   });
 
   it("carries a residual deficit forward and bills nothing", () => {

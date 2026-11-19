@@ -101,8 +101,9 @@ It prints, and writes to `mesh-statement-2026-11.json` in the current folder:
   (a lever that cost more than it saved shows as a negative row and counts
   against MESH);
 - baseline cost, actual cost and net verified savings;
-- the fee at 1% of net verified savings, rounded to the nearest cent, and the
-  verdict: `charge` or `do_not_charge`, with the reason when nothing is charged;
+- the fee at 1% of net verified savings, rounded down to the cent so it is never
+  more than 1%, and the verdict: `charge` or `do_not_charge`, with the reason
+  when nothing is charged (a fee below one cent is not charged);
 - any deficit carried forward, and the price catalogue the ledger was priced
   against.
 

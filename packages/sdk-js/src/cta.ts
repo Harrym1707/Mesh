@@ -24,7 +24,12 @@ export type SavingsSnapshot = {
   savedUsd: number;
   /** What the metered traffic actually cost at the provider, in USD. */
   spendUsd: number;
-  /** "charge" when MESH saved money; "do_not_charge" when it did not. */
+  /**
+   * "charge" when MESH saved money; "do_not_charge" when it did not. This is
+   * about savings existing, NOT about a bill: savings whose 1% fee is below one
+   * cent are "charge" here and owe nothing. The bill's verdict comes from
+   * `recomputeInvoice` with a `feePercent`.
+   */
   verdict: "charge" | "do_not_charge";
   /** False when any spool's hash chain failed to verify. */
   chainOk: boolean;

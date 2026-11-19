@@ -4,6 +4,14 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  STATEMENT_SCHEMA,
+  STATEMENT_SEAL_RULE,
+  checkStatementForBilling,
+  describeBillSpool,
+  statementSeal,
+  type BillSpool,
+} from "../../core/src/manual-billing-checks.js";
 import { publishedModelPrices } from "../../core/src/model-prices.js";
 import { catalogueVersion } from "../../core/src/price-catalogue.js";
 import {
@@ -238,7 +246,8 @@ describe("mesh statement — the same figure the bill reaches", () => {
     expect(october.totals.netVerifiedSavingsUsd).toBeCloseTo(977.7, 10);
     expect(october.totals.netVerifiedSavingsUsd).toBe(billOctober.invoice.netVerifiedSavingsUsd);
     expect(october.fee.amountCents).toBe(billOctober.invoice.amountDueCents);
-    expect(october.fee.amountCents).toBe(978);
+    // 1% of 977.70 is 977.7 cents: the fee rounds down to 977, never up to 978.
+    expect(october.fee.amountCents).toBe(977);
     expect(october.period).toMatchObject({
       id: "2026-10",
       timezone: "UTC",
@@ -292,7 +301,7 @@ describe("mesh statement — the same figure the bill reaches", () => {
 });
 
 describe("mesh statement — verdicts", () => {
-  it("does not charge when the fee rounds below one cent, and says why in the bill's words", () => {
+  it("does not charge when the fee is below one cent, and says why in the bill's words", () => {
     counter = 0;
     const records = chain([
       event("2026-11-02T10:00:00.000Z", [{ leverId: "tool-schema-compaction", kind: "lossless", savedUsd: 0.3 }]),
@@ -302,16 +311,58 @@ describe("mesh statement — verdicts", () => {
     const bill = billRecomputePath(texts, "2026-11");
 
     expect(bill.plan.action).toBe("do_not_bill");
-    expect(statement.recomputeVerdict).toBe("charge");
+    // The recompute itself now says do_not_charge: its verdict agrees with the bill.
+    expect(bill.invoice.verdict).toBe("do_not_charge");
+    expect(statement.recomputeVerdict).toBe("do_not_charge");
     expect(statement.verdict).toBe("do_not_charge");
-    expect(statement.fee.amountCents).toBe(0);
-    expect(statement.fee.unroundedUsd).toBeCloseTo(0.003, 12);
-    expect(statement.verdictReason).toContain("rounds below one cent");
+    expect(statement.fee).toEqual({ ratePercent: 1, amountUsd: 0, amountCents: 0, unroundedUsd: 0 });
+    expect(statement.verdictReason).toBe(
+      "the 1% fee on $0.3000 net verified savings is below one cent, so nothing is billed yet.",
+    );
     if (bill.plan.action !== "do_not_bill") throw new Error("unreachable");
     expect(bill.plan.reason).toContain(statement.verdictReason!);
+    const text = renderStatement(statement);
+    expect(text).toContain("the 1% fee on $0.3000 net verified savings is below one cent");
+    expect(text).not.toContain("not positive");
   });
 
-  it("does not call positive savings \"not positive\" when they round to zero cents", () => {
+  it("net US$0.99 owes nothing and net US$1.00 owes one cent", () => {
+    for (const [savedUsd, cents, verdict] of [[0.99, 0, "do_not_charge"], [1, 1, "charge"]] as const) {
+      counter = 0;
+      const records = chain([
+        event("2026-11-02T10:00:00.000Z", [{ leverId: "tool-schema-compaction", kind: "lossless", savedUsd }]),
+      ]);
+      const texts = { "app-anthropic.jsonl": spoolText(records) };
+      const statement = validStatement([parseSpool("app-anthropic.jsonl", texts["app-anthropic.jsonl"])], "2026-11");
+      expect(statement.fee.amountCents).toBe(cents);
+      expect(statement.verdict).toBe(verdict);
+      expect(statement.recomputeVerdict).toBe(verdict);
+      expect(statement.fee.amountCents).toBe(billRecomputePath(texts, "2026-11").invoice.amountDueCents);
+    }
+  });
+
+  it("rounds the fee down to the cent and says so: US$9.5947 is 9 cents, US$21.63 is 21 cents", () => {
+    for (const [savedUsd, cents, unrounded] of [[9.5947, 9, "US$0.095947"], [21.63, 21, "US$0.216300"]] as const) {
+      counter = 0;
+      const records = chain([
+        event("2026-11-02T10:00:00.000Z", [{ leverId: "tool-schema-compaction", kind: "lossless", savedUsd }]),
+      ]);
+      const texts = { "app-anthropic.jsonl": spoolText(records) };
+      const statement = validStatement([parseSpool("app-anthropic.jsonl", texts["app-anthropic.jsonl"])], "2026-11");
+      const bill = billRecomputePath(texts, "2026-11");
+      expect(statement.fee.amountCents).toBe(cents);
+      expect(statement.fee.amountUsd).toBe(cents / 100);
+      if (bill.plan.action !== "bill") throw new Error("unreachable");
+      expect(bill.plan.amountCents).toBe(cents);
+      // Never more than 1% of the savings.
+      expect(statement.fee.amountUsd).toBeLessThanOrEqual(statement.totals.netVerifiedSavingsUsd / 100);
+      const text = renderStatement(statement);
+      expect(text).toContain(`(${cents} cents; ${unrounded} rounded down to the cent, so never more than 1%)`);
+      expect(text).not.toContain("nearest cent");
+    }
+  });
+
+  it("does not call positive savings \"not positive\" when they are too small to bill", () => {
     counter = 0;
     const records = chain([
       event("2026-11-02T10:00:00.000Z", [{ leverId: "tool-schema-compaction", kind: "lossless", savedUsd: 0.0024 }]),
@@ -320,14 +371,18 @@ describe("mesh statement — verdicts", () => {
     const statement = validStatement([parseSpool("app-anthropic.jsonl", texts["app-anthropic.jsonl"])], "2026-11");
     const bill = billRecomputePath(texts, "2026-11");
 
-    // The decision is the bill's; only the sentence explaining it is corrected.
+    // The decision and the sentence explaining it are both the bill's own.
     expect(bill.plan.action).toBe("do_not_bill");
     expect(bill.invoice.amountDueCents).toBe(0);
     expect(statement.verdict).toBe("do_not_charge");
     expect(statement.recomputeVerdict).toBe("do_not_charge");
     expect(statement.fee).toEqual({ ratePercent: 1, amountUsd: 0, amountCents: 0, unroundedUsd: 0 });
     expect(statement.totals.netVerifiedSavingsUsd).toBe(0.0024);
-    expect(statement.verdictReason).toBe("net verified savings of US$0.0024 round to zero cents, so nothing is billed.");
+    expect(statement.verdictReason).toBe(
+      "the 1% fee on $0.0024 net verified savings is below one cent, so nothing is billed yet.",
+    );
+    if (bill.plan.action !== "do_not_bill") throw new Error("unreachable");
+    expect(bill.plan.reason).toBe(`do_not_charge: ${statement.verdictReason}`);
     expect(renderStatement(statement)).not.toContain("not positive");
   });
 
@@ -610,6 +665,114 @@ describe("runStatement (reads real spool files)", () => {
     await expect(runStatement(["--period", "2026-13", "--ledger", ledger])).rejects.toThrow("YYYY-MM");
     await expect(runStatement(["--period", "November", "--ledger", ledger])).rejects.toThrow("YYYY-MM");
     await expect(runStatement(["--period", "2026-11", "--ledger", ledger])).rejects.toThrow("No ledger found");
+  });
+});
+
+describe("mesh statement — what the bill's own check (mesh-bill --statement) makes of it", () => {
+  /** The bill's side: the spools as scripts/mesh-bill.ts describes them, and its recompute. */
+  function billSide(texts: Record<string, string>, period: string) {
+    const spools: BillSpool[] = [];
+    for (const [name, text] of Object.entries(texts)) {
+      const records = text.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as LedgerRecord);
+      spools.push(describeBillSpool(name, records, period));
+    }
+    const { invoice, plan } = billRecomputePath(texts, period);
+    return {
+      spools,
+      bill: {
+        netVerifiedSavingsUsd: invoice.netVerifiedSavingsUsd,
+        feeCents: plan.action === "bill" ? plan.amountCents : 0,
+        feePercent: 1,
+      },
+    };
+  }
+  const reasonOf = (result: ReturnType<typeof checkStatementForBilling>): string => {
+    if (result.ok) throw new Error(`expected a refusal, got: ${result.summary}`);
+    return result.reason;
+  };
+
+  it("the statement the customer's command writes is accepted for the same spools and period", () => {
+    const { spools, texts } = twoMonthLedger();
+    const statement = validStatement(spools, "2026-11");
+    const result = checkStatementForBilling({ statement, period: "2026-11", ...billSide(texts, "2026-11") });
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.feeCents).toBe(328);
+    expect(result.feeCents).toBe(statement.fee.amountCents);
+    expect(result.spools).toBe(2);
+    expect(result.records).toBe(statement.ledger.records);
+    expect(result.recordsInPeriod).toBe(statement.ledger.recordsInPeriod);
+    expect(result.warnings).toEqual([]);
+    // The seal the file carries is the one the bill checks: one definition, in core.
+    expect(statement.sha256).toBe(statementSeal(statement));
+    expect(statement.sha256Of).toBe(STATEMENT_SEAL_RULE);
+    expect(statement.schema).toBe(STATEMENT_SCHEMA);
+  });
+
+  it("survives being written to a file and read back, as the operator receives it", () => {
+    const { spools, texts } = twoMonthLedger();
+    const reread = JSON.parse(JSON.stringify(validStatement(spools, "2026-10"), null, 2)) as unknown;
+    expect(checkStatementForBilling({ statement: reread, period: "2026-10", ...billSide(texts, "2026-10") }).ok).toBe(true);
+  });
+
+  it("one spool left out is refused", () => {
+    const { spools, texts } = twoMonthLedger();
+    const statement = validStatement(spools, "2026-11");
+    const { "app-b-anthropic.jsonl": _leftOut, ...rest } = texts;
+    const reason = reasonOf(checkStatementForBilling({ statement, period: "2026-11", ...billSide(rest, "2026-11") }));
+    expect(reason).toContain("the statement lists a spool that was not passed");
+    expect(reason).toContain(`head hash ${statement.ledger.spools[1]!.headHash}`);
+    expect(reason).toContain("The statement covers 2 spools; 1 spool passed.");
+  });
+
+  it("a spool with its last line removed still verifies as a chain, and is refused", () => {
+    const { spools, texts } = twoMonthLedger();
+    const statement = validStatement(spools, "2026-11");
+    const lines = texts["app-b-anthropic.jsonl"]!.trim().split("\n");
+    const cut = { ...texts, "app-b-anthropic.jsonl": `${lines.slice(0, -1).join("\n")}\n` };
+    // The cut spool alone would pass every chain check and produce its own, different statement.
+    expect(buildStatement({ spools: Object.entries(cut).map(([n, t]) => parseSpool(n, t)), period: "2026-11", now: NOW }).valid).toBe(true);
+    const reason = reasonOf(checkStatementForBilling({ statement, period: "2026-11", ...billSide(cut, "2026-11") }));
+    expect(reason).toContain("spool app-b-anthropic.jsonl (head hash ");
+    expect(reason).toContain("matches no spool in the statement");
+    expect(reason).toContain(
+      `the statement lists a spool that was not passed (head hash ${statement.ledger.spools[1]!.headHash}; ` +
+      `expected ${statement.ledger.spools[1]!.records} records, ${statement.ledger.spools[1]!.recordsInPeriod} in 2026-11)`,
+    );
+  });
+
+  it("a statement for another period, an edited one, and one written before the period ended are refused", () => {
+    const { spools, texts } = twoMonthLedger();
+    const november = validStatement(spools, "2026-11");
+    expect(reasonOf(checkStatementForBilling({ statement: november, period: "2026-10", ...billSide(texts, "2026-10") }))).toBe(
+      'the statement is for period "2026-11", but the bill is for period 2026-10.',
+    );
+
+    const edited = { ...november, fee: { ...november.fee, amountCents: 1, amountUsd: 0.01 } };
+    expect(reasonOf(checkStatementForBilling({ statement: edited, period: "2026-11", ...billSide(texts, "2026-11") }))).toContain(
+      "does not match its sha256 seal",
+    );
+
+    const early = buildStatement({ spools, period: "2026-11", now: new Date("2026-11-30T23:59:59.999Z") });
+    if (!early.valid) throw new Error("expected a valid statement");
+    expect(early.statement.period.closed).toBe(false);
+    const side = billSide(texts, "2026-11");
+    expect(reasonOf(checkStatementForBilling({ statement: early.statement, period: "2026-11", ...side }))).toContain(
+      "was written before period 2026-11 had ended (closed: false)",
+    );
+    // A dry run may rehearse against it; the rest is still checked.
+    const rehearsal = checkStatementForBilling({ statement: early.statement, period: "2026-11", ...side, periodMustBeClosed: false });
+    if (!rehearsal.ok) throw new Error(rehearsal.reason);
+    expect(rehearsal.warnings).toHaveLength(1);
+  });
+
+  it("a bill whose fee is one cent away from the statement's is refused, with both figures", () => {
+    const { spools, texts } = twoMonthLedger();
+    const statement = validStatement(spools, "2026-11");
+    const side = billSide(texts, "2026-11");
+    const reason = reasonOf(checkStatementForBilling({
+      statement, period: "2026-11", spools: side.spools, bill: { ...side.bill, feeCents: side.bill.feeCents + 1 },
+    }));
+    expect(reason).toBe("the fee differs: the statement says 328 cents, the bill's own recompute says 329 cents.");
   });
 });
 
