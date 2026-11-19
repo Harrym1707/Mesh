@@ -110,20 +110,28 @@ export function loadOrCreateStatementKey(path: string, now: Date = new Date()): 
   if (existing !== undefined) return { key: existing, created: false };
 
   const dir = dirname(path);
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  ownerOnly(dir, 0o700);
-
   const temporary = join(dir, `.${STATEMENT_KEY_FILE}.${process.pid}.${Date.now()}.tmp`);
   const fresh = generateStatementKey();
   let created = true;
   try {
-    // "wx": fail rather than write through anything already at the temporary name.
-    const handle = openSync(temporary, "wx", 0o600);
     try {
-      writeSync(handle, serializeStatementKeyFile(fresh, now.toISOString()));
-      fsyncSync(handle);
-    } finally {
-      closeSync(handle);
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
+      ownerOnly(dir, 0o700);
+      // "wx": fail rather than write through anything already at the temporary name.
+      const handle = openSync(temporary, "wx", 0o600);
+      try {
+        writeSync(handle, serializeStatementKeyFile(fresh, now.toISOString()));
+        fsyncSync(handle);
+      } finally {
+        closeSync(handle);
+      }
+    } catch (error) {
+      // A home folder that cannot be written to (read-only, a full disk): say so plainly.
+      throw new Error(
+        `This MESH install has no statement key yet, and one could not be created in ${dir} ` +
+        `(${(error as NodeJS.ErrnoException).code ?? "error"}). A statement is signed with that key, so none was written. ` +
+        "Make that folder writable by you and run the command again.",
+      );
     }
     ownerOnly(temporary, 0o600);
     try {
@@ -145,7 +153,8 @@ export function loadOrCreateStatementKey(path: string, now: Date = new Date()): 
       }
     }
   } finally {
-    rmSync(temporary, { force: true });
+    // Only ever this process's own temporary file; a failure to remove it must not hide the real error.
+    try { rmSync(temporary, { force: true }); } catch { /* left behind; it is owner-only */ }
   }
   ownerOnly(path, 0o600);
 

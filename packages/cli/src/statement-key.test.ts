@@ -136,6 +136,20 @@ describe("the install's statement key file", () => {
     expect(readStatementKey(path)).toEqual(key);
   });
 
+  it.runIf(posix && process.getuid?.() !== 0)("says plainly when the key cannot be created because the home is not writable", () => {
+    mkdirSync(home, { recursive: true });
+    chmodSync(home, 0o555);
+    try {
+      expect(() => loadOrCreateStatementKey(path)).toThrow(
+        `This MESH install has no statement key yet, and one could not be created in ${join(home, "identity")} (EACCES). ` +
+        "A statement is signed with that key, so none was written.",
+      );
+    } finally {
+      chmodSync(home, 0o755);
+    }
+    expect(existsSync(path)).toBe(false);
+  });
+
   it("a new key is a deliberate act: move the old file aside and the next use makes another", () => {
     const first = loadOrCreateStatementKey(path);
     renameSync(path, `${path}.replaced-2026-12-01`);
