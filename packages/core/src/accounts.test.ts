@@ -1,3 +1,6 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   AccountStore,
@@ -7,6 +10,7 @@ import {
   redactAccount,
   type GithubIdentity,
 } from "./accounts.js";
+import { openFileAccountStore } from "./account-store.js";
 
 const alice: GithubIdentity = { githubId: 4242, githubLogin: "alice", email: "alice@example.com" };
 
@@ -96,5 +100,40 @@ describe("AccountStore lookups and mutations", () => {
     store.rotateAccountKey(account.id);
     expect(changes.length).toBe(3);
     expect(new Set(changes)).toEqual(new Set([account.id]));
+  });
+});
+
+describe("durable billing records (Fix 1 + Fix 4 persistence)", () => {
+  it("upserts a per-period billed-record by period and reads it back", () => {
+    const store = new AccountStore();
+    const { account } = store.upsertFromGithub(alice);
+    store.recordBilledPeriod(account.id, { period: "2026-10", status: "charged", invoiceId: "in_1", chargedCents: 70, updatedAt: "" });
+    expect(store.getBilledPeriod(account.id, "2026-10")).toMatchObject({ status: "charged", invoiceId: "in_1", chargedCents: 70 });
+
+    // A second write for the SAME period replaces, never duplicates.
+    store.recordBilledPeriod(account.id, { period: "2026-10", status: "charged", invoiceId: "in_1", chargedCents: 70, advanceNoticeAt: "2026-10-01T00:00:00.000Z", updatedAt: "" });
+    expect(store.get(account.id)!.billedPeriods!.filter((r) => r.period === "2026-10")).toHaveLength(1);
+  });
+
+  it("rejects a negative running deficit", () => {
+    const store = new AccountStore();
+    const { account } = store.upsertFromGithub(alice);
+    expect(() => store.setCarryForwardDeficit(account.id, -1)).toThrow(/non-negative/);
+  });
+
+  it("persists billed-records and the running deficit across a store reload", () => {
+    const dir = mkdtempSync(join(tmpdir(), "mesh-billrec-"));
+    const path = join(dir, "accounts.json");
+    const first = openFileAccountStore(path);
+    const { account } = first.upsertFromGithub(alice);
+    first.patch(account.id, { stripeCustomerId: "cus_X" });
+    first.recordBilledPeriod(account.id, { period: "2026-10", status: "charged", invoiceId: "in_1", chargedCents: 70, updatedAt: "" });
+    first.setCarryForwardDeficit(account.id, 3.5);
+
+    // Reopen from disk — a fresh process would see exactly this.
+    const reopened = openFileAccountStore(path);
+    const reloaded = reopened.get(account.id)!;
+    expect(reloaded.carryForwardDeficitUsd).toBe(3.5);
+    expect(reopened.getBilledPeriod(account.id, "2026-10")).toMatchObject({ status: "charged", invoiceId: "in_1", chargedCents: 70 });
   });
 });

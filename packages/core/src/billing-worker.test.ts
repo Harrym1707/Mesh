@@ -42,7 +42,7 @@ function invoice(overrides: Partial<Invoice> = {}): Invoice {
     verdict: "charge",
     feePercent: 1,
     amountDueUsd: 0.125,
-    amountDueCents: 13,
+    amountDueCents: 12, // 1% of $12.50 is 12.5 cents; the fee rounds down
     ...overrides,
   };
 }
@@ -98,16 +98,17 @@ describe("decideBilling (pure branching)", () => {
     expect(decision).toMatchObject({ action: "skip", reason: expect.stringContaining("mandate") });
   });
 
-  it("bills a direct-debit account with an active mandate, carrying the mandate payment method", () => {
+  it("bills a direct-debit account with an active mandate once the advance notice gate is satisfied", () => {
     const decision = decideBilling(
       account({ paymentChoice: "direct_debit", directDebitMandate: { status: "active", paymentMethodId: "pm_123" } }),
       invoice(),
       true,
+      { advanceNoticeIssued: true },
     );
-    expect(decision).toMatchObject({ action: "bill", rail: "direct_debit", amountCents: 13, mandatePaymentMethodId: "pm_123" });
+    expect(decision).toMatchObject({ action: "bill", rail: "direct_debit", amountCents: 12, mandatePaymentMethodId: "pm_123" });
     if (decision.action === "bill") {
       expect(decision.notice.recompute.command).toContain("mesh-verify");
-      expect(decision.notice.amountDueCents).toBe(13);
+      expect(decision.notice.amountDueCents).toBe(12);
     }
   });
 });
@@ -120,6 +121,7 @@ describe("runAccountBilling (rail execution)", () => {
       account({ paymentChoice: "direct_debit", directDebitMandate: { status: "active", paymentMethodId: "pm_123" } }),
       invoice(),
       true,
+      { advanceNoticeIssued: true },
     );
     expect(outcome.status).toBe("billed");
     if (outcome.status !== "billed") return;
@@ -131,7 +133,7 @@ describe("runAccountBilling (rail execution)", () => {
     expect(create.args.defaultPaymentMethod).toBe("pm_123");
     expect(calls.some((c) => c.method === "payInvoice")).toBe(true);
     // Idempotency keys are derived from the plan key.
-    expect(String(create.args.idempotencyKey)).toContain("mesh-cus_TEST-2026-10-13-inv");
+    expect(String(create.args.idempotencyKey)).toContain("mesh-cus_TEST-2026-10-12-inv");
   });
 
   it("bank_transfer: send_invoice with a due date, finalize, and NO auto-pull", async () => {
@@ -159,7 +161,7 @@ describe("runAccountBilling (rail execution)", () => {
     );
     expect(outcome.status).toBe("noticed");
     if (outcome.status !== "noticed") return;
-    expect(outcome.notice.amountDueCents).toBe(13);
+    expect(outcome.notice.amountDueCents).toBe(12);
     expect(outcome.notice.recompute.command).toContain("mesh-verify");
     expect(calls).toHaveLength(0);
   });

@@ -1,4 +1,5 @@
 import {
+  feeCents,
   recomputeInvoice,
   verifyLedgerChain,
   type Invoice,
@@ -107,9 +108,10 @@ export function renderLedgerReport(
   const carryIn = options.carryForwardDeficitUsd ?? 0;
   const netAfterCarry = totalSavings - carryIn;
   const carryOut = Math.max(0, -netAfterCarry);
-  const totalDue = allChainsOk && Math.round(netAfterCarry * 100) > 0
-    ? (netAfterCarry * feePercent) / 100
-    : 0;
+  // The fee is rounded in one place only (core's feeCents: down to the whole
+  // cent). The statement total spans spools, so it calls that same function
+  // rather than rounding a fee here.
+  const totalDueCents = allChainsOk ? feeCents(netAfterCarry, feePercent) : 0;
   const periodLabel = options.period ?? "all recorded periods";
   const generatedAt = options.generatedAt ?? new Date().toISOString();
 
@@ -145,11 +147,13 @@ export function renderLedgerReport(
 
   const verdictLine = !allChainsOk
     ? "DO NOT PAY — a ledger chain failed verification. A statement over an unverifiable ledger is not an invoice."
-    : Math.round(netAfterCarry * 100) > 0
-      ? `Amount due: ${usd(totalDue)} (${feePercent}% of ${usd(netAfterCarry)} net verified savings${carryIn > 0 ? ` after ${usd(carryIn)} deficit carried in` : ""})`
+    : totalDueCents > 0
+      ? `Amount due: $${(totalDueCents / 100).toFixed(2)} (${feePercent}% of ${usd(netAfterCarry)} net verified savings${carryIn > 0 ? ` after ${usd(carryIn)} deficit carried in` : ""}, rounded down to the cent)`
       : carryOut > 0
         ? `Amount due: $0.0000 — do_not_charge. ${usd(carryOut)} deficit carries forward: future fees apply only after it is recovered.`
-        : "Amount due: $0.0000 — do_not_charge. A period that saved nothing bills nothing.";
+        : netAfterCarry > 0
+          ? `Amount due: $0.0000 — do_not_charge. The ${feePercent}% fee on ${usd(netAfterCarry)} net verified savings${carryIn > 0 ? ` (after ${usd(carryIn)} deficit carried in)` : ""} is below one cent, so nothing is billed.`
+          : "Amount due: $0.0000 — do_not_charge. A period that saved nothing bills nothing.";
 
   return `<!doctype html>
 <html lang="en">
@@ -191,7 +195,7 @@ code{background:#e8f1f8;padding:1px 5px;border-radius:4px;font-size:12px}
   <p class="meta">period: ${escapeHtml(periodLabel)} · generated ${escapeHtml(generatedAt)} · fee ${feePercent}% of verified savings — nothing else</p>
 </header>
 ${sectionHtml}
-<div class="due ${!allChainsOk ? "bad" : Math.round(totalSavings * 100) > 0 ? "" : "zero"}">${escapeHtml(verdictLine)}</div>
+<div class="due ${!allChainsOk ? "bad" : totalDueCents > 0 ? "" : "zero"}">${escapeHtml(verdictLine)}</div>
 <p class="meta">total spend across spools ${usd(totalSpend)} · total net verified savings ${usd(totalSavings)}</p>
 <footer>
 Every figure on this statement is recomputed from ledger files on YOUR machine —

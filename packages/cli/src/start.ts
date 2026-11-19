@@ -40,6 +40,7 @@ import { wireClaudeCode } from "./claude-wiring.js";
 // Pure formatter module (no core imports) — reused so the signup URL and the
 // README badge have one source of truth across the proxy, SDK and this CLI.
 import { MESH_SIGNUP_URL, savingsBadge, type SavingsSnapshot } from "../../sdk-js/src/cta.js";
+import { recomputeBillInvoice, verdictNote } from "./bill-verdict.js";
 import { pullNewerRuntime } from "./update.js";
 
 declare const __MESH_BUILD_COMMIT__: string | undefined;
@@ -171,7 +172,18 @@ function blindKey(): string {
   return key;
 }
 
-type LedgerSummary = { events: number; savedUsd: number; verdict: string; chainOk: boolean; brokenAt?: string };
+export type LedgerSummary = {
+  events: number;
+  savedUsd: number;
+  /** The bill's verdict at the contracted fee: "charge" only when a fee of at least one cent is owed. */
+  verdict: "charge" | "do_not_charge";
+  /** The verdict as printed: it adds the reason when savings are positive but the fee is below one cent. */
+  verdictNote: string;
+  /** Net verified savings round to at least one cent. Says savings exist; it is not a statement about a bill. */
+  hasVerifiedSavings: boolean;
+  chainOk: boolean;
+  brokenAt?: string;
+};
 export type LedgerRead = { records: LedgerRecord[]; chainOk: boolean; brokenAt?: string };
 
 /** Read every ledger spool and verify each hash chain. Shared by status and the dashboard. */
@@ -199,18 +211,31 @@ export function readLedger(ledgerDir: string): LedgerRead {
 /** Read every ledger spool, verify each chain, and recompute one honest invoice. */
 export function summariseLedger(ledgerDir: string): LedgerSummary {
   const { records, chainOk, brokenAt } = readLedger(ledgerDir);
-  if (records.length === 0) return { events: 0, savedUsd: 0, verdict: "do_not_charge", chainOk, ...(brokenAt === undefined ? {} : { brokenAt }) };
-  const invoice = recomputeInvoice(records.map((r) => r.event));
+  if (records.length === 0) {
+    return { events: 0, savedUsd: 0, verdict: "do_not_charge", verdictNote: "do_not_charge", hasVerifiedSavings: false, chainOk, ...(brokenAt === undefined ? {} : { brokenAt }) };
+  }
+  // At the contracted fee, so the verdict printed by status and start is the
+  // bill's: positive savings whose fee is below one cent are do_not_charge.
+  const invoice = recomputeBillInvoice(records.map((r) => r.event));
   return {
     events: records.length,
     savedUsd: invoice.netVerifiedSavingsUsd,
     verdict: invoice.verdict,
+    verdictNote: verdictNote(invoice),
+    hasVerifiedSavings: invoice.netVerifiedSavingsCents > 0,
     chainOk,
     ...(brokenAt === undefined ? {} : { brokenAt }),
   };
 }
 
-/** Build the snapshot the CTA/badge read, from the same verified ledger. */
+/**
+ * Build the snapshot the CTA/badge read, from the same verified ledger.
+ *
+ * Deliberately recomputed WITHOUT a fee: a snapshot's `verdict` says whether
+ * MESH saved money (see SavingsSnapshot in sdk-js cta.ts) and decides only
+ * whether the sign-up invitation and badge are shown. It is never printed as
+ * a billing verdict; the summary lines use summariseLedger for that.
+ */
 export function snapshotLedger(ledgerDir: string): SavingsSnapshot {
   const { records, chainOk } = readLedger(ledgerDir);
   if (records.length === 0) {
@@ -362,7 +387,7 @@ export async function runServe(argv: string[]): Promise<void> {
     if (!s.chainOk) { console.log(`[${stamp()}] ${T} ⚠ ledger chain failed at ${s.brokenAt}`); return; }
     if (s.events === lastEvents || s.events === 0) return;
     lastEvents = s.events;
-    console.log(`[${stamp()}] ${T} ${s.events} requests · $${s.savedUsd.toFixed(4)} verified saved (${s.verdict})`);
+    console.log(`[${stamp()}] ${T} ${s.events} requests · $${s.savedUsd.toFixed(4)} verified saved (${s.verdictNote})`);
   }, 10000);
 
   // Keep the always-on service current. The bootstrap only checks for a newer

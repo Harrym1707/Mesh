@@ -416,6 +416,9 @@ Usage: mesh <command> [options]
   update     Update the runtime now (--rollback to revert).
   verify     Re-prove MESH's claims on this machine: the build's provenance,
              your ledger's hash-chain, and a deterministic invoice recompute.
+  statement  Your statement for one billing period (--period YYYY-MM): verified
+             savings per lever and the 1% fee, recomputed from your own
+             ledger, with a file to share. A statement, not an invoice.
   doctor     Diagnose this machine (Node, proxy, Claude Code, service, ledger).
   restore    Put Claude Code's settings back after a killed MESH session.
   version    Print the installed version and build.
@@ -446,6 +449,8 @@ async function main(): Promise<void> {
     await (await import("./update.js")).runUpdate(process.argv.slice(3));
   } else if (sub === "verify") {
     await (await import("./verify.js")).runVerify(process.argv.slice(3));
+  } else if (sub === "statement") {
+    await (await import("./statement.js")).runStatement(process.argv.slice(3));
   } else if (sub === "doctor") {
     await (await import("./diag.js")).runDoctor(process.argv.slice(3));
   } else if (sub === "restore") {

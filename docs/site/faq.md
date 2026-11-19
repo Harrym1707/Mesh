@@ -79,7 +79,8 @@ which excludes the row rather than guessing.
 **What does it cost?**
 1% of verified savings, monthly — nothing else. No subscription, no seats,
 no minimum. A month that saved nothing bills nothing, and negative lever
-months count against us.
+months count against us. No fee is due until we have agreed billing with you
+in writing; [Pricing and billing](pricing.md) sets out how it works.
 
 **What's the catch?**
 Two, published: busy interactive agents cap around 29% because the provider's
