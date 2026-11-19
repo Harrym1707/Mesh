@@ -163,11 +163,14 @@ describe("sub-cent rounding floor", () => {
   it("a positive net whose fee rounds below one cent charges nothing (no Stripe calls)", async () => {
     const { stripe, calls } = recordingStripe();
     const { accounts, id } = store(); // fee 10%
-    // net $0.04 → billableCents 4 (verdict charge), but fee = round($0.004*100) = 0¢.
+    // net $0.04 at 10% is a fee of 0.4 of a cent: the recompute says do_not_charge, 0¢.
     const records = spool([saving("a", "2026-10", "10", 0.04)]);
     const outcome = await settleAccountBilling(stripe, accounts, accounts.get(id)!, records, "2026-10", CAT);
     expect(outcome.status).toBe("skipped");
-    if (outcome.status === "skipped") expect(outcome.reason).toMatch(/below one cent|not positive/i);
+    if (outcome.status === "skipped") {
+      expect(outcome.reason).toMatch(/the 10% fee on \$0\.0400 net verified savings is below one cent/);
+      expect(outcome.reason).not.toMatch(/not positive/i);
+    }
     expect(calls).toHaveLength(0);
     // Positive net, so no deficit is carried — nothing is owed and nothing rolls.
     expect(accounts.get(id)!.carryForwardDeficitUsd ?? 0).toBe(0);

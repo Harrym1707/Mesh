@@ -33,6 +33,9 @@ import {
  * - Negative components are netted, never clamped: a 1h cache-write surcharge
  *   that never earned its reads shows up AGAINST MESH on the invoice, and a
  *   net-non-positive period produces the "do_not_charge" verdict.
+ * - The fee rounds DOWN to the whole cent, in one place (`feeCents`), so it is
+ *   never more than the contracted percentage. A positive net whose fee is
+ *   below one cent is also "do_not_charge" when the fee rate is given.
  */
 
 export type LedgerExecutionMode = "standard" | "flex" | "batch";
@@ -540,7 +543,11 @@ export type InvoiceOptions = {
   gateVerdictOverrides?: Record<string, "approved" | "rejected">;
   /** Tasks known to have failed quality out-of-band; all their turns' savings are excluded. */
   failedTaskIds?: readonly string[];
-  /** MESH's contracted share of net verified savings, 0-100. Omitted: no fee line. */
+  /**
+   * MESH's contracted share of net verified savings, 0-100. Omitted: no fee
+   * line, and the verdict then only says whether net savings are positive
+   * (see {@link Invoice.verdict}).
+   */
   feePercent?: number;
   /**
    * Verified-savings deficit carried in from prior periods (the ESPC G.5
@@ -593,11 +600,59 @@ export type Invoice = {
   carryForwardDeficitInUsd?: number;
   /** Deficit to carry into the NEXT period (this period's shortfall after netting). */
   carryForwardDeficitOutUsd?: number;
+  /**
+   * With a `feePercent`: the bill's own decision. "charge" only when the fee,
+   * rounded down to whole cents by {@link feeCents}, is at least one cent;
+   * "do_not_charge" for zero or negative net savings AND for a positive net
+   * whose fee is below one cent.
+   *
+   * Without a `feePercent` no fee can be worked out, so the verdict only says
+   * whether net verified savings (after any carried deficit) round to at least
+   * one cent. It is not a statement about a bill; pass the contracted
+   * `feePercent` wherever the verdict is shown to a customer.
+   */
   verdict: "charge" | "do_not_charge";
   feePercent?: number;
+  /**
+   * The fee before rounding to cents (feePercent of net savings after any
+   * carried deficit). Zero whenever the verdict is do_not_charge. Shown so the
+   * rounding is checkable; the amount actually billed is `amountDueCents`.
+   */
   amountDueUsd?: number;
+  /** The fee as billed: whole cents, rounded DOWN by {@link feeCents}. Zero whenever the verdict is do_not_charge. */
   amountDueCents?: number;
 };
+
+/**
+ * A fee that is a whole number of cents mathematically can land a hair below
+ * it in binary floating point (0.29 * 100 is 28.999999999999996). Anything
+ * within this many cents below a whole cent counts as that cent, so rounding
+ * down never loses a cent to representation error. One millionth of a cent.
+ */
+const FEE_CENT_TOLERANCE = 1e-6;
+
+/**
+ * THE FEE ROUNDING RULE. This is the only place it lives: the invoice
+ * recompute calls it, and the Stripe plan, the billing worker, the SDK and the
+ * CLI all read the cents it produced (or call it for a multi-spool total)
+ * rather than rounding a fee themselves.
+ *
+ * The rule: the fee is `feePercent` of net verified savings, rounded DOWN to
+ * the whole cent. Rounding to the nearest cent would sometimes bill more than
+ * the contracted percentage (22 cents on $21.63 is 1.017%); rounding down never
+ * does. To adopt a different rule, change the single `return` below.
+ *
+ * `billableNetUsd` is net verified savings after any carried deficit. A zero,
+ * negative or non-finite net, or a zero fee rate, owes nothing.
+ */
+export function feeCents(billableNetUsd: number, feePercent: number): number {
+  if (!Number.isFinite(billableNetUsd) || !Number.isFinite(feePercent)) return 0;
+  if (billableNetUsd <= 0 || feePercent <= 0) return 0;
+  // usd * (percent / 100) * 100 cents-per-dollar: the two hundreds cancel, so
+  // the fee in cents is one multiplication with no avoidable rounding step.
+  const exactFeeCents = billableNetUsd * feePercent;
+  return Math.floor(exactFeeCents + FEE_CENT_TOLERANCE);
+}
 
 function compareEvents(left: BillableEvent, right: BillableEvent): number {
   if (left.timestamp !== right.timestamp) return left.timestamp < right.timestamp ? -1 : 1;
@@ -705,6 +760,12 @@ export type LedgerAudit = {
  * change a single byte of the billing artifact, or "recompute it yourself"
  * stops being a guarantee and becomes a dispute. Replay counts are audit
  * telemetry and come back separately from recomputeInvoiceWithAudit.
+ *
+ * Pass `feePercent` to get the bill's verdict: "charge" only when the fee,
+ * rounded down to whole cents, is at least one cent. Without it the verdict
+ * only says whether net verified savings are positive (at least one cent
+ * after rounding), which is NOT the same thing: $0.36 of savings at 1% is
+ * positive and owes nothing.
  */
 export function recomputeInvoice(events: readonly BillableEvent[], options: InvoiceOptions = {}): Invoice {
   return recomputeInvoiceWithAudit(events, options).invoice;
@@ -777,6 +838,8 @@ export function recomputeInvoiceWithAudit(
     .sort((left, right) => (left.leverId < right.leverId ? -1 : left.leverId > right.leverId ? 1 : 0));
 
   const netVerifiedSavingsUsd = lineItems.reduce((sum, line) => sum + line.savedUsd, 0);
+  // A savings display figure, not the fee: it keeps rounding to the nearest
+  // cent. Only the fee rounds down (see feeCents).
   const netVerifiedSavingsCents = Math.round(netVerifiedSavingsUsd * 100);
   // Carry-forward netting (G.5 mechanic): the fee applies to this period's
   // net MINUS any deficit carried from prior periods, and a shortfall rolls
@@ -786,9 +849,18 @@ export function recomputeInvoiceWithAudit(
     throw new Error("carryForwardDeficitUsd must be a non-negative, finite USD amount.");
   }
   const netAfterCarryUsd = netVerifiedSavingsUsd - carryIn;
+  // Only a negative net is a deficit. A positive net whose fee is below one
+  // cent bills nothing and carries nothing.
   const carryOutUsd = Math.max(0, -netAfterCarryUsd);
-  const billableCents = Math.round(netAfterCarryUsd * 100);
-  const verdict: Invoice["verdict"] = billableCents > 0 ? "charge" : "do_not_charge";
+  // With a fee, the verdict is the bill's: charge only when the fee itself is
+  // at least one cent. Without one there is no fee to test, so the verdict
+  // only says whether net savings round to at least a cent (see Invoice.verdict).
+  const amountDueCents = options.feePercent === undefined
+    ? undefined
+    : feeCents(netAfterCarryUsd, options.feePercent);
+  const verdict: Invoice["verdict"] = amountDueCents === undefined
+    ? (Math.round(netAfterCarryUsd * 100) > 0 ? "charge" : "do_not_charge")
+    : (amountDueCents > 0 ? "charge" : "do_not_charge");
   const amountDueUsd = options.feePercent === undefined
     ? undefined
     : verdict === "charge"
@@ -818,7 +890,7 @@ export function recomputeInvoiceWithAudit(
     ...(options.feePercent === undefined ? {} : {
       feePercent: options.feePercent,
       amountDueUsd,
-      amountDueCents: Math.round((amountDueUsd ?? 0) * 100),
+      amountDueCents: amountDueCents ?? 0,
     }),
   };
   return { invoice, audit: { duplicatesIgnored } };
