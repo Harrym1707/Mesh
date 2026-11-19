@@ -40,6 +40,21 @@
  *     net savings and fee in cents equal this script's own recompute. Any
  *     mismatch is DO NOT BILL, exit 1, nothing sent. A dry run without it
  *     still works and warns that a real run will need it.
+ *   - The statement must be the CUSTOMER'S OWN, and the script checks that it
+ *     is: a real run REQUIRES --customer-key <fingerprint>, the statement key
+ *     fingerprint the customer registered when billing was agreed (they print
+ *     it with `mesh statement --key`). The statement's signature must verify
+ *     and must be by exactly that key. A statement with no signature (release
+ *     0.2.4 wrote those), one whose signature does not verify, and one signed
+ *     by any other key are each DO NOT BILL. So is a statement signed by THIS
+ *     machine's own Mesh install (~/.mesh/identity/statement-key.json, when
+ *     there is one), in a dry run too: that statement was written here, from
+ *     whatever files arrived, and matches them trivially. A dry run without
+ *     --customer-key warns, and still says which key signed the statement.
+ *     What this does not do: it does not show the customer's ledger was
+ *     complete on their machine, it is only as good as the channel the
+ *     fingerprint was registered through, and it does not stop an operator
+ *     who bypasses this script.
  *   - A real run refuses a period that has not ended yet in UTC; a dry run
  *     prints the same sentence as a warning and carries on. There is
  *     deliberately no flag or environment variable to override the clock.
@@ -52,18 +67,23 @@
  *     --customer cus_XXX --period 2026-10 --fee 1 spool1.jsonl [spool2.jsonl ...]
  *   STRIPE_TEST_SECRET_KEY=... node --import tsx scripts/mesh-bill.ts \
  *     --customer cus_XXX --period 2026-10 --fee 1 \
- *     --statement mesh-statement-2026-10.json spool1.jsonl [spool2.jsonl ...]
+ *     --statement mesh-statement-2026-10.json --customer-key <fingerprint> \
+ *     spool1.jsonl [spool2.jsonl ...]
  *   Required: --customer cus_…, --period YYYY-MM, at least one spool, and
- *             --statement <file> unless --dry-run.
+ *             --statement <file> with --customer-key <fingerprint> unless
+ *             --dry-run.
  *   Optional: --dry-run (no key needed, nothing sent to Stripe),
  *             --days-until-due <n> (payment terms on the invoice, default 14),
  *             --finalize (finalize instead of leaving a draft),
  *             --label "acme-anthropic",
  *             --live --confirm-amount-cents <cents> (live charge, re-type gated).
  */
-import { readFileSync } from "node:fs";
-import { basename } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { basename, join } from "node:path";
 import {
+  STATEMENT_KEY_DIR,
+  STATEMENT_KEY_FILE,
   buildStripeInvoicePlan,
   checkLiveChargeConfirmation,
   checkPeriodEnded,
@@ -71,6 +91,8 @@ import {
   createStripeClient,
   describeBillSpool,
   isLiveStripeKey,
+  isStatementKeyFingerprint,
+  parseStatementKeyFile,
   recomputeInvoice,
   verifyLedgerChain,
   type BillSpool,
@@ -83,6 +105,8 @@ type Args = {
   period?: string;
   /** The customer's own `mesh statement` file for the period. Required unless --dry-run. */
   statement?: string;
+  /** The statement key fingerprint the customer registered. Required with --statement unless --dry-run. */
+  customerKey?: string;
   fee: number;
   label?: string;
   finalize: boolean;
@@ -110,6 +134,7 @@ function parseArgs(argv: string[]): Args {
     if (a === "--customer") args.customer = argv[++i];
     else if (a === "--period") args.period = argv[++i];
     else if (a === "--statement") args.statement = argv[++i];
+    else if (a === "--customer-key") args.customerKey = argv[++i];
     else if (a === "--fee") args.fee = Number(argv[++i]);
     else if (a === "--label") args.label = argv[++i];
     else if (a === "--finalize") args.finalize = true;
@@ -146,6 +171,27 @@ function loadRecords(path: string): LedgerRecord[] {
     }
     return parsed as LedgerRecord;
   });
+}
+
+/**
+ * The fingerprint of the statement key of the Mesh install on THIS machine, if
+ * it has one: the same file `mesh statement` signs with (~/.mesh/identity/
+ * statement-key.json). Only the fingerprint is taken from it; nothing from the
+ * file is printed. A file that is there but cannot be read is a hard stop: the
+ * check it feeds could not be made.
+ */
+function operatorKeyFingerprint(): string | undefined {
+  const path = join(homedir(), ".mesh", STATEMENT_KEY_DIR, STATEMENT_KEY_FILE);
+  if (!existsSync(path)) return undefined;
+  try {
+    return parseStatementKeyFile(readFileSync(path, "utf8")).fingerprint;
+  } catch (error) {
+    throw new Error(
+      `DO NOT BILL — this machine's own statement key file (${path}) could not be read as a statement key ` +
+      `(${error instanceof Error ? (error as NodeJS.ErrnoException).code ?? error.message : "unreadable"}), so the bill ` +
+      "cannot rule out that the statement was written on this machine.",
+    );
+  }
 }
 
 async function main(): Promise<void> {
@@ -190,6 +236,32 @@ async function main(): Promise<void> {
     );
   }
 
+  // The statement must be the customer's own: signed by the statement key whose
+  // fingerprint they registered when billing was agreed. A fingerprint is public
+  // (neither it nor the key it names is a secret), so it is safe on a command line.
+  const customerKey = args.customerKey?.trim().toLowerCase();
+  if (args.customerKey !== undefined && !isStatementKeyFingerprint(customerKey)) {
+    throw new Error(
+      "DO NOT BILL — --customer-key is not a statement key fingerprint. It is the 64 hexadecimal characters the " +
+      "customer's `mesh statement --key` prints, as recorded when billing was agreed.",
+    );
+  }
+  if (!args.dryRun && customerKey === undefined) {
+    throw new Error(
+      "DO NOT BILL — a real run needs --customer-key <fingerprint>: the statement key fingerprint the customer " +
+      "registered when billing was agreed (their `mesh statement --key` prints it). The statement's signature is " +
+      "checked against it before anything is sent, so a statement written by anyone else is refused. " +
+      "(--dry-run works without one.)",
+    );
+  }
+  if (args.dryRun && args.statement !== undefined && customerKey === undefined) {
+    console.log(
+      "WARNING — no --customer-key was given. A real run will refuse to bill without the statement key fingerprint " +
+      "the customer registered. This run checks that the statement's signature verifies and says which key signed " +
+      "it, but not whose key that is.",
+    );
+  }
+
   // A period is billed only once it is over in UTC: until then requests are
   // still being added to it. The clock is the machine's; there is no override.
   const periodCheck = checkPeriodEnded(period, new Date());
@@ -200,12 +272,15 @@ async function main(): Promise<void> {
 
   // Read the statement before the ledger, so an unreadable file stops early.
   let statementDocument: unknown;
+  // This machine's own statement key, if it has one: a statement signed by it was written here.
+  let localKey: string | undefined;
   if (args.statement !== undefined) {
     try {
       statementDocument = JSON.parse(readFileSync(args.statement, "utf8"));
     } catch {
       throw new Error(`DO NOT BILL — ${args.statement} could not be read as a statement file.`);
     }
+    localKey = operatorKeyFingerprint();
   }
 
   // sk_live_… and restricted rk_live_… keys both create real invoices.
@@ -296,8 +371,8 @@ async function main(): Promise<void> {
   // the outcome is stated once, with its reason, on the line that follows.
   console.log(`Net verified savings: $${invoice.netVerifiedSavingsUsd.toFixed(4)}`);
 
-  // The customer's statement against this run: its seal, what it is, its
-  // period, the spools it was computed from, and its figures. Done before the
+  // The customer's statement against this run: its seal, who signed it, what
+  // it is, its period, the spools it was computed from, and its figures. Done before the
   // plan is acted on in any way, so a mismatch stops with nothing sent.
   if (statementDocument !== undefined) {
     const statementCheck = checkStatementForBilling({
@@ -311,6 +386,10 @@ async function main(): Promise<void> {
       },
       // Only a rehearsal may look at a statement written during the month.
       periodMustBeClosed: !args.dryRun,
+      // Who wrote it: the customer's registered key, and never this machine's own.
+      ...(customerKey === undefined ? {} : { expectedKeyFingerprint: customerKey }),
+      keyMustBeRegistered: !args.dryRun,
+      ...(localKey === undefined ? {} : { operatorKeyFingerprint: localKey }),
     });
     if (!statementCheck.ok) {
       console.log(`\nDO NOT BILL — ${statementCheck.reason}`);
@@ -389,8 +468,8 @@ async function main(): Promise<void> {
 
   if (args.dryRun) {
     console.log(
-      "\nDRY RUN — nothing was sent to Stripe. To create it, re-run without --dry-run, with a Stripe key and " +
-      "--statement <the customer's statement file>, once the period has ended.",
+      "\nDRY RUN — nothing was sent to Stripe. To create it, re-run without --dry-run, with a Stripe key, " +
+      "--statement <the customer's statement file> and --customer-key <their registered fingerprint>, once the period has ended.",
     );
     return;
   }

@@ -128,13 +128,67 @@ own content, so a later `mesh statement --check <file>` shows whether it was
 altered after it was written. That seal catches accidental changes; the proof of
 the figures is recomputing them from the ledger.
 
+**The signature.** From the release after 0.2.4 (planned as 0.2.5), every
+statement is also signed, so MESH can tell a statement written by your install
+from one written by anyone who holds a copy of your ledger files.
+
+- The first time it is needed, `mesh statement` creates a **statement key** for
+  this install: an Ed25519 key pair in `~/.mesh/identity/statement-key.json`
+  (the folder is readable by you only, mode 0700, the file mode 0600). The
+  private half never leaves this machine. It is never printed, never sent, and
+  never written into the statement, the ledger or any file you are asked to
+  send. Making the key needs no network.
+- The key's **fingerprint** is 64 hexadecimal characters (the sha256 of the
+  public half). It is public and safe to share. Print it with:
+
+  ```sh
+  mesh statement --key
+  ```
+
+  Give it to MESH **once, when billing is agreed, through the channel agreed in
+  writing**, and not in the same message as a statement. From then on MESH bills
+  only from a statement signed by that key.
+- The statement file gains a `signature` object: the algorithm (`ed25519`), the
+  public key, its fingerprint, a sentence saying exactly what is signed (the
+  value of the file's `sha256` field), and the signature. The printed statement
+  ends with `Signed by this install's statement key: <fingerprint>`.
+- `mesh statement --check <file>` also reports whether the signature verifies
+  against the key named in the file, and prints that key's fingerprint. This
+  shows the file is consistent with itself. It does not show whose key it is:
+  anyone can make a key and sign with it. What shows the statement is yours is
+  MESH comparing the fingerprint with the one you registered.
+
+What the signature shows, and what it does not: it shows the statement was
+written by an install holding the registered key, so nobody else, MESH included,
+can write a statement in your name from files they were sent. It does not show
+that the ledger on your machine was complete, and it does not replace the rule
+that matters most: the figures are yours to recompute, and if your
+recomputation disagrees with ours, yours wins.
+
+A statement written by 0.2.4 has no signature. MESH does not bill from it;
+update and run `mesh statement --period YYYY-MM` again.
+
+**If the key changes.** The key belongs to one install. Reinstalling into an
+empty home folder, moving to another machine, or losing
+`~/.mesh/identity/statement-key.json` gives you a new key with a new
+fingerprint, and a statement signed by it is refused until you have registered
+the new fingerprint with MESH the same way as the first: through the agreed
+channel, before your next statement, and not alongside it. To keep the same
+fingerprint when you move machine, copy the key file to the same place on the
+new one and keep it private. `mesh statement` never replaces a key file: if the
+file is there but cannot be read as a key, the command stops and says so. To
+start a new key on purpose, move the old file aside (keep it), run
+`mesh statement --key`, and register the new fingerprint. On Windows the mode
+bits do not apply; the file is protected by your user profile's own permissions.
+
 | Option | Meaning |
 |---|---|
 | `--period YYYY-MM` | The billing period, a calendar month in UTC. Required. |
 | `--ledger <dir>` | Ledger to read. Default `~/.mesh/ledger`. |
 | `--out <file>` | Where to write the statement file. Default `./mesh-statement-YYYY-MM.json`. |
 | `--json` | Print the statement as JSON instead of text. The file is still written. |
-| `--check <file>` | Check a statement file against its `sha256` seal, then exit. |
+| `--check <file>` | Check a statement file against its `sha256` seal and check that its signature verifies against the key named in the file, then exit. Exits non-zero if either fails or the file is not signed. |
+| `--key` | Print the fingerprint of this install's statement key, creating the key if there is none yet, then exit. Needs no ledger and no period. |
 
 Pass one or more spool files after the options to read exactly those instead of
 a ledger directory.
