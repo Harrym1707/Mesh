@@ -398,22 +398,29 @@ const hashLabel = (hash: string | undefined): string => (hash === undefined ? "n
 const PLAIN_VERSION = /^(\d{1,4})\.(\d{1,4})\.(\d{1,4})$/;
 
 /**
- * What an unsigned statement says about the release that wrote it: the version
- * (only when it is a plain release number), and whether that release is from
- * before statements were signed. No version, or one that cannot be read, counts
- * as before: release 0.2.4 is where unsigned statements come from.
+ * What an unsigned statement says about the build that wrote it: the version
+ * (only when it is a plain release number), and whether that build is from
+ * before statements were signed. Two things in the file say it was written by
+ * a build that signs: the seal rule it quotes (builds that sign leave the
+ * signature out of the seal, and say so), and a version at or after
+ * STATEMENT_SIGNING_SINCE. With neither, it counts as before: release 0.2.4
+ * is where unsigned statements come from. Both fields are untrusted, and this
+ * only chooses the wording of a refusal: an unsigned statement is refused
+ * either way.
  */
 export function unsignedStatementOrigin(statement: unknown): { version?: string; predatesSigning: boolean } {
   const mesh = isRecord(statement) ? statement.mesh : undefined;
   const text = isRecord(mesh) && typeof mesh.version === "string" ? mesh.version : "";
   const parts = PLAIN_VERSION.exec(text);
+  const version = parts === null ? {} : { version: text };
+  if (isRecord(statement) && statement.sha256Of === STATEMENT_SEAL_RULE) return { ...version, predatesSigning: false };
   if (parts === null) return { predatesSigning: true };
   const since = PLAIN_VERSION.exec(STATEMENT_SIGNING_SINCE)!;
   for (let index = 1; index <= 3; index += 1) {
     const difference = Number(parts[index]) - Number(since[index]);
-    if (difference !== 0) return { version: text, predatesSigning: difference < 0 };
+    if (difference !== 0) return { ...version, predatesSigning: difference < 0 };
   }
-  return { version: text, predatesSigning: false };
+  return { ...version, predatesSigning: false };
 }
 
 /** Net savings are sums of floats; two honest recomputes can differ in the last bits, never by a billable amount. */
@@ -459,7 +466,8 @@ export function checkStatementForBilling(input: StatementBillingCheckInput): Sta
       const { version, predatesSigning } = unsignedStatementOrigin(statement);
       if (!predatesSigning) {
         return fail(
-          `the statement is not signed, although it says it was written by Mesh ${version}, which signs every statement: ` +
+          "the statement is not signed, although it was written by a Mesh build that signs every statement" +
+          `${version === undefined ? "" : ` (it says Mesh ${version})`}: ` +
           "its signature was removed, or it was not written by `mesh statement`. " +
           `The customer must run \`mesh statement --period ${period}\` again and send that file.`,
         );

@@ -89,8 +89,16 @@ function billOf(files: Ledger, period = PERIOD) {
   };
 }
 
-/** Sealed, not signed: what release 0.2.4 wrote. */
-function unsignedStatementOf(files: Ledger, period = PERIOD, overrides: Record<string, unknown> = {}): Record<string, unknown> {
+/** The seal rule release 0.2.4 printed in its statements, before there was a signature to leave out. */
+const SEAL_RULE_0_2_4 = "sha256 of this document as canonical JSON (keys sorted, no whitespace) without the sha256 and sha256Of fields";
+
+/** Sealed, not signed. With `sealRule` SEAL_RULE_0_2_4 it is what release 0.2.4 wrote. */
+function unsignedStatementOf(
+  files: Ledger,
+  period = PERIOD,
+  overrides: Record<string, unknown> = {},
+  sealRule = SEAL_RULE_0_2_4,
+): Record<string, unknown> {
   const { spools, bill } = billOf(files, period);
   const body: Record<string, unknown> = {
     schema: STATEMENT_SCHEMA,
@@ -111,7 +119,7 @@ function unsignedStatementOf(files: Ledger, period = PERIOD, overrides: Record<s
     fee: { ratePercent: 1, amountCents: bill.feeCents, amountUsd: bill.feeCents / 100 },
     ...overrides,
   };
-  return { ...body, sha256Of: STATEMENT_SEAL_RULE, sha256: statementSeal(body) };
+  return { ...body, sha256Of: sealRule, sha256: statementSeal(body) };
 }
 
 /** A sealed and signed statement shaped as `mesh statement` writes it, over the given files. */
@@ -121,7 +129,7 @@ function statementOf(
   overrides: Record<string, unknown> = {},
   signer = CUSTOMER,
 ): Record<string, unknown> {
-  const sealed = unsignedStatementOf(files, period, overrides);
+  const sealed = unsignedStatementOf(files, period, overrides, STATEMENT_SEAL_RULE);
   return { ...sealed, signature: signStatementSeal(sealed.sha256 as string, signer.privateKey) };
 }
 
@@ -520,11 +528,23 @@ describe("checkStatementForBilling: the files in hand against the customer's sta
     // A statement that names a release which signs, and has no signature: it was cut out, and the message says so.
     for (const version of ["0.2.5", "0.3.0", "1.0.0"]) {
       expect(reasonOf(check(unsignedStatementOf(files, PERIOD, { mesh: { version, build: "x" } }), files))).toBe(
-        `the statement is not signed, although it says it was written by Mesh ${version}, which signs every statement: ` +
+        `the statement is not signed, although it was written by a Mesh build that signs every statement (it says Mesh ${version}): ` +
         "its signature was removed, or it was not written by `mesh statement`. " +
         "The customer must run `mesh statement --period 2026-10` again and send that file.",
       );
     }
+    // The signature cut out of a statement this build wrote: the seal rule it quotes says it was signed, whatever its version.
+    const { signature: _cut, ...cut } = statementOf(files, PERIOD, { mesh: { version: "0.2.4", build: "x" } });
+    expect(checkStatementSeal(cut)).toBe(true);
+    expect(reasonOf(check(cut, files))).toContain(
+      "the statement is not signed, although it was written by a Mesh build that signs every statement (it says Mesh 0.2.4): its signature was removed",
+    );
+    const { signature: _cutToo, ...cutNoVersion } = statementOf(files);
+    expect(reasonOf(check(cutNoVersion, files))).toContain(
+      "although it was written by a Mesh build that signs every statement: its signature was removed",
+    );
+    expect(unsignedStatementOrigin({ mesh: { version: "0.2.4" }, sha256Of: STATEMENT_SEAL_RULE })).toEqual({ version: "0.2.4", predatesSigning: false });
+    expect(unsignedStatementOrigin({ mesh: { version: "0.2.4" }, sha256Of: SEAL_RULE_0_2_4 })).toEqual({ version: "0.2.4", predatesSigning: true });
     expect(unsignedStatementOrigin({ mesh: { version: "0.2.4" } })).toEqual({ version: "0.2.4", predatesSigning: true });
     expect(unsignedStatementOrigin({ mesh: { version: "0.1.99" } })).toEqual({ version: "0.1.99", predatesSigning: true });
     expect(unsignedStatementOrigin({ mesh: { version: "0.2.5" } })).toEqual({ version: "0.2.5", predatesSigning: false });

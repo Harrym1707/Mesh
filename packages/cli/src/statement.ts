@@ -757,9 +757,9 @@ function runCheck(file: string): void {
       console.log(`    (${version === undefined ? "it does not say which" : `it says MESH ${version}`}; signing starts with ${STATEMENT_SIGNING_SINCE}). MESH does not bill from an unsigned`);
       console.log(`    statement. Update MESH to ${STATEMENT_SIGNING_SINCE} or later and write it again with:`);
     } else {
-      console.log(`  ✗ It is NOT signed, although it says it was written by MESH ${version}, which signs every`);
-      console.log("    statement: its signature was removed, or it was not written by this command. MESH does");
-      console.log("    not bill from an unsigned statement. Write it again with:");
+      console.log("  ✗ It is NOT signed, although it was written by a MESH build that signs every statement");
+      console.log(`    ${version === undefined ? "" : `(it says MESH ${version}): `}its signature was removed, or it was not written by this command.`);
+      console.log("    MESH does not bill from an unsigned statement. Write it again with:");
     }
     console.log(`    mesh statement --period ${period}`);
     process.exit(1);

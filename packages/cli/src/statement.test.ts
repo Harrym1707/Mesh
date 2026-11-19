@@ -878,7 +878,11 @@ describe("runStatement (reads real spool files)", () => {
 
     // Unsigned, as release 0.2.4 wrote it: the seal still matches, and the check says what to do.
     const { signature: _signature, ...withoutSignature } = signed;
-    const old = { ...withoutSignature, mesh: { version: "0.2.4", build: "5316e36" } };
+    const old = {
+      ...withoutSignature,
+      mesh: { version: "0.2.4", build: "5316e36" },
+      sha256Of: "sha256 of this document as canonical JSON (keys sorted, no whitespace) without the sha256 and sha256Of fields",
+    };
     const unsigned = await check({ ...old, sha256: statementSeal(old) });
     expect(unsigned.exit).toBe("exit 1");
     expect(unsigned.printed).toContain("matches its sha256 seal");
@@ -887,13 +891,13 @@ describe("runStatement (reads real spool files)", () => {
       "signing starts with 0.2.5). MESH does not bill from an unsigned statement. Update MESH to 0.2.5 or later " +
       "and write it again with: mesh statement --period 2026-11",
     );
-    // The signature simply cut out of a file this build wrote: unsigned, and the release named should have signed it.
-    const current = { ...withoutSignature, mesh: { version: "0.2.5", build: "x" } };
-    const cut = await check({ ...current, sha256: statementSeal(current) });
+    // The signature simply cut out of a file this build wrote: unsigned, and the build that wrote it signs.
+    const cut = await check(withoutSignature);
     expect(cut.exit).toBe("exit 1");
+    expect(cut.printed).toContain("matches its sha256 seal");
     expect(cut.printed).toContain(
-      "✗ It is NOT signed, although it says it was written by MESH 0.2.5, which signs every statement: its signature " +
-      "was removed, or it was not written by this command.",
+      `✗ It is NOT signed, although it was written by a MESH build that signs every statement (it says MESH ${signed.mesh.version}): ` +
+      "its signature was removed, or it was not written by this command. MESH does not bill from an unsigned statement.",
     );
     expect(cut.printed).toContain("mesh statement --period 2026-11");
 
@@ -1127,6 +1131,15 @@ describe("mesh statement — what the bill's own check (mesh-bill --statement) m
     const unsigned = buildStatement({ spools: arrivedSpools, period: "2026-11", now: NOW, version: "0.2.4" });
     if (!unsigned.valid) throw new Error("expected a valid statement");
     expect(reasonOf(checkStatementForBilling({ ...side, statement: unsigned.statement, period: "2026-11" }))).toContain(
+      "the statement is not signed, although it was written by a Mesh build that signs every statement (it says Mesh 0.2.4)",
+    );
+    // The same, as release 0.2.4 itself wrote it (its seal rule did not mention a signature).
+    const by024 = {
+      ...unsigned.statement,
+      sha256Of: "sha256 of this document as canonical JSON (keys sorted, no whitespace) without the sha256 and sha256Of fields",
+    };
+    expect(checkStatementSeal(by024)).toBe(true);
+    expect(reasonOf(checkStatementForBilling({ ...side, statement: by024, period: "2026-11" }))).toContain(
       "the statement is not signed: it was written by a Mesh release that does not sign statements (it says Mesh 0.2.4; signing starts with 0.2.5)",
     );
     // The customer's own statement, over their whole ledger, is what the files in hand are then held to.
