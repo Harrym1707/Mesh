@@ -76,6 +76,17 @@ the proof-of-pain and the audience list.
 > that reconciliation if useful: [link]. (Happy to share the method regardless
 > of tooling.)
 
+## Which letter for whom
+
+- A LiteLLM proxy operator, such as the reporters above:
+  [outreach-litellm.md](./outreach-litellm.md).
+- A team with Helicone request exports:
+  [outreach-helicone.md](./outreach-helicone.md).
+- A team that has published its own LLM cost or caching work, where neither
+  gateway is known to be in use:
+  [outreach-cost-aware-team.md](./outreach-cost-aware-team.md). No such team
+  is named in this repository.
+
 ## Secondary audience (no named threads yet — research task, not outreach)
 
 - Helicone users: letter drafted ([outreach-helicone.md](./outreach-helicone.md));

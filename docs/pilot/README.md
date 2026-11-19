@@ -36,6 +36,7 @@ the ledger in `~/.mesh/ledger/`.
 | [data-handling.md](./data-handling.md) | The data-handling answer, verbatim-usable, sourced to the code paths it describes. |
 | [outreach-litellm.md](./outreach-litellm.md) | Draft letter 1: LiteLLM proxy operator (spend logs ready to triage). Written 2026-10-13; savings figures refreshed 2026-11-16. |
 | [outreach-helicone.md](./outreach-helicone.md) | Draft letter 2: Helicone user re-evaluating their stack. Written 2026-10-13; savings figures refreshed 2026-11-16. |
+| [outreach-cost-aware-team.md](./outreach-cost-aware-team.md) | Draft letter 3: a first note to a team that has published its own LLM cost or caching work. Written 2026-11-19. Names no organisation. |
 | [engagement-list.md](./engagement-list.md) | Where the conversation already exists: the named LiteLLM threads, verified 2026-10-13, with draft responses. Savings figures refreshed 2026-11-16. |
 
 ## Number discipline
@@ -70,6 +71,17 @@ never without the label. A partner's own number comes from their own ledger
 and replaces all of these.
 
 ## The outreach drafts
+
+Three letters, all drafts, none sent. Which to use:
+
+- **[outreach-litellm.md](./outreach-litellm.md)** for a team running the
+  LiteLLM proxy with spend logs: it leads with reconciling those logs.
+- **[outreach-helicone.md](./outreach-helicone.md)** for a team with Helicone
+  request exports: it leads with a quote from one export.
+- **[outreach-cost-aware-team.md](./outreach-cost-aware-team.md)** for a team
+  that has published its own cost or caching work and where neither gateway
+  is known to be in use: it leads with the ledger and expects a small number
+  or none. Written 2026-11-19, with its own "before sending" list.
 
 `outreach-litellm.md`, `outreach-helicone.md` and `engagement-list.md` were
 written on 2026-10-13. Their MESH savings figures were refreshed to
