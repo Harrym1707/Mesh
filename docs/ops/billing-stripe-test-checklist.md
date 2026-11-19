@@ -59,18 +59,28 @@ reports `mode: "test"` by fiat).
 Build core first (`corepack pnpm -s exec tsc -b`), have a test customer
 `cus_…`, the ledger spools for a month that has ENDED (UTC), and the statement
 file for that month written from those same spools by `mesh statement --period
-YYYY-MM` (the release after 0.2.3). A real run refuses without `--statement`,
-refuses a month that has not ended, and refuses if the spools passed are not
-exactly the spools the statement was computed from. Run it with `--dry-run`
-first (no key needed, nothing sent) and read what it says it would create; the
-dry run must print `statement matched: …` and no WARNING lines. Then run it for
+YYYY-MM`. The statement must be SIGNED, which needs the release after 0.2.4
+(planned as 0.2.5); a statement written by 0.2.4 is refused. You also need the
+statement key fingerprint of the install that wrote the statement: on that
+machine, `mesh statement --key` prints it. A real run refuses without
+`--statement`, refuses without `--customer-key`, refuses a statement that is
+unsigned or signed by any other key, refuses a month that has not ended, and
+refuses if the spools passed are not exactly the spools the statement was
+computed from. For this test, write the statement on a different machine (or
+under a different home folder) from the one you run `mesh-bill` on: the script
+refuses a statement signed by its own machine's Mesh install, as it must. Run
+it with `--dry-run` first (no key needed, nothing sent) and read what it says
+it would create; the dry run must print `statement matched: … signed by the
+customer's registered statement key …` and no WARNING lines. Then run it for
 real:
 ```bash
 node --import tsx scripts/mesh-bill.ts --dry-run \
   --statement mesh-statement-2026-10.json \
+  --customer-key <the 64-character fingerprint from mesh statement --key> \
   --customer cus_TEST --period 2026-10 --fee 1 your-ledger-folder/*.jsonl
 STRIPE_TEST_SECRET_KEY=sk_test_xxx node --import tsx scripts/mesh-bill.ts \
   --statement mesh-statement-2026-10.json \
+  --customer-key <the 64-character fingerprint from mesh statement --key> \
   --customer cus_TEST --period 2026-10 --fee 1 your-ledger-folder/*.jsonl
 ```
 Operator steps in full: `docs/ops/first-invoice-runbook.md`.
@@ -138,7 +148,9 @@ proves works independently of Stripe's 24h window).
   `sk_live_…` and `rk_live_…`; do not pass `--live` / `allowLive`.
 - `mesh-bill` requires `--period YYYY-MM` and refuses to run without it. A real
   run also requires `--statement <file>` (the customer's own `mesh statement`
-  file, checked against the spools passed) and a month that has ended. It
+  file, checked against the spools passed), `--customer-key <fingerprint>` (the
+  statement key the customer registered; the statement must be signed by it,
+  and never by the machine running the bill) and a month that has ended. It
   keeps no durable billed-record (only the worker does), so before finalizing
   check the dashboard for an existing invoice for the same customer and period.
 - `mesh-bill --dry-run` reads no key and sends nothing; run it before every
