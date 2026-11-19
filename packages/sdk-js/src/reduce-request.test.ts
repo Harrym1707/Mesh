@@ -269,6 +269,134 @@ describe("cross-turn memory dedup", () => {
   });
 });
 
+describe("cross-turn tool-result dedup", () => {
+  const FAILURE =
+    "Tool lookup_3 failed: transient 503 from the records subsystem; the gateway returned no account data and " +
+    "the caller should retry with the same arguments once the subsystem recovers. ".repeat(3);
+
+  /** A tool call retried `retries` times after an identical failure, then one final turn that succeeds. */
+  function retryRequest(retries: number, model = "claude-sonnet-5-5"): Record<string, unknown> {
+    const messages: unknown[] = [{ role: "user", content: "Look up account 1003's refund status." }];
+    for (let attempt = 0; attempt < retries; attempt += 1) {
+      messages.push({
+        role: "assistant",
+        content: [{ type: "tool_use", id: `toolu_0${attempt}`, name: "lookup_3", input: { accountId: "1003" } }],
+      });
+      messages.push({
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: `toolu_0${attempt}`, content: FAILURE, is_error: true }],
+      });
+    }
+    messages.push({
+      role: "assistant",
+      content: [{ type: "tool_use", id: "toolu_0final", name: "lookup_3", input: { accountId: "1003" } }],
+    });
+    messages.push({
+      role: "user",
+      content: [{ type: "tool_result", tool_use_id: "toolu_0final", content: "Account 1003: one refund pending." }],
+    });
+    return { model, max_tokens: 500, messages };
+  }
+
+  it("replaces every retry's identical failure after the first with a reference marker, and reports a lossy change", () => {
+    const { request: reduced, summary } = reduceRequest(retryRequest(4), { crossTurnToolResultDedup: true });
+    const change = summary.changes.find((entry) => entry.lever === "cross-turn-tool-result-dedup")!;
+    expect(change).toBeDefined();
+    expect(change.lossless).toBe(false);
+    expect(change.estimatedTokensSaved).toBeGreaterThan(0);
+
+    const messages = (reduced as Record<string, unknown>).messages as Array<{ role: string; content: unknown }>;
+    const toolResultTexts = messages
+      .filter((m) => m.role === "user" && Array.isArray(m.content))
+      .map((m) => (m.content as Array<Record<string, unknown>>)[0]!.content as string);
+
+    expect(toolResultTexts[0]).toBe(FAILURE);
+    for (const text of toolResultTexts.slice(1, -1)) {
+      expect(text).not.toBe(FAILURE);
+      expect(text).toMatch(/^\[mesh: \d+ tokens of this tool result, identical to tool result 1, omitted\]$/);
+    }
+    // The final, genuinely different success result is never touched.
+    expect(toolResultTexts.at(-1)).toBe("Account 1003: one refund pending.");
+  });
+
+  it("never touches tool_use blocks or genuine user text", () => {
+    const { request: reduced } = reduceRequest(retryRequest(4), { crossTurnToolResultDedup: true });
+    const messages = (reduced as Record<string, unknown>).messages as Array<{ role: string; content: unknown }>;
+    expect(messages[0]).toEqual({ role: "user", content: "Look up account 1003's refund status." });
+    const toolUses = messages.filter((m) => m.role === "assistant");
+    for (const message of toolUses) {
+      const block = (message.content as Array<Record<string, unknown>>)[0]!;
+      expect(block.type).toBe("tool_use");
+      expect(block.input).toEqual({ accountId: "1003" });
+    }
+  });
+
+  it("is off by default", () => {
+    const { summary } = reduceRequest(retryRequest(4), {});
+    expect(summary.changes.some((entry) => entry.lever === "cross-turn-tool-result-dedup")).toBe(false);
+  });
+
+  it("does nothing with a single occurrence", () => {
+    const original = retryRequest(0);
+    const { request: reduced, summary } = reduceRequest(original, { crossTurnToolResultDedup: true });
+    expect(reduced).toEqual(original);
+    expect(summary.changes).toHaveLength(0);
+  });
+
+  it("respects a custom minimumBlockTokens and skips below it", () => {
+    const { summary } = reduceRequest(retryRequest(4), {
+      crossTurnToolResultDedup: { minimumBlockTokens: 100_000 },
+    });
+    expect(summary.changes.some((entry) => entry.lever === "cross-turn-tool-result-dedup")).toBe(false);
+  });
+
+  it("skips the whole reduction on an invalid minimumBlockTokens", () => {
+    const original = retryRequest(4);
+    const { request: reduced, summary } = reduceRequest(original, {
+      crossTurnToolResultDedup: { minimumBlockTokens: -1 },
+    });
+    expect(reduced).toBe(original);
+    expect(summary.skipped).toBe(true);
+    expect(summary.skippedReason).toMatch(/positive integer/);
+  });
+
+  it("works on Responses-style `input` arrays with function_call_output too", () => {
+    const input = [
+      { role: "user", content: "Look up account 1003." },
+      { type: "function_call", call_id: "call_0", name: "lookup_3", arguments: "{}" },
+      { type: "function_call_output", call_id: "call_0", output: FAILURE },
+      { type: "function_call", call_id: "call_1", name: "lookup_3", arguments: "{}" },
+      { type: "function_call_output", call_id: "call_1", output: FAILURE },
+    ];
+    const { request: reduced, summary } = reduceRequest({ model: "gpt-5", input }, { crossTurnToolResultDedup: true });
+    // function_call_output items are not Anthropic {type: 'tool_result'} blocks (this lever's one
+    // documented shape), so a Responses-style retry is correctly left untouched rather than silently
+    // mishandled: both outputs survive verbatim and no change is reported.
+    const resultInput = (reduced as Record<string, unknown>).input as unknown[];
+    expect(resultInput).toEqual(input);
+    expect(summary.changes.some((entry) => entry.lever === "cross-turn-tool-result-dedup")).toBe(false);
+  });
+
+  it("collapses three or more identical retries, each pointing back at the first occurrence", () => {
+    const { request: reduced } = reduceRequest(retryRequest(6), { crossTurnToolResultDedup: true });
+    const messages = (reduced as Record<string, unknown>).messages as Array<{ role: string; content: unknown }>;
+    const toolResultTexts = messages
+      .filter((m) => m.role === "user" && Array.isArray(m.content))
+      .map((m) => (m.content as Array<Record<string, unknown>>)[0]!.content as string);
+    expect(toolResultTexts).toHaveLength(7);
+    for (const text of toolResultTexts.slice(1, -1)) {
+      expect(text).toContain("identical to tool result 1");
+    }
+  });
+
+  it("is idempotent: re-running on an already-reduced request changes nothing further", () => {
+    const once = reduceRequest(retryRequest(4), { crossTurnToolResultDedup: true });
+    const twice = reduceRequest(once.request, { crossTurnToolResultDedup: true });
+    expect(twice.request).toEqual(once.request);
+    expect(twice.summary.changes.some((entry) => entry.lever === "cross-turn-tool-result-dedup")).toBe(false);
+  });
+});
+
 describe("fresh tool-result capping", () => {
   /** An oversized tool result shaped like the eval fixture: a headline carrying
    * the reference later turns depend on, verbose record sentences, one error

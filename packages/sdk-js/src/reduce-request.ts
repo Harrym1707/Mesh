@@ -131,6 +131,29 @@ export type MeshTokenReductionConfig = {
    */
   crossTurnMemoryDedup?: boolean | { minimumBlockTokens?: number };
   /**
+   * Replace a tool result with a reference marker when its body is
+   * byte-identical to an earlier tool result in the same request. This is
+   * the shape a retried tool call produces when it fails the same way twice:
+   * the client returns the failure as a `tool_result` block (often
+   * `is_error: true`) and the application retries with the same arguments,
+   * so an identical error body re-enters history at every retry and then
+   * rides along, unchanged, in every later turn's resent history too.
+   * `duplicateContext` never catches this (it only ever sees one message's
+   * text at a time) and `crossTurnMemoryDedup` never catches it either (it
+   * only reads the LEADING text of user turns; a `tool_result` block is
+   * never a turn's leading text). Matching is exact-byte only, against any
+   * earlier occurrence in the request, not just the first.
+   *
+   * LOSSY, for the same reason `crossTurnMemoryDedup` is: the duplicate
+   * removed is never adjacent to its twin, so a model attending less to
+   * distant context may behave differently with the failure shown once
+   * versus restated at every retry. This must be proven on the customer's
+   * own traffic through `replayGate` before it is ever billed, and is never
+   * enabled by default. `true` uses the default 64-token minimum block
+   * size; pass an object to tune it.
+   */
+  crossTurnToolResultDedup?: boolean | { minimumBlockTokens?: number };
+  /**
    * Cap oversized tool-result and assistant bodies at injection, BEFORE first
    * send. A fresh oversized result is billed once at the FULL input rate and
    * only its cached rebills are discounted, so this reaches tokens that
@@ -779,6 +802,66 @@ function dedupeMemoryAcrossTurns(
   return next;
 }
 
+/**
+ * Cross-turn tool-result dedup: walks every `{type: 'tool_result'}` block in
+ * the whole message array, in order, and replaces a block whose body is
+ * byte-identical to an earlier one with a reference marker. Unlike
+ * `dedupeMemoryAcrossTurns` (which only ever compares against turn 1's
+ * leading text), this matches against ANY earlier occurrence, because a
+ * tool call can be retried more than once and every retry after the first
+ * is the duplicate. Reuses `transformUserToolResultBlocks` so the walk sees
+ * exactly the tool-result shape the fresh-result cap and stale-history
+ * compaction already agree on (a string body or an array of `{type:
+ * 'text'}` blocks), and so it naturally never touches genuine user text or
+ * `tool_use` blocks.
+ */
+function dedupeToolResultsAcrossTurns(
+  input: unknown[],
+  options: { minimumBlockTokens?: number },
+  countTokens: TokenCounter,
+  changes: MeshReductionChange[],
+): unknown[] {
+  const minimumBlockTokens = options.minimumBlockTokens ?? 64;
+  if (!Number.isInteger(minimumBlockTokens) || minimumBlockTokens < 1) {
+    throw new Error("crossTurnToolResultDedup minimumBlockTokens must be a positive integer.");
+  }
+  const seenAt = new Map<string, number>();
+  const notes: string[] = [];
+  let occurrence = 0;
+  const dedupe = (text: string): string => {
+    occurrence += 1;
+    if (text.startsWith("[mesh: ")) return text;
+    const first = seenAt.get(text);
+    if (first === undefined) {
+      seenAt.set(text, occurrence);
+      return text;
+    }
+    const tokens = countTokens(text);
+    if (tokens < minimumBlockTokens) return text;
+    notes.push(`Tool result ${occurrence}: replaced a ${tokens}-token body identical to tool result ${first}'s with a reference marker.`);
+    return `[mesh: ${tokens} tokens of this tool result, identical to tool result ${first}, omitted]`;
+  };
+  const state = { bodies: 0 };
+  let savedTokens = 0;
+  const next = input.map((message) => {
+    if (!isPlainObject(message) || message.role !== "user") return message;
+    return transformUserToolResultBlocks(message, dedupe, countTokens, state, (saved) => {
+      savedTokens += saved;
+    });
+  });
+  if (notes.length === 0) return input;
+  changes.push({
+    lever: "cross-turn-tool-result-dedup",
+    lossless: false,
+    estimatedTokensSaved: Math.max(0, savedTokens),
+    detail: `Replaced ${notes.length} tool result(s) with reference markers, each identical to an earlier ` +
+      "tool result in the request (the shape a tool call retried after an identical failure produces). This " +
+      "is a behaviour change, not a cache-rate change, so it needs a replay-gate pass on the customer's own " +
+      "traffic before the saving may be billed.",
+  });
+  return next;
+}
+
 function reduceText(
   text: string,
   config: MeshTokenReductionConfig,
@@ -1270,6 +1353,20 @@ export function reduceRequestWithCounter(
       }
       if (Array.isArray(next.messages)) {
         next.messages = dedupeMemoryAcrossTurns(next.messages, memoryOptions, countTokens, changes);
+      }
+    }
+
+    // Cross-turn tool-result dedup, same slot as the memory dedup above and
+    // for the same reason: it needs the RAW tool-result bodies across the
+    // whole request to find a retry's exact repeat, before any per-message
+    // pass has a chance to touch them.
+    if (config.crossTurnToolResultDedup) {
+      const resultOptions = isPlainObject(config.crossTurnToolResultDedup) ? config.crossTurnToolResultDedup : {};
+      if (Array.isArray(next.input)) {
+        next.input = dedupeToolResultsAcrossTurns(next.input, resultOptions, countTokens, changes);
+      }
+      if (Array.isArray(next.messages)) {
+        next.messages = dedupeToolResultsAcrossTurns(next.messages, resultOptions, countTokens, changes);
       }
     }
 
