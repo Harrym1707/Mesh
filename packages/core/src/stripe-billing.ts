@@ -123,7 +123,9 @@ const VERIFY_PACKAGE_COMMAND = "npx -y -p @harrym1707/verify mesh-verify";
 /**
  * How the customer checks this charge themselves, printed on the Stripe line
  * item. Their own statement for the period first (the real period filled in),
- * then the standalone verify package as the independent second check. An
+ * then the standalone verify package as the independent second check of the
+ * net savings (its 0.1.0 release rounds a fee half up, so it is named for
+ * the savings, not the fee). An
  * invoice across all recorded periods has no single period to name, so it
  * never prints a `mesh statement` command that would not run.
  */
@@ -131,9 +133,9 @@ export function recomputeInstruction(period: string | null): string {
   const independent = `${VERIFY_PACKAGE_COMMAND} <your spool>`;
   const yoursWins = "If your recomputation disagrees, yours wins.";
   if (period !== null && /^\d{4}-(0[1-9]|1[0-2])$/.test(period)) {
-    return `Check it on your own machine: mesh statement --period ${period}. Independent check: ${independent}. ${yoursWins}`;
+    return `Check it on your own machine: mesh statement --period ${period}. Independent check of the savings: ${independent}. ${yoursWins}`;
   }
-  return `Check it on your own machine with the independent check: ${independent}. ${yoursWins}`;
+  return `Check the savings on your own machine with the independent check: ${independent}. ${yoursWins}`;
 }
 
 /**

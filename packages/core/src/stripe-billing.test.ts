@@ -162,7 +162,7 @@ describe("buildStripeInvoicePlan", () => {
     expect(plan.description).toBe(
       "MESH fee — 1% of $9.59 net verified savings, period 2026-11. " +
       "Check it on your own machine: mesh statement --period 2026-11. " +
-      "Independent check: npx -y -p @harrym1707/verify mesh-verify <your spool>. " +
+      "Independent check of the savings: npx -y -p @harrym1707/verify mesh-verify <your spool>. " +
       "If your recomputation disagrees, yours wins.",
     );
   });
@@ -172,7 +172,7 @@ describe("buildStripeInvoicePlan", () => {
     if (plan.action !== "bill") throw new Error("expected bill");
     expect(plan.description).toBe(
       "MESH fee — 1% of $12.50 net verified savings, period all-recorded-periods. " +
-      "Check it on your own machine with the independent check: npx -y -p @harrym1707/verify mesh-verify <your spool>. " +
+      "Check the savings on your own machine with the independent check: npx -y -p @harrym1707/verify mesh-verify <your spool>. " +
       "If your recomputation disagrees, yours wins.",
     );
     expect(plan.description).not.toContain("mesh statement");

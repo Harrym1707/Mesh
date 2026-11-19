@@ -212,7 +212,10 @@ export async function runStatus(_argv: string[]): Promise<void> {
   console.log(`  mesh status — build ${BUILD_COMMIT}`);
   console.log(`  service   ${loaded ? "installed (launchd)" : "not installed"}`);
   console.log(`  proxy     ${up ? `up on http://127.0.0.1:${port}` : "not responding"}`);
-  if (s.events > 0) {
+  if (s.events > 0 && !s.chainOk) {
+    // A ledger that does not verify has no verified total: say so, never a figure.
+    console.log(`  ⬢ theo    ${s.events} requests seen · ledger did NOT verify, so no savings figure · run: mesh verify`);
+  } else if (s.events > 0) {
     console.log(`  ⬢ theo    ${s.events} requests seen · $${s.savedUsd.toFixed(4)} verified saved (${s.verdictNote})`);
   } else {
     console.log(`  ⬢ theo    no traffic yet — use Claude Code and check back`);

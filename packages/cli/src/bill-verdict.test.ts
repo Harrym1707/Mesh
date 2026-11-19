@@ -5,7 +5,7 @@
  * modules fix ~/.mesh paths from homedir() at import time).
  */
 import { execFile } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -150,5 +150,17 @@ describe("ledger summary and CLI output (isolated HOME)", () => {
     writeSpool(ledger, [21.6267]);
     const billable = await runMesh(home, "status");
     expect(billable).toContain("1 requests seen · $21.6267 verified saved (charge)");
+  });
+
+  it("mesh status prints no savings figure and no sign-up invitation when the ledger does not verify", { timeout: 100_000 }, async () => {
+    writeSpool(ledger, [21.6267, 0.5]);
+    const spool = join(ledger, "proxy-anthropic.jsonl");
+    const lines = readFileSync(spool, "utf8").trimEnd().split("\n");
+    lines[0] = lines[0]!.replace("21.6267", "121.6267");
+    writeFileSync(spool, lines.join("\n") + "\n");
+    const out = await runMesh(home, "status");
+    expect(out).toContain("2 requests seen · ledger did NOT verify, so no savings figure · run: mesh verify");
+    expect(out).not.toContain("verified saved");
+    expect(out).not.toContain("keep these savings metered");
   });
 });
