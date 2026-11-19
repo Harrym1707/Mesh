@@ -388,7 +388,10 @@ async function main(): Promise<void> {
   if (plan.finalize) console.log(`                       ${finalizeKey}`);
 
   if (args.dryRun) {
-    console.log("\nDRY RUN — nothing was sent to Stripe. Re-run without --dry-run (and with a Stripe key) to create it.");
+    console.log(
+      "\nDRY RUN — nothing was sent to Stripe. To create it, re-run without --dry-run, with a Stripe key and " +
+      "--statement <the customer's statement file>, once the period has ended.",
+    );
     return;
   }
 
