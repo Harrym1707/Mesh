@@ -10,19 +10,24 @@
 > - the release's own checks on the installed 0.2.1 build:
 >   [docs/ops/release-0.2.0-runbook.md](../ops/release-0.2.0-runbook.md),
 >   section "Update 2026-11-16 (later)"; releases 0.2.2 and 0.2.3 followed
->   and have their own sections there ("evening" and "night"). 0.2.3 is what
->   the website and npm serve on 2026-11-18;
+>   and have their own sections there ("evening" and "night"). Release 0.2.4
+>   is what the website and npm serve on 2026-11-19; its billing checks are
+>   in [docs/ops/first-invoice-runbook.md](../ops/first-invoice-runbook.md);
 > - what the 0.2.1 path was and was not tested with: the tester guide's
 >   ["Known limits"](./TESTER-GUIDE.md#known-limits-2026-11-16);
 > - the smaller set of checks run for this document refresh:
 >   [Checks run on 2026-11-16](#checks-run-on-2026-11-16) and, on the
 >   installed 0.2.3 build,
->   [Checks run on 2026-11-18](#checks-run-on-2026-11-18), at the end of this
+>   [Checks run on 2026-11-18](#checks-run-on-2026-11-18), and on the
+>   installed 0.2.4 build,
+>   [Checks run on 2026-11-19](#checks-run-on-2026-11-19), at the end of this
 >   file.
 >
 > Statements in the 2026-11-07 record about which path is canonical, the
 > published versions and the runtime lagging `main` describe that day, not
-> today.
+> today. The 2026-11-16 and 2026-11-18 records describe 0.2.3 and earlier:
+> since 0.2.4 the fee is rounded down to the cent, `mesh statement` exists,
+> and `scripts/mesh-bill.ts` needs a period and the customer's statement.
 
 # Record of 2026-11-07
 
@@ -185,4 +190,45 @@ written, the only change under `packages/cli/src` and in the proxy is to
 **Not checked:** a real provider, real traffic, Claude Code driving the
 proxy, the OpenAI-style path, `mesh dashboard`, `mesh install`, Linux, and
 Windows under WSL.
+
+---
+
+# Checks run on 2026-11-19
+
+Run on **MESH 0.2.4**, for the billing wording in this kit. A separate
+record; nothing above was re-run or rewritten.
+
+**Setup.** A throwaway `HOME`. MESH installed from the live website
+(`mesh 0.2.4 (build 5316e36)`). A stand-in provider on `127.0.0.1`. No real
+provider was called and no real key was used. `scripts/mesh-bill.ts` was run
+from source at `main` (`144ca1b`) with `--dry-run` only, which reads no
+Stripe key and sends nothing. Dollar amounts are artefacts of three test
+requests; they are not savings figures.
+
+| Step | Result |
+|---|---|
+| Versions | Website manifest: build `5316e36`. `packages/cli` and `packages/sdk-js` on `main`: 0.2.4. npm: `@harrym1707/mesh` and `@harrym1707/sdk` 0.2.4, published 2026-11-19 (tag `v0.2.4`); `@harrym1707/verify` still 0.1.0. `npx -y @harrym1707/mesh version` prints `mesh 0.2.4 (build 144ca1b)` and has `mesh statement`. |
+| `mesh statement --help` | The usage text on `main`: `--period YYYY-MM` (required), `--ledger <dir>`, `--out <file>`, `--json`, `--check <file>`, `--help`; spool files may be passed in place of a ledger directory. There is no `--key` flag. |
+| `mesh proxy`, three `POST /v1/messages` | All 200; the window printed `3 requests seen` with `nothing to bill yet — do not pay us`. |
+| `mesh statement --period 2026-11` | Printed the period and its UTC bounds, `THIS PERIOD HAS NOT ENDED YET: these figures can still change`, the chain check (`1 spool, 3 records, 3 in this period`), requests counted and excluded, the saving by lever marked `(estimated baseline)`, baseline and actual cost, net verified savings, `Fee at 1% of net verified savings US$0.00 (0 cents)`, `Verdict do_not_charge` with the reason that the 1% fee is below one cent, and the price list. Wrote `mesh-statement-2026-11.json` in the current folder with a sha256 seal. |
+| `mesh statement --period 2026-10` | Chain verified, `0 in this period`; a statement with nothing in it. |
+| `mesh statement` with no `--period` | Prints the usage text. |
+| `mesh statement --check` | On the file as written: matches its seal. On a copy with one figure changed: `does NOT match its sha256`. |
+| `mesh verify`, `mesh status` | Both print the total since install with `(do_not_charge: the 1% fee is below one cent)`, the same verdict as the statement. |
+| The fee function (`feeCents`, `packages/core`) | $21.63 gives 21 cents; $1.50 gives 1 cent; $1.00 gives 1 cent; $0.99 and $0.50 give 0. Rounded down, so never more than 1%. |
+| `mesh-bill --dry-run --period 2026-11` on the ledger file | `Mode: DRY RUN (no Stripe key read, nothing sent)`; warns that a real run needs `--statement` and that the period has not ended; `DO NOT BILL — do_not_charge`. |
+| The same with `--statement mesh-statement-2026-11.json` | `Statement: statement matched: 1 spool, 3 records (3 in 2026-11), net verified savings $0.0004, fee 0 cents.` and a warning that the statement was written before the period ended. |
+| `mesh-bill --dry-run` with no `--period` | Refuses: `--period YYYY-MM is REQUIRED`. |
+| `mesh-bill --dry-run` on `*.jsonl` | Prints `Skipped (not a ledger spool)` for the `.features.jsonl` file and carries on. The published `mesh-verify` 0.1.0 still reads such a file as a broken chain. |
+
+**Read, not run:** `docs/site/terms.md` (Fees, last updated 18 November
+2026), `docs/site/pricing.md`, `packages/cli/src/statement.ts`,
+`scripts/mesh-bill.ts`, `docs/ops/first-invoice-runbook.md`. A search for a
+`--key` flag in `packages/cli/src/statement.ts` on `main` and on every branch
+of the repository found none.
+
+**Not checked:** a real provider, real traffic, a real (non-dry) `mesh-bill`
+run, anything at Stripe in any mode, a statement for a month that has ended,
+a ledger with more than one file or more than one month, and `mesh statement`
+on Linux or under WSL.
 

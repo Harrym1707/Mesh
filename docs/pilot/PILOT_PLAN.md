@@ -1,6 +1,6 @@
 # MESH pilot — plan
 
-> **Draft, updated 2026-11-18. Current release: MESH 0.2.3.** No partner has
+> **Draft, updated 2026-11-19. Current release: MESH 0.2.4.** No partner has
 > been approached or signed. Setup follows the one path in
 > [onboarding.md](./onboarding.md).
 >
@@ -71,10 +71,10 @@ over the pilot window.
 
 | Measure | Source |
 |---|---|
-| Net verified savings ($ and %) | the partner's `mesh verify`; `mesh-verify` and `mesh-bill` on the ledger files they send. `mesh verify` and `mesh-verify` give the total since the ledger began, which is the window's figure only on a ledger begun at kickoff |
+| Net verified savings ($ and %) | the partner's `mesh statement --period YYYY-MM` for the month; `mesh-bill` on the statement and ledger files they send. `mesh verify` and `mesh-verify` give the total since install, not a month |
 | Savings by lever (cache stamp, schema compaction, dup removal, tier arbitrage) | invoice line items |
 | `do_not_charge` events and why | invoice verdict + reasons |
-| Did the partner recompute and agree? | their `mesh verify` run (or `mesh-verify` on a ledger file) |
+| Did the partner recompute and agree? | their `mesh statement` for the month, which `mesh-bill` compares with its own recompute |
 | Time to onboard; any request-path incident | kickoff notes (target: minutes; incidents: zero) |
 | Objections raised (esp. data / security) | engagement notes → feeds the real DPA |
 
@@ -94,11 +94,11 @@ it make a pilot about four weeks end to end.
   stays on his default autonomy, `recommend`, and is never set to `optimise`
   during a pilot; a lossy lever runs only behind an approved replay gate on
   the partner's own traffic and their yes to the proposal.
-- **Week 3 — invoice.** Operator runs the manual-billing playbook
-  ([runbook.md](./runbook.md#operator-playbook--manual-billing)): collect the
-  ledger, verify the chain, draft the invoice in Stripe test mode, review it.
-  The partner recomputes independently with `mesh verify`, which totals the
-  whole ledger.
+- **Week 3 — the figure.** The partner runs `mesh statement` for the month
+  and we compare it with our own dry run
+  ([runbook.md](./runbook.md#operator-playbook--manual-billing)). An invoice
+  can be drafted only after the calendar month has ended, so the draft, in
+  Stripe test mode, follows at the start of the next month.
 - **Week 4 — debrief.** Did the number hold? Would they pay it ongoing? What
   blocked them? Decide: convert, extend, or close out.
 
@@ -109,14 +109,16 @@ reviewed by a person. No live Stripe key is used and nothing is charged
 automatically; what a partner is then sent, and how they pay, is agreed with
 them by hand and is the founder's decision. The auto-billing path is a
 separate hardening track and is **not** used for pilot partners. Fee: **1% of
-net verified savings**, monthly; `do_not_charge` → $0.
+net verified savings**, by calendar month, rounded down to the cent;
+`do_not_charge` → $0. The public explanation is
+[Pricing and billing](../site/pricing.md).
 
 ## Known gaps to close before general availability
 
 - **Reviewed terms and a DPA.** The [pilot agreement](./pilot-agreement.md) is
   a minimal, plain-language stand-in for pilots, not reviewed by
-  a lawyer. The website's Terms and Privacy pages (12 November 2026) are
-  unreviewed first drafts, and there is no DPA.
+  a lawyer. The website's Terms and Privacy pages are unreviewed first
+  drafts, and there is no DPA.
 - **Compliance.** No SOC 2 / ISO yet; the architecture (no prompt data leaves the
   partner's machines) is the current answer, not a certificate.
 - **Savings figures are not yet from customer traffic.** The one LIVE figure is
@@ -130,11 +132,12 @@ net verified savings**, monthly; `do_not_charge` → $0.
   agreement in outline; it is unreviewed and leaves the contact address,
   smallest invoice, currency, VAT wording and payment route blank. There are
   no accounts, no self-serve signup and no automatic billing.
-- **Rounding and periods.** The fee is rounded to the nearest cent, so on a
-  small amount it can be slightly more than 1% of the saving; no rounding
-  rule or smallest invoice has been decided. And no installed command shows
-  one period's figure: `mesh verify`, `mesh status` and `mesh-verify` all
-  total the whole ledger.
+- **Months and small invoices.** Release 0.2.4 settled two things: the fee
+  is rounded down to the cent, and `mesh statement --period YYYY-MM` gives a
+  partner one month's figure. Still open: the smallest invoice worth sending
+  (the only floor is one cent), and how a 14-day window that is shorter than
+  a month, or crosses a month end, is invoiced, since billing runs by
+  calendar month and only after the month has ended.
 - **First real traffic.** The setup path was tested with Claude Code and the
   official Anthropic and OpenAI SDKs against a stand-in provider, not against
   a real provider under a partner's workload. The tester guide's

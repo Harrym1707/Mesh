@@ -77,7 +77,7 @@ me what `mesh status` prints?
 | 18.2% on a mixed 30-request basket | LIVE, run 2026-10-26 | docs/NUMBERS.md, LIVE table: `MESH_LIVE_KEEP=1 evals/run-live-agents.ts`, claude-sonnet-5-5, spools in `evals/live-exports-2026-10-26/`. MESH's own test basket, not a customer's traffic |
 | Every other published figure is simulator output, labelled | SIMULATOR | docs/NUMBERS.md, SIMULATOR table. No simulator figure is quoted in this letter |
 | "No customer has run MESH yet" | true on 2026-11-19 | No customer traffic has gone through MESH; remove the sentence only when that changes |
-| `nothing to bill yet — do not pay us` | code | Printed by `mesh start` and `mesh proxy` when the verdict is not `charge` (`packages/cli/src/start.ts`); seen on the installed 0.2.3 on 2026-11-18 ([VERIFICATION.md](./VERIFICATION.md)) |
+| `nothing to bill yet — do not pay us` | code | Printed by `mesh start` and `mesh proxy` when the verdict is not `charge` (`packages/cli/src/start.ts`); seen on the installed 0.2.3 on 2026-11-18 and 0.2.4 on 2026-11-19 ([VERIFICATION.md](./VERIFICATION.md)) |
 | Open to everyone, no signup; the start page link | site | `docs/site/start.md` and `docs/site/faq.md`; the link answered 200 on 2026-11-19 |
 | Free to install and run; a fee only if billing is agreed in writing first; 1% of the month's verified saving | site | `docs/site/terms.md`, Fees (last updated 18 November 2026); `docs/site/pricing.md`. The letter does not say "exactly" 1% |
 | "I will not promise you a big number" | by design | docs/NUMBERS.md has a "do not pay us" reference row for already-optimised stacks. It is context, not a MESH saving, and no figure from it is quoted here |

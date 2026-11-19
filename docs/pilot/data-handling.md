@@ -19,7 +19,7 @@ requests to MESH's own addresses are downloads of the software itself.
 
 MESH is published: the installer and runtime are on
 `https://www.mesh-technology.com`, and `@harrym1707/mesh` and
-`@harrym1707/sdk` (0.2.3, read 2026-11-18) and `@harrym1707/verify` (0.1.0) are on
+`@harrym1707/sdk` (0.2.4, read 2026-11-19) and `@harrym1707/verify` (0.1.0) are on
 the public npm registry. The source is public at
 `https://github.com/Harrym1707/Mesh`.
 
@@ -93,7 +93,7 @@ It is off unless you set both, and the `mesh` commands set neither.
 | Every request | The request itself, reduced when a lever applies, with your key | Your own AI provider, as before |
 | Install, and update checks | Download requests for the installer, the runtime and its version file. The installed `mesh` looks at the version file about once a day when you run it, and fetches a newer runtime when there is one; the always-on service does the same a few times a day unless `MESH_NO_AUTO_UPDATE` is set. These are plain downloads and carry nothing about your traffic | GitHub, which hosts the website, or npm |
 | A replay gate, if you run one | The sampled requests from your capture file | Your own AI provider, under your key |
-| Billing, at the end of a pilot | The ledger files you choose to send us | Us |
+| Billing, after a month has ended | The statement file `mesh statement` writes, and the ledger files it was made from, which you choose to send us. The statement holds numbers, lever names, model ids and hashes; it leaves out request, application and task ids | Us |
 
 The metering sink is a pure projection of ledger events into Stripe Billing
 Meters *rows in a local file* (`packages/core/src/stripe-sink.ts`); nothing is
@@ -110,8 +110,10 @@ what lands in the ledger.
 
 Nothing, structurally: all artifacts (export, quote, ledger, invoice) live on
 your side. The invoice is a pure function of the ledger, so the dispute path
-is "run it yourself" (`mesh verify`), not "trust our database." If you send us
-ledger files for an invoice, we keep them with the invoice as the audit trail;
+is "run it yourself" (`mesh statement --period YYYY-MM` for a month,
+`mesh verify` for the whole ledger), not "trust our database." If you send us
+statement and ledger files for an invoice, we keep them with the invoice as
+the audit trail;
 the [privacy policy](../site/privacy.md) says for how long.
 
 ## Honest limitations

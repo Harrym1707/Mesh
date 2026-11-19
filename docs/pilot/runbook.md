@@ -10,7 +10,9 @@
 > second, the [Operator playbook](#operator-playbook--manual-billing), is the
 > founder's side: onboarding a partner, collecting and checking their ledger,
 > and drafting an invoice by hand. Setup follows the one path in
-> [onboarding.md](./onboarding.md). Current release: MESH 0.2.3 (2026-11-18).
+> [onboarding.md](./onboarding.md). Current release: MESH 0.2.4 (2026-11-19).
+> The fee and the monthly routine are explained for everyone on the
+> website's [Pricing and billing](../site/pricing.md) page.
 >
 > **Draft.** Nothing here has been sent to anyone, and MESH has not yet run on
 > a customer's real traffic.
@@ -90,26 +92,28 @@ provider untouched.
   under your key; the sample comes from request capture, which is off unless
   you turn it on.
 
-## Day 14 — the invoice you can check
+## Day 14 — the figure you can check
 
-1. `mesh verify` re-checks the hash chain of your ledger and recomputes the
-   total, with no network calls. Tampering with any line is detected and the
-   position named.
-2. For a recompute that does not use the installed `mesh` at all, run the
-   MIT-licensed tool on each ledger file:
+1. `mesh statement --period YYYY-MM` recomputes one calendar month (UTC) from
+   your own ledger. It re-checks the hash chain, prints the saving by lever,
+   the fee and the verdict, and writes a statement file,
+   `mesh-statement-YYYY-MM.json`. No network calls. It needs MESH 0.2.4 or
+   later.
+2. `mesh verify` re-checks the whole ledger and gives the total since
+   install, not a month. Tampering with any line is detected and the position
+   named. For a recompute that does not use the installed `mesh` at all, run
+   the MIT-licensed tool on each ledger file:
    `npx -y -p @harrym1707/verify mesh-verify ~/.mesh/ledger/proxy-anthropic.jsonl`.
-
-   Both commands total everything in the ledger since it began; neither can
-   show one period on its own. If you installed MESH on day 1, that total is
-   the pilot window's figure. If you were already running it, the total
-   covers more than the window, and the invoice counts only the lines whose
-   timestamps fall inside it.
 3. Negative components **net against MESH** (for example a 1-hour cache-write
    surcharge that never earned its reads); they are never clamped to zero.
-4. Invoice = 1% of the net verified savings for the period, rounded to the
-   nearest cent, or **do_not_charge**. On a small amount the rounding can
-   make the fee slightly more than 1% of the saving. If your recomputation
-   disagrees with ours, yours wins.
+4. Invoice = 1% of the net verified savings for the month, rounded down to
+   the cent, or **do_not_charge** when that comes to less than one cent. The
+   fee is never more than 1% of the saving. If your recomputation disagrees
+   with ours, yours wins.
+5. An invoice is drafted only after its month has ended: you run
+   `mesh statement` again then, and send the statement file and the ledger
+   files it was made from. Until then the statement says the period has not
+   ended and its figures can still change.
 
 ---
 
@@ -151,15 +155,17 @@ any step. This playbook stops at a reviewed test-mode draft: issuing a real
 invoice or taking a payment is a separate decision for the founder and is not
 set up or described here.
 
-The commands were checked against `main` on 2026-11-16; what was run, and
-what was only read, is in [VERIFICATION.md](./VERIFICATION.md).
+**The procedure for drafting an invoice is Product's
+[first-invoice runbook](../ops/first-invoice-runbook.md).** Follow it step by
+step; this playbook covers only what a pilot adds before and after it, and
+does not repeat its commands beyond the dry run. What was run for this kit,
+and what was only read, is in [VERIFICATION.md](./VERIFICATION.md).
 
 ## 0. One-time operator setup
 
-- A Stripe account with a **test** secret key, stored outside the repository,
-  for example `~/.config/mesh/stripe.env` containing
-  `STRIPE_TEST_SECRET_KEY=sk_test_…`. Never put a key in a file in this
-  repository.
+- A Stripe account with a **test** secret key, held by the founder and
+  stored outside the repository. Never put a key in a file in this
+  repository. The dry run in step 3 needs no key at all.
 - A local checkout built once: `corepack pnpm install && corepack pnpm build`
   (`mesh-bill` reads the compiled `packages/core/dist`).
 
@@ -177,22 +183,35 @@ go-ahead. These steps are what turns that into a pilot.
    before the measuring window starts and before any invoice is drafted. The
    yes is for the pilot, not for using MESH. Sending is the founder's act.
 3. Create their Stripe **customer** in test mode and note the `cus_…` id. No
-   payment method is needed to create and review a draft.
+   payment method is needed to create and review a draft. This is the
+   founder's step.
 
-## 2. Collect and verify their ledger
+## 2. After the month has ended: ask for the statement and the ledger
 
-The partner's ledger is the set of hash-chained files in `~/.mesh/ledger/` on
-their machine, one per application and provider (`proxy-anthropic.jsonl`,
-`proxy-openai.jsonl`). Ask them to run `mesh verify` and `mesh status` and
-send the output, then the ledger files themselves. The ledger holds usage
-numbers and hashes and no prompt text; see [data-handling.md](./data-handling.md).
+Billing runs by calendar month in UTC, and `mesh-bill` refuses a month that
+has not ended. So the invoice for a pilot waits for the end of the month the
+window falls in. How a window that crosses a month end is invoiced is not
+decided.
 
-**Leave the `.features.jsonl` files out.** They sit in the same folder, are
-not part of the ledger, and are not needed for billing. Both tools below read
-one of them as a broken chain.
+Ask the partner for three things (first-invoice runbook, step 1):
 
-**Verify the chain before you look at the number.** `mesh-verify` is the
-MIT-licensed, zero-dependency recompute tool; it reads one file per run:
+1. **The statement file.** They run `mesh statement --period YYYY-MM` on the
+   machine MESH runs on, after the month has ended. It writes
+   `mesh-statement-YYYY-MM.json`. It needs 0.2.4 or later; if `mesh version`
+   prints 0.2.3 or earlier, they update first (`mesh update`).
+2. **The ledger files:** every `<application>-<provider>.jsonl` in
+   `~/.mesh/ledger/` (`proxy-anthropic.jsonl`, `proxy-openai.jsonl`). The
+   `.features.jsonl` files beside them are not needed.
+3. **What `mesh verify` prints.**
+
+None of these holds prompts, answers or keys; see
+[data-handling.md](./data-handling.md). Never produce the statement yourself
+from the files you received: it must be the partner's own.
+
+For an independent check of each ledger file, `mesh-verify` is the
+MIT-licensed, zero-dependency recompute tool. It reads one file per run and
+totals the whole file, and it reads a `.features.jsonl` file as a broken
+chain, so skip those:
 
 ```bash
 for f in ./their-ledger/*.jsonl; do
@@ -201,80 +220,77 @@ for f in ./their-ledger/*.jsonl; do
 done
 ```
 
-For each file it prints `chain verified: N record(s), every hash links` and
-the recomputed invoice. If it reports a broken chain on a ledger file,
-**stop**: do not bill a ledger that does not verify. (`mesh-bill` enforces
-this too, below, but check it first.)
-
 A partner on the no-install npm proxy has their ledger in `./mesh-ledger/`
-instead ([onboarding.md](./onboarding.md#no-install-alternative-the-proxy-from-npm));
-the files and the check are the same.
+instead ([onboarding.md](./onboarding.md#no-install-alternative-the-proxy-from-npm))
+and has no `mesh statement`; they need the installed `mesh` before they can
+be invoiced.
 
-## 3. Draft the invoice (test mode: draft, then review)
+## 3. Dry run first, every time
 
-`mesh-bill` recomputes one invoice across the ledger files you pass,
-re-verifies each chain, and creates a Stripe **draft**. It does not charge.
-`--period YYYY-MM` counts only the lines of that calendar month (UTC);
-without it, every line in the files is counted.
+`--dry-run` reads no Stripe key and sends nothing. It verifies each chain,
+recomputes the month, checks the partner's statement against the ledger files
+and against its own recompute, and prints exactly what would be created.
 
 ```bash
-source ~/.config/mesh/stripe.env    # exports STRIPE_TEST_SECRET_KEY
-node --import tsx scripts/mesh-bill.ts \
+node --import tsx scripts/mesh-bill.ts --dry-run \
   --customer cus_THEIR_ID \
   --period 2026-11 \
   --fee 1 \
-  --label "partner-name" \
-  ./their-ledger/proxy-anthropic.jsonl ./their-ledger/proxy-openai.jsonl
+  --statement ./received/mesh-statement-2026-11.json \
+  ./received/proxy-anthropic.jsonl ./received/proxy-openai.jsonl
 ```
 
-Pass each ledger file by name; a `*.jsonl` wildcard would pick up the
-`.features.jsonl` files too. Read the output before doing anything else:
+Read the output before doing anything else:
 
 ```
-Mode: TEST  ·  period: 2026-11  ·  fee: 1%
-Net verified savings: $<X>  ·  verdict: <charge | do_not_charge>
-Will create (draft=true): <N> usd cents to cus_THEIR_ID
+Mode: DRY RUN (no Stripe key read, nothing sent)  ·  period: 2026-11  ·  fee: 1%  ·  spools read: <N>
+Events in period: <N>  ·  billed: <N>  ·  marked unpriced: <N>
+Net verified savings: $<X>
+Statement: statement matched: <N> spools, <N> records (<N> in 2026-11), net verified savings $<X>, fee <N> cents.
 ```
 
 **The honesty checks — respect every one:**
 
-- **`verdict: do_not_charge`** (no net saving), or a fee that rounds to zero
-  cents → `mesh-bill` prints `DO NOT BILL` and creates nothing. The invoice is
+- **`DO NOT BILL — do_not_charge`** (no net saving, or 1% of it below one
+  cent) → nothing is created, not even a zero-value draft. The invoice is
   **$0**. This is a correct, expected outcome; tell the partner so plainly.
-- **`CHAIN BROKEN` (exit 1)** → a file failed verification. Do not bill. Check
-  that no `.features.jsonl` file was passed, then go back to the partner for a
-  clean copy.
-- **`Mode:` must read `TEST`.** `mesh-bill` refuses a `sk_live_…` key unless
-  `--live` is passed. Never pass `--live` and never use a live key in a pilot.
-- Leave `--finalize` off. Without it the invoice stays a draft.
-- Re-running the same customer, period and amount is idempotent at Stripe.
-- **The fee is rounded to the nearest cent.** On a small amount it can be
-  slightly more than 1% of the saving (22 cents on $21.63; 1 cent on $0.50).
-  Do not tell a partner the fee is exactly, or never more than, 1% until the
-  founder has set a rounding rule or a smallest invoice.
+- **`DO NOT BILL`, statement and ledger disagree** → the files passed are not
+  the ones the statement was made from, or the figures differ. Do not work
+  around it; go back to the partner.
+- **`CHAIN BROKEN`** → a file failed verification. Do not bill, and do not
+  "fix" a file; ask the partner to send it again.
+- **`--period` is required,** and a real run refuses a month that has not
+  ended. There is no flag to override the clock.
+- **The fee is rounded down to the cent,** so it is never more than 1% of
+  the saving.
 
-If the verdict is `charge`, the draft now exists in the **Stripe test
-dashboard**. Review it there and compare the amount with the partner's own
-`mesh verify` output and your `mesh-verify` runs. Those two total the whole
-ledger, so they match a `--period` invoice only when the ledger holds nothing
-outside that month. A 14-day window can also cross a month end, which one
-`--period` would cut in two; how such a window is invoiced is not decided.
+## 4. The draft is the founder's step
+
+Creating the Stripe draft needs the Stripe **test** key, which only the
+founder handles: first-invoice runbook, step 9 onward, including its check
+that the period has not been billed already and its by-hand step for a
+deficit carried from an earlier month. The draft is a send-an-invoice draft;
+nothing is collected automatically. Leave `--finalize` off, never pass
+`--live`, and never use a live key in a pilot.
+
 What the partner is then sent, and how they pay, is agreed with them by hand.
 
-## 4. After the draft
+## 5. Afterwards
 
 - Record the draft's id, the net verified savings figure and the verdict in
   [engagement-list.md](./engagement-list.md).
-- Keep the partner's ledger files: the invoice is a pure function of them, so
-  "run it yourself" is always the dispute path.
-- If a partner disputes the figure, the resolution is their own recompute on
-  their own ledger. If it disagrees with ours, **theirs wins**.
+- Keep the partner's statement and ledger files, unchanged: the invoice is a
+  pure function of them, so "run it yourself" is always the dispute path.
+- If a partner disputes the figure, the resolution is their own
+  `mesh statement` on their own ledger. If it disagrees with ours, **theirs
+  wins**.
 
 ## Manual-billing guardrails (do not remove)
 
-- Test mode only; live keys are refused without `--live`, and `--live` is not
-  used.
-- A broken or unverified chain is a hard stop.
+- Test mode only; `--live` is not used, and no assistant handles a Stripe
+  key.
+- A broken or unverified chain is a hard stop. So is a statement that does
+  not match the ledger files.
 - No prompt content is read or sent — only usage-derived totals.
-- No automatic charge of any kind during the pilot. Draft, then a person
-  reviews it, every time.
+- No automatic charge of any kind during the pilot. Dry run, then a draft,
+  then a person reviews it, every time.

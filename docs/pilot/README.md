@@ -13,26 +13,27 @@ is needed in order to use it.
 sending is the founder's act, not an agent's.** No partner has been
 approached, and MESH has not yet run on a customer's real traffic.
 
-The price is the one on the website: 1% of verified savings, monthly, nothing
-else. This kit describes how that is measured and invoiced by hand inside a
+The price is the one on the website's
+[Pricing and billing](../site/pricing.md) page: 1% of verified savings,
+monthly, rounded down to the cent, nothing else. This kit describes how that is measured and invoiced by hand inside a
 pilot. For a customer who wants to pay outside a pilot there is a draft
 [order form](./order-form.md); it is unreviewed, and the decisions it leaves
 open are listed at its end.
 
 Written for the one setup path that MESH 0.2.1 introduced on 2026-11-16. The
-current release, 0.2.3 (read 2026-11-18), keeps it: install from the
+current release, 0.2.4 (read 2026-11-19), keeps it: install from the
 website, then `mesh start` (Claude Code) or `mesh proxy` (any other app), with
 the ledger in `~/.mesh/ledger/`.
 
 | File | What it is |
 |---|---|
-| [TESTER-GUIDE.md](./TESTER-GUIDE.md) | The setup guide for anyone running MESH on their own traffic, in a pilot or not: install, connect Claude Code or their own app, check it works, what to expect, what to send back, how to remove it. Written 2026-11-16; checked against MESH 0.2.3 on 2026-11-18. |
+| [TESTER-GUIDE.md](./TESTER-GUIDE.md) | The setup guide for anyone running MESH on their own traffic, in a pilot or not: install, connect Claude Code or their own app, check it works, what to expect, what to send back, how to remove it. Written 2026-11-16; checked against MESH 0.2.4 on 2026-11-19. |
 | [onboarding.md](./onboarding.md) | **Start here.** What a team in a pilot does on the one setup path (the same path as everyone else), what to agree at kickoff, where the ledger is, and the no-install alternative. Points to the tester guide for the steps. |
 | [runbook.md](./runbook.md) | The one-page partner runbook (day 0 → day 14) **and** the step-by-step [Operator playbook](./runbook.md#operator-playbook--manual-billing) for drafting an invoice by hand in Stripe test mode. |
 | [PILOT_PLAN.md](./PILOT_PLAN.md) | The pilot plan: who a pilot suits, how many are run by hand at once (3–5), success metric, timeline (about four weeks, 14 days of it measuring), and what we measure. |
 | [pilot-agreement.md](./pilot-agreement.md) | Draft lightweight pilot agreement + onboarding email (keys never held, data kept and where, fee basis, no charge if no savings). Covers a pilot only; nobody needs it to use MESH. Not sent and not reviewed by a lawyer. |
 | [order-form.md](./order-form.md) | Draft order form for a paying customer, in or out of a pilot: parties, the fee and when nothing is due, the billing period, what is measured, the right to recompute, what is sent, invoices, term. Incorporates the website Terms. **For the founder and a solicitor: not legal advice, not reviewed, not to be sent.** Blanks, not values, wherever a decision is still open. |
-| [VERIFICATION.md](./VERIFICATION.md) | A dated record: the happy-path checks run on 2026-11-07 against the build of that day, kept as written, plus the checks run on 2026-11-16 and, on the installed 0.2.3, on 2026-11-18. |
+| [VERIFICATION.md](./VERIFICATION.md) | A dated record: the happy-path checks run on 2026-11-07 against the build of that day, kept as written, plus the checks run on 2026-11-16, on the installed 0.2.3 on 2026-11-18, and on the installed 0.2.4 on 2026-11-19. |
 | [data-handling.md](./data-handling.md) | The data-handling answer, verbatim-usable, sourced to the code paths it describes. |
 | [outreach-litellm.md](./outreach-litellm.md) | Draft letter 1: LiteLLM proxy operator (spend logs ready to triage). Written 2026-10-13; savings figures refreshed 2026-11-16. |
 | [outreach-helicone.md](./outreach-helicone.md) | Draft letter 2: Helicone user re-evaluating their stack. Written 2026-10-13; savings figures refreshed 2026-11-16. |

@@ -3,8 +3,8 @@
 Since release 0.2.1 (2026-11-16) there is one way to set MESH up: install it
 from the website, then run `mesh start` (Claude Code) or `mesh proxy` (any
 other app or agent). Everyone sets it up this way, in a pilot or not, so every
-ledger lands in the same place. The current release is 0.2.3 (read
-2026-11-18); it does not change the path.
+ledger lands in the same place. The current release is 0.2.4 (read
+2026-11-19, on the website and on npm); it does not change the path.
 
 **MESH is open to everyone:** no signup, no account, no waiting list. Nobody
 needs to ask before installing or using it ([Get started](../site/start.md)).
@@ -39,9 +39,10 @@ curl -fsSL https://www.mesh-technology.com/install.sh | sh
 
 Prefer npm? `npm install -g @harrym1707/mesh` gives the same `mesh` command.
 
-`mesh version` should print `mesh 0.2.3` or later on a fresh install (read
-2026-11-18). An older install moves to it on its own, or at once with
-`mesh update`. `mesh doctor` checks Node,
+`mesh version` should print `mesh 0.2.4` or later on a fresh install by
+either route (read 2026-11-19). An older website install moves to it on its
+own, or at once with `mesh update`. A pilot needs 0.2.4 or later, because the
+monthly statement command does not exist before it. `mesh doctor` checks Node,
 the proxy, the Claude Code wiring, the background service and the ledger.
 
 ### 2. Connect — one of two commands
@@ -66,7 +67,7 @@ OpenAI-compatible clients. The command prints both.
    `{"status":"ok","service":"mesh-proxy"}`.
 2. After the first request, the MESH window prints `1 request seen`.
 3. `mesh verify` ends with `All checks passed.`
-4. `mesh status` shows requests seen and the saving since the ledger began.
+4. `mesh status` shows requests seen and the saving since install.
 
 If the request count never moves, the app is still talking to the provider
 directly: the base URL has not reached it. `mesh doctor` checks the rest.
@@ -84,13 +85,24 @@ mesh verify
 
 It re-checks the hash chain of every ledger file in `~/.mesh/ledger/` and
 recomputes the total from them, with no network calls. That total covers
-everything in the ledger since it began. `mesh verify` cannot show one month
-or one window on its own, and neither can `mesh status`. On a ledger that
-began at kickoff the total is the window's figure.
+everything since install, as `mesh status` does.
+
+For one calendar month (UTC), which is what an invoice covers:
+
+```bash
+mesh statement --period YYYY-MM
+```
+
+It re-checks the chain, recomputes that month, prints the saving by lever,
+the fee and the verdict, and writes `mesh-statement-YYYY-MM.json` in the
+folder it was run from (`--out <file>` to put it elsewhere). It needs 0.2.4
+or later. For a month that has not ended it says so, and the figures can
+still change. `mesh statement --check <file>` tells whether a statement file
+has been altered since it was written.
 
 For a second opinion that shares no code path with the installed `mesh`, the
 MIT-licensed `@harrym1707/verify` package (0.1.0) does the same recompute on
-one ledger file at a time, again over the whole file:
+one ledger file at a time, over the whole file:
 
 ```bash
 npx -y -p @harrym1707/verify mesh-verify ~/.mesh/ledger/proxy-anthropic.jsonl
@@ -144,9 +156,11 @@ in the [engagement list](./engagement-list.md):
    [configure guide](../guide/configure.md#optional-compact-json-tool-results)
    says how, and when not to. It needs 0.2.3 or later: 0.2.2 dropped a lever
    added by hand at Theo's next background cycle.
-5. **How the ledger reaches us** at the end of the window: the partner sends
-   the ledger files from `~/.mesh/ledger/` (not the `.features.jsonl` files)
-   after looking at them.
+5. **What reaches us, and when.** Billing runs by calendar month, so after
+   the month has ended the partner runs `mesh statement --period YYYY-MM` and
+   sends the statement file and the ledger files from `~/.mesh/ledger/` (not
+   the `.features.jsonl` files), after looking at them. How a window that
+   crosses a month end is invoiced is not decided.
 6. **The build can change during the window.** A `mesh` installed from the
    website keeps itself up to date from it (each runtime is checked against
    its published checksum before it runs). How an npm install is updated was
@@ -171,7 +185,9 @@ way. What differs from the installed `mesh`:
 
 - **Ledger folder: `./mesh-ledger/`** in the folder the command was started
   from, not `~/.mesh/ledger/`.
-- No Theo, no `mesh dashboard`, no `mesh status`, no `mesh verify`.
+- No Theo, no `mesh dashboard`, no `mesh status`, no `mesh verify` and no
+  `mesh statement`, so a partner on this path cannot produce the monthly
+  statement an invoice needs.
 - Settings are environment variables: `MESH_PROXY_PORT` (default `8787`),
   `MESH_PROXY_LEDGER_DIR` (default `./mesh-ledger`), and `MESH_PROXY_CACHE_TTL`
   (`5m` or `1h`) to switch on the Anthropic prompt-cache stamp, which is off
@@ -215,7 +231,8 @@ itself as `mesh 0.0.0 (build dev)` and does not update itself.
 The commands on this page were checked against the code on `main` on
 2026-11-16, and the `mesh proxy` path was run from source that day against a
 stand-in provider, with no real provider key. On 2026-11-18 the same steps
-were run on 0.2.3 as installed from the website. The details are in the dated
+were run on 0.2.3 as installed from the website, and on 2026-11-19
+`mesh statement` was run on 0.2.4. The details are in the dated
 sections at the end of [VERIFICATION.md](./VERIFICATION.md). The release's own
-checks on the installed builds, 0.2.1 to 0.2.3, are in
+checks on the installed builds, 0.2.1 to 0.2.4, are in
 [the release runbook](../ops/release-0.2.0-runbook.md).

@@ -2,7 +2,7 @@
 
 For anyone running MESH on their own traffic. MESH is open to everyone: no
 signup, no account, no waiting list, and nobody to ask before you start.
-Written 2026-11-16 and checked again on 2026-11-18 against MESH 0.2.3, the
+Written 2026-11-16 and checked again on 2026-11-19 against MESH 0.2.4, the
 current release. It takes about five minutes to set up.
 
 ## What you are testing
@@ -38,7 +38,7 @@ Then check it:
 mesh version
 ```
 
-It should print `mesh 0.2.3` or later. If the command is not found, open a new
+It should print `mesh 0.2.4` or later. If the command is not found, open a new
 terminal window and try again, or run it by its full path:
 `~/.mesh/bin/mesh version`. `mesh doctor` checks the rest of the setup.
 
@@ -108,35 +108,37 @@ the base URL setting has not reached it. `mesh doctor` checks the rest.
   default (`recommend`). Do not switch on `--autonomy optimise` during this
   test: automatic adoption is not ready for real traffic yet.
 - **No automatic charge.** This tool cannot take a payment. MESH's fee is 1% of
-  verified savings, and during this test any invoice is agreed with you by
-  hand before it exists.
+  verified savings for the month, rounded down to the cent, and no fee is due
+  unless billing has been agreed with you in writing first
+  ([Pricing and billing](../site/pricing.md)).
 
 ## Seeing what it did
 
 | Command | What it shows |
 |---|---|
-| `mesh status` | Requests seen and savings so far |
+| `mesh status` | Requests seen and savings since install |
 | `mesh dashboard` | A live page on your own machine |
-| `mesh verify` | Re-checks the ledger and recomputes the figure, with no network calls |
+| `mesh verify` | Re-checks the whole ledger and recomputes the total since install, with no network calls |
+| `mesh statement --period YYYY-MM` | One calendar month (UTC): savings by lever, the fee and the verdict, and a statement file you can share. Needs 0.2.4 or later |
 
 The ledger is in `~/.mesh/ledger/`. It is yours.
 
 ## What we would like back
 
-After a few days of normal use:
+After a few days of normal use, open an
+[issue on GitHub](https://github.com/Harrym1707/Mesh/issues/new) and say:
 
-1. What `mesh status` prints.
-2. What `mesh verify` prints.
-3. Anything that broke, slowed down or surprised you, with the time it happened.
-4. If you are willing, and only by arrangement: the files in
-   `~/.mesh/ledger/`. They contain no prompts or answers; open one and look
-   before you share it.
+1. what you ran and what you saw;
+2. anything that broke, slowed down or surprised you, with the time it
+   happened;
+3. what `mesh doctor` and `mesh version` print.
 
-Put items 1 to 3 in an [issue on GitHub](https://github.com/Harrym1707/Mesh/issues/new):
-what you ran and what you saw. `mesh status` and `mesh verify` print request
-counts, dollar totals and the build, nothing from your prompts. An issue is
-public, so do not attach ledger files to it. If you are willing to share
-them, say so in the issue and we will arrange how.
+An issue is public. Please do not post your figures or your ledger files in
+it. If you have a result you are willing to share (what `mesh status`,
+`mesh verify` or `mesh statement` print, or the files in `~/.mesh/ledger/`),
+say so in the issue and we reply with a private way to continue. The ledger
+and statement files contain no prompts or answers; open one and look before
+you share it.
 
 ## Stopping and removing
 

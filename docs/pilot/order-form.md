@@ -3,8 +3,9 @@
 > **DRAFT for the founder and a solicitor. Not legal advice. Not reviewed by
 > a lawyer. Not to be sent to anyone.** Written 2026-11-18 from
 > [pilot-agreement.md](./pilot-agreement.md) and the website's
-> [Terms of use](../site/terms.md) (last updated 12 November 2026). No
-> customer has signed it or been shown it.
+> [Terms of use](../site/terms.md); brought to release 0.2.4 and the Terms
+> as last updated 18 November 2026 on 2026-11-19. No customer has signed it
+> or been shown it.
 >
 > Everything in [square brackets] is a blank for the founder or a solicitor
 > to fill. None of the blanks has a default. The list of them, and of what
@@ -14,7 +15,9 @@
 The Terms say no fee is due unless billing has been agreed in writing. This
 form is that agreement, for a customer who wants to pay for MESH in
 production. It is not needed to install or use MESH, and it is separate from
-the optional [pilot](./pilot-agreement.md).
+the optional [pilot](./pilot-agreement.md). The public explanation of the fee
+is the website's [Pricing and billing](../site/pricing.md) page; this order
+is written to agree with it.
 
 **How it fits with the Terms.** This order incorporates the
 [Terms of use](../site/terms.md) [as published on the order date / as updated
@@ -38,6 +41,7 @@ of registration, if a company], of [customer's address].
 |---|---|---|
 | Contact for this order | [name] | [name] |
 | Email for statements, invoices and notices | [supplier contact email address] | [customer email address] |
+| Statement key fingerprint | | [applies from 0.2.5, not yet released: leave blank until then] |
 
 **Order date:** [date]. **First billing period:** [month and year].
 
@@ -63,33 +67,31 @@ software does and what remains your responsibility.
 
 ## 3. The fee
 
-- The fee is **1% of net verified savings** for each billing period, and
-  nothing else. There is no subscription, seat charge or minimum.
+- The fee is **1% of net verified savings** for each billing period,
+  **rounded down to the cent**, and nothing else. There is no subscription,
+  seat charge or minimum. Because it is rounded down, the fee is never more
+  than 1% of the saving.
 - **Nothing is due for a period** when its verdict is `do_not_charge`. That
-  is the verdict when net verified savings for the period, to the nearest
-  cent, are zero or negative.
-- **Rounding.** As the tooling stands today, the fee is rounded to the
-  nearest cent. On a small amount the rounded fee can therefore be slightly
-  more than 1% of the saving, and a fee that rounds to zero cents is not
-  invoiced. [Rounding rule: whether the fee is instead rounded down, so that
-  it is never more than 1%, or whether a smallest invoice settles it: founder
-  to decide. Until then this order must not say the fee is exactly, or never
-  more than, 1%.]
+  is the verdict when net verified savings for the period are zero or
+  negative, or when 1% of them comes to less than one cent.
 - **Nothing is invoiced for a period** when the fee would be less than
   [smallest invoice worth sending: amount and currency]. [What happens to a
   fee below that amount, whether it is waived or added to a later period:
   founder to decide.]
-- [Carry-forward: whether a period with negative net verified savings reduces
-  the fee in later periods, so that total fees never exceed total verified
-  savings. Founder and solicitor to decide, then state it here.]
+- Within a period, a component that cost you money is set against the ones
+  that saved you money. [Carry-forward between periods: whether a period with
+  negative net verified savings reduces the fee in later periods. The
+  statement records such a deficit, and our billing procedure applies it by
+  hand; neither the Terms nor the pricing page states it. Founder and
+  solicitor to decide whether it is promised here.]
 - Fees exclude VAT and similar taxes, which are added where they apply.
   [VAT wording: the supplier's VAT status and number, and the treatment of a
   business customer outside the United Kingdom.]
 
 ## 4. The billing period
 
-A billing period is one calendar month. MESH assigns each request to the
-month of its timestamp in UTC, and that is the month it is billed in.
+A billing period is one calendar month in UTC. A request counts in the month
+it started in.
 
 ## 5. What is measured, and from what
 
@@ -101,16 +103,16 @@ another folder.
   request, priced against a dated price catalogue whose version is recorded
   on each ledger line.
 - **What a token-reduction lever saved** is an estimate of the tokens it
-  removed, anchored to the provider's reported input total. Every such figure
-  is labelled `estimated-baseline` on the ledger line and on the statement
-  line. An estimate is never presented as a measurement.
+  removed, priced at the same rate. Every such figure is labelled
+  `estimated-baseline` on the ledger line and *estimated baseline* on the
+  statement. An estimate is never presented as a measurement.
 - **A change that can alter an answer** counts towards the fee only with an
   approved replay verdict on your own traffic. Without one its saving is
   recorded and not billed.
 - **Savings you already had** (your provider's own caching, a gateway cache)
-  are recorded and never billed.
-- **A failed request** bills nothing. **A request the catalogue cannot
-  price** is excluded, never priced at zero.
+  are itemised and never billed.
+- **A failed task** bills nothing. **A request the catalogue cannot price**
+  is excluded, never counted as a saving.
 - **A component that cost you money** counts against us: negative amounts
   reduce net verified savings and are never rounded up to zero.
 
@@ -118,43 +120,53 @@ The ledger and the statement are computed in US dollars.
 
 ## 6. Your right to recompute
 
-You can recompute net verified savings from your ledger at any time, with
-`mesh verify` (no network calls) or with the separate `@harrym1707/verify`
-package. **If your recomputation of the same ledger differs from our
-statement, yours prevails.**
+You can recompute a billing period from your own ledger at any time:
 
-Both of those commands total **everything in the ledger since it began**.
-Neither shows one billing period on its own. A period's figure is the same
-computation applied to that period's lines only, which are selected by their
-timestamp (section 4). [How you get one period's figure yourself: founder to
-decide what is offered before this order is used. Today there is no installed
-command for it; see the notes at the end.]
+```bash
+mesh statement --period YYYY-MM
+```
+
+It re-checks the ledger's hash chain, recomputes that month, prints the
+savings by lever, the fee and the verdict, and writes a statement file. It
+makes no network calls. It needs MESH 0.2.4 or later; `mesh version` says
+which you have.
+
+`mesh verify` re-checks the whole ledger and gives the total since install,
+not one month. The separate `@harrym1707/verify` package recomputes a ledger
+file without using the installed program at all.
+
+**If your recomputation of the same ledger differs from our statement, yours
+prevails.**
 
 [How long after a statement you may raise a difference, and what happens to
 an invoice already paid: founder and solicitor to decide.]
 
 ## 7. What you send us, and how
 
-After each billing period you send us:
+After each billing period has ended, you run `mesh statement --period YYYY-MM`
+on the machine MESH runs on and send us:
 
-1. the ledger files from your ledger folder. These are the files that do not
-   end in `.features.jsonl`; and
-2. the output of `mesh verify` run on the same machine. It shows that the
-   chain is intact and the total since the ledger began, not the period's
-   figure.
+1. **the statement file** it writes, `mesh-statement-YYYY-MM.json` in the
+   folder you ran it from unless you pass `--out`; and
+2. **the ledger files it was made from**: every file in your ledger folder
+   named `<application>-<provider>.jsonl`. The `.features.jsonl` files beside
+   them are not needed.
 
-A ledger file is not per period. There is one file for each application and
-provider, and it holds every request since it was started, so you send the
-same files each time, a little longer. We select the period's lines by
-timestamp.
+Run it after the month has ended. A statement made earlier says that the
+period has not ended yet and cannot be billed from.
 
-The ledger files contain usage numbers, lever names and hashes, and no prompt
-or completion text. You are welcome to open them before you send them.
+A ledger file is not per period: it holds every request since it was started,
+so you send the same files each time, a little longer. The statement names
+the month's lines. Both hold usage numbers, lever names, model names and
+hashes, and never your prompts, your completions or your API key. You are
+welcome to open them before you send them, and `mesh statement --check <file>`
+tells you whether a statement file has been altered since it was written.
 
 You send them by [how the files reach us: founder to decide. There is no
-contact email address yet, and ledger files must not be attached to a public
-GitHub issue], within [number] days of the end of the period. If we do not
-receive them, [consequence: founder and solicitor to decide].
+contact email address yet. The pricing page asks a customer to open a GitHub
+issue titled "Billing", without figures or files, and says we reply with a
+private way to continue], within [number] days of the end of the period. If we
+do not receive them, [consequence: founder and solicitor to decide].
 
 ## 8. Data handling
 
@@ -166,12 +178,13 @@ them. [Whether a data processing agreement is needed: solicitor to decide.]
 
 ## 9. Statements and invoices
 
-- We do not take payment automatically. For each period we send a
-  **statement** and, where a fee is due, an **invoice**.
-- The statement shows, for the period: net verified savings, the saving by
-  lever with any `estimated-baseline` label, savings recorded but not billed,
-  savings you already had, requests excluded as unpriced, the verdict, and
-  the fee.
+- We do not take payment automatically. For each period we recompute the same
+  figure from the same ledger and send you a **statement** and, where a fee
+  is due, an **invoice**.
+- The statement shows, for the period: the requests counted and excluded, the
+  verified saving by lever with its *estimated baseline* or *measured* label,
+  savings you already had, the baseline and actual cost, net verified
+  savings, the fee and the verdict.
 - The invoice is in [invoice currency]. [If that is not US dollars: the
   exchange rate used and its date.]
 - Payment is due within [payment days] days of the invoice date, by [payment
@@ -213,13 +226,12 @@ on each side may give it.]
 | Version of the Terms incorporated; which document prevails | top | Solicitor |
 | Supplier contact email address | 1, 7, 11 | Founder |
 | Customer details, order date, first billing period | 1 | Per customer |
-| Fee rounding rule (nearest cent today; round down, or a smallest invoice) | 3 | Founder |
+| Statement key fingerprint (from 0.2.5, not yet released) | 1 | Per customer, once the release exists |
 | Smallest invoice worth sending, and what happens to a fee below it | 3 | Founder |
 | Carry-forward of a negative period | 3 | Founder and solicitor |
 | VAT wording | 3 | Founder, with an accountant or solicitor |
-| How the customer gets one period's figure themselves | 6 | Founder, with Product |
 | Time limit for raising a difference; treatment of a paid invoice | 6 | Founder and solicitor |
-| How ledger files reach us; days to send them; what happens if they are not sent | 7 | Founder and solicitor |
+| How the files reach us; days to send them; what happens if they are not sent | 7 | Founder and solicitor |
 | Whether a data processing agreement is needed | 8 | Solicitor |
 | Invoice currency, and the exchange rate basis if not US dollars | 9 | Founder |
 | Payment days, payment route, late payment | 9 | Founder and solicitor |
@@ -228,70 +240,79 @@ on each side may give it.]
 
 ## Notes for the founder and the solicitor (not part of the order)
 
-**Checked against the Terms on `main`, 2026-11-18.** Sections 3, 6, 9 and 10
-repeat the Terms' Fees and Ending sections in substance: 1% of verified
-savings for the month and nothing else; computed from the ledger on the
-customer's machine; recomputable with `mesh verify` or `@harrym1707/verify`,
-and the customer's recomputation prevails; nothing owed for a `do_not_charge`
-month; no automatic payment, a statement and an invoice; fees exclude VAT;
-fees already earned remain payable. Liability, licence and governing law are
-incorporated and not restated. The Terms' Contact section gives a postal
-address only. The Terms say savings "for the month" can be recomputed "with
-`mesh verify` or the separate `@harrym1707/verify` package"; as the notes
-below explain, those commands give the all-time total, not a month.
+**Checked against the Terms and the pricing page on `main`, 2026-11-19.**
+Sections 3, 4, 6, 7, 9 and 10 repeat the Terms' Fees and Ending sections and
+the pricing page in substance: 1% of verified savings for the month, rounded
+down to the cent, and nothing else; the month is the calendar month in UTC;
+computed from the ledger on the customer's machine; a month recomputed with
+`mesh statement --period YYYY-MM`, the whole ledger with `mesh verify`, or
+with `@harrym1707/verify`, and the customer's recomputation prevails; nothing
+owed for a `do_not_charge` month; the customer sends the statement file and
+the ledger files; no automatic payment, a statement and an invoice; fees
+exclude VAT; fees already earned remain payable. Liability, licence and
+governing law are incorporated and not restated. The Terms' Contact section
+gives a postal address only.
 
 **Where this draft says more than the Terms, for review:**
 
 - Section 3 separates "nothing is due" (`do_not_charge`) from "nothing is
-  invoiced" (a fee below the smallest invoice). The Terms have only the
-  first.
-- Section 5 spells out what "verified savings" are computed from. The
-  wording follows the ledger code
-  (`packages/core/src/savings-ledger.ts`) and
-  [data-handling.md](./data-handling.md). The Terms say savings are
-  "estimate[d] from the provider's own reported usage"; this draft says which
-  lines are estimates.
-- Section 3 states today's rounding and leaves the rule open. The Terms say
-  "1% of verified savings for the month" and nothing about rounding.
-- Section 6 says the two commands total the whole ledger. The Terms do not
-  make that distinction.
-- Section 7 obliges the customer to send ledger files. The Terms do not.
+  invoiced" (a fee below the smallest invoice). The Terms and the pricing
+  page have only the first.
+- Section 3 mentions carry-forward between periods as an open point. The
+  Terms and the pricing page do not mention it.
+- Section 7 obliges the customer to send the statement file and the ledger
+  files. The pricing page describes that; the Terms do not oblige it.
 
-**What the tooling does today, so the blanks are filled knowingly:**
+**What the tooling does today (release 0.2.4, checked 2026-11-19), so the
+blanks are filled knowingly:**
 
-- The invoice tool on `main` (`scripts/mesh-bill.ts`) returns `do_not_charge`
-  when net verified savings round to zero cents or less, and separately
-  declines to bill a fee that rounds to zero cents. There is no other
-  minimum.
-- **Rounding.** The fee is 1% of net verified savings, rounded to the nearest
-  cent (`Math.round` in `packages/core/src/savings-ledger.ts`). Checked on
-  2026-11-18 by running the published function: a saving of $21.63 gives a
-  fee of 22 cents (1.017% of the saving); $1.50 gives 2 cents (1.333%); $0.50
-  gives 1 cent (2%); $0.49 gives 0 cents, which is not invoiced; $100 gives
-  exactly $1.00. So a fee can be under a cent more than 1%, and that matters
-  only on small amounts. These are arithmetic examples, not results.
-- **No command prints one month's figure.** `mesh verify`, `mesh status` and
-  the `mesh-verify` tool of `@harrym1707/verify` all compute over every line
-  in the ledger; none takes a period. Ledger files are not split by period
-  either. Today one month's figure exists in two places: our own statement
-  (`scripts/mesh-bill.ts --period YYYY-MM`), and the published library
-  function `recomputeInvoice(events, { period })`, which a customer would
-  have to call from a few lines of their own code (checked with
-  `@harrym1707/verify` 0.1.0 on 2026-11-18: it counts only that month's
-  lines). Until a customer has a command for it, "yours prevails" in
-  section 6 is hard for them to use month by month. For a customer whose
-  ledger began in the period being billed, the all-time total and the
-  period's figure are the same.
-- The ledger code can carry a deficit forward
-  (`carryForwardDeficitUsd`), but `scripts/mesh-bill.ts` on `main` does not
-  pass one, so today each month is computed on its own.
-- Amounts are computed in US dollars. Nothing converts currency.
-- `scripts/mesh-bill.ts` creates a draft invoice in Stripe and has only been
-  used in Stripe test mode. No live key has been used and no customer has
-  been invoiced.
-- There is no installed command that produces the statement in section 9 for
-  the customer to see. `mesh verify` prints the all-time net figure and its
-  verdict.
+- **Rounding.** The fee is 1% of net verified savings rounded down to the
+  whole cent, in one function (`feeCents` in
+  `packages/core/src/savings-ledger.ts`). Run on 2026-11-19: a saving of
+  $21.63 gives 21 cents; $1.50 gives 1 cent; $1.00 gives 1 cent; $0.99 and
+  $0.50 give nothing. So the only floor is one cent, reached at $1.00 of net
+  verified savings, and nothing stops a 2-cent invoice. These are arithmetic
+  examples, not results.
+- **Verdict.** `do_not_charge` when the fee is below one cent, which covers
+  zero and negative savings. `mesh verify`, `mesh status` and
+  `mesh statement` all print the same verdict on 0.2.4. An install still on
+  0.2.3 can print `(charge)` in `mesh verify` for a month in which nothing is
+  owed; the invoice follows our recompute, not that line.
+- **The customer's statement.** `mesh statement --period YYYY-MM` exists from
+  0.2.4. Flags: `--ledger <dir>`, `--out <file>`, `--json`, `--check <file>`.
+  Run on 2026-11-19 on the website's 0.2.4 against a test ledger: it printed
+  the period, the chain check, requests counted and excluded, savings by
+  lever, totals, fee, verdict and price list, and wrote
+  `mesh-statement-2026-11.json` with a sha256 seal. For a month that had not
+  ended it printed `THIS PERIOD HAS NOT ENDED YET: these figures can still
+  change`. `--check` passed on the file and failed on an edited copy. An
+  install on 0.2.3 has no `mesh statement` and must update first.
+- **Our invoice tool** (`scripts/mesh-bill.ts`) needs `--period`, refuses a
+  month that has not ended, and on a real run needs the customer's own
+  statement file (`--statement`) and checks it against the ledger files and
+  its own recompute; any mismatch is "do not bill". `--dry-run` reads no
+  Stripe key and sends nothing. The procedure is
+  `docs/ops/first-invoice-runbook.md`. That runbook records that none of its
+  runs reached Stripe, in test or live mode, and no customer has been
+  invoiced.
+- **Payment terms in the tool.** The draft it creates is a send-an-invoice
+  draft with 14 days to pay by default (`--days-until-due`). Nothing in the
+  Terms states a number, which is why section 9 leaves it blank.
+- **Carry-forward.** The statement file records a deficit for a negative
+  month (`deficitCarriedForwardUsd`). `scripts/mesh-bill.ts` has no memory of
+  earlier months and no flag for a deficit; the runbook applies it by hand
+  and says that step has not been exercised.
+- **Currency.** Amounts are computed in US dollars and every invoice the tool
+  drafts is in US dollars. Nothing converts currency.
+- **Statement key fingerprint.** Reported for release 0.2.5: the customer's
+  install signs its statement, and billing needs the customer's statement key
+  fingerprint, given once at onboarding through the agreed written channel
+  and registered again after a reinstall or a new machine. On 2026-11-19
+  there is no `--key` flag on `main` or on any branch of the repository, so
+  this draft has only the blank in section 1 and tells nobody to run a
+  command their install does not have. When 0.2.5 exists: add how the
+  customer reads the fingerprint, where it is recorded, and the re-register
+  rule.
 
 **Not covered in this draft:** confidentiality, service levels or support,
 assignment, notices beyond email, entire-agreement wording, anything about

@@ -4,7 +4,7 @@
 > founder's act, not an agent's. This is a deliberately minimal,
 > plain-language understanding for a **pilot** — see "Still needed before
 > general availability" at the end. Have a lawyer review it before relying on
-> it. Updated 2026-11-18; the current release is MESH 0.2.3.
+> it. Updated 2026-11-19; the current release is MESH 0.2.4.
 >
 > **Nobody needs this document to use MESH.** MESH is open to everyone: no
 > signup, no account, no waiting list ([Get started](../site/start.md)). A
@@ -40,10 +40,11 @@
 > four weeks.
 >
 > **How you're billed.** At the end we recompute, from your own ledger, the net
-> amount MESH saved you, and the fee is **1% of that**, rounded to the cent.
-> If MESH saved you nothing, the invoice is **$0** — and you can check our
-> number yourself: one command, `mesh verify`, recomputes the total from
-> everything in your ledger. During the pilot any invoice is drafted,
+> amount MESH saved you, and the fee is **1% of that**, rounded down to the
+> cent. If MESH saved you nothing, the invoice is **$0** — and you can check
+> our number yourself with one command: `mesh statement --period YYYY-MM`
+> recomputes a month from your own ledger. During the pilot any invoice is
+> drafted,
 > checked by a person and agreed with you before it is issued; nothing is ever
 > charged automatically.
 >
@@ -109,18 +110,21 @@ prompt or completion content.**
   recompute that does not use the installed program at all, the MIT-licensed
   `@harrym1707/verify` package does the same on one ledger file at a time:
   `npx -y -p @harrym1707/verify mesh-verify ~/.mesh/ledger/proxy-anthropic.jsonl`.
-- **What those commands total.** Both add up everything in the ledger since it
-  began; neither shows one period on its own. If your ledger began at the
-  start of the pilot window, that total is the window's figure. If you were
-  already running MESH, it covers more than the window, and the invoice
-  counts only the lines whose timestamps fall inside it; we will show you
-  which.
-- **Rounding.** The fee is rounded to the nearest cent, so on a small amount
-  it can come to slightly more than 1% of the saving. [Rounding rule or
-  smallest invoice: founder to decide before this is sent.]
-- **No savings → no charge.** If savings are zero or negative, if the fee
-  rounds to zero cents, or if your stack was already optimised, nothing is
-  billed and the invoice is **$0**.
+- **One month at a time.** Billing runs by calendar month in UTC.
+  `mesh statement --period YYYY-MM` (MESH 0.2.4 or later) recomputes one
+  month from your ledger, prints the saving by lever, the fee and the
+  verdict, and writes a statement file; you send us that file and the ledger
+  files it was made from. `mesh verify` and `mesh-verify` give the total
+  since install, not a month. An invoice is drafted only after its month has
+  ended. [How a pilot window that is shorter than a month, or crosses a
+  month end, is invoiced: founder to decide before this is sent.]
+- **Rounding.** The fee is rounded down to the cent, so it is never more
+  than 1% of the saving.
+- **No savings → no charge.** If savings are zero or negative, if 1% of them
+  comes to less than one cent, or if your stack was already optimised, the
+  verdict is **`do_not_charge`** and the invoice is **$0**.
+- The public explanation is the website's
+  [Pricing and billing](../site/pricing.md) page.
 - **If your recomputation disagrees with ours, yours wins.**
 - During the pilot, **any invoice is drafted, checked by a person and agreed
   with you before it is issued.** Nothing is ever charged automatically.
