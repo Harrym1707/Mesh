@@ -19,7 +19,7 @@ import { checkWiring, repairWiring } from "./claude-wiring.js";
 const WIRING_PATHS = { settingsPath: CLAUDE_SETTINGS, statePath: WIRING_STATE };
 
 declare const __MESH_VERSION__: string | undefined;
-const VERSION = typeof __MESH_VERSION__ !== "undefined" ? __MESH_VERSION__ : (process.env.MESH_VERSION ?? "0.0.0");
+export const VERSION = typeof __MESH_VERSION__ !== "undefined" ? __MESH_VERSION__ : (process.env.MESH_VERSION ?? "0.0.0");
 const LAUNCHD_LABEL = "dev.meshtoken.mesh";
 
 const nodeMajor = (): number => Number.parseInt(process.versions.node.split(".")[0] ?? "0", 10);

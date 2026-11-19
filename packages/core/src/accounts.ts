@@ -35,6 +35,50 @@ export type DirectDebitMandate = {
   status: "pending" | "active";
 };
 
+/**
+ * The terminal state of one account-period in the durable billing record.
+ *
+ *   - "noticed"        — an advance "upcoming charge" notice was issued; the
+ *                        prerequisite for an automatic direct-debit pull.
+ *   - "charged"        — the period was billed. The hard idempotency marker:
+ *                        a charged period NEVER charges again, independent of
+ *                        Stripe's 24h idempotency-key window and of any later
+ *                        amount change.
+ *   - "held"           — a charge was formed but withheld (over the ceiling, no
+ *                        advance notice, or a savings re-derivation mismatch).
+ *                        Not terminal: the period may be re-run once the hold
+ *                        is cleared.
+ *   - "do_not_charge"  — the period settled owing nothing (non-positive net
+ *                        verified savings). Terminal: its deficit has rolled
+ *                        forward, so it is never re-settled.
+ */
+export type BilledPeriodStatus = "noticed" | "charged" | "held" | "do_not_charge";
+
+/**
+ * One durable per-account, per-period billing record. This is the money-safety
+ * ground truth that outlives Stripe's short-lived idempotency keys: before any
+ * charge the worker consults it, and a period already "charged" can never be
+ * charged a second time.
+ */
+export type BilledPeriodRecord = {
+  /** Invoice period (YYYY-MM) this record settles. The idempotency key. */
+  period: string;
+  status: BilledPeriodStatus;
+  /** The rail the charge used / would use. */
+  rail?: PaymentChoice;
+  /** The Stripe invoice id once an invoice was created for this period. */
+  invoiceId?: string;
+  /** Amount actually charged (integer cents) when status is "charged". */
+  chargedCents?: number;
+  /** ISO timestamp an advance notice was last issued (gate for a direct-debit pull). */
+  advanceNoticeAt?: string;
+  /** ISO timestamp the charge settled, when status is "charged". */
+  chargedAt?: string;
+  /** Why a charge was withheld, when status is "held". */
+  heldReason?: string;
+  updatedAt: string;
+};
+
 export type Account = {
   /** Stable internal id, acct_…, never derived from anything guessable. */
   id: string;
@@ -60,6 +104,19 @@ export type Account = {
   directDebitMandate?: DirectDebitMandate;
   /** MESH's contracted share of net verified savings, 0–100. Default 1. */
   feePercent: number;
+  /**
+   * Durable per-period billing records — the persistent idempotency + gate
+   * state that survives process restarts and outlives Stripe's 24h
+   * idempotency-key window. Keyed (and kept unique) by period.
+   */
+  billedPeriods?: BilledPeriodRecord[];
+  /**
+   * Running verified-savings deficit (USD, non-negative) carried into the NEXT
+   * billing run. The ESPC G.5 mechanic made durable: a period whose net
+   * verified savings were non-positive rolls its shortfall forward, offsetting
+   * future fees, so AGGREGATE fees can never exceed AGGREGATE verified savings.
+   */
+  carryForwardDeficitUsd?: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -242,5 +299,44 @@ export class AccountStore {
     if (!existing) return undefined;
     const updated: Account = { ...existing, ...patch, updatedAt: now };
     return this.save(updated);
+  }
+
+  /** The durable billing record for one account-period, if one has been written. */
+  getBilledPeriod(id: string, period: string): BilledPeriodRecord | undefined {
+    return this.byId.get(id)?.billedPeriods?.find((record) => record.period === period);
+  }
+
+  /**
+   * Upsert the durable billing record for one account-period (by period). The
+   * whole point of persisting this is money safety, so the write goes through
+   * the same synchronous `save`/`onChange` path as every other mutation — it is
+   * on disk before the mutating call returns.
+   */
+  recordBilledPeriod(
+    id: string,
+    record: BilledPeriodRecord,
+    now: string = new Date().toISOString(),
+  ): Account | undefined {
+    const existing = this.byId.get(id);
+    if (!existing) return undefined;
+    const kept = (existing.billedPeriods ?? []).filter((r) => r.period !== record.period);
+    const billedPeriods = [...kept, { ...record, updatedAt: now }].sort((a, b) =>
+      a.period < b.period ? -1 : a.period > b.period ? 1 : 0,
+    );
+    return this.save({ ...existing, billedPeriods, updatedAt: now });
+  }
+
+  /** Persist the running verified-savings deficit carried into the next period. */
+  setCarryForwardDeficit(
+    id: string,
+    deficitUsd: number,
+    now: string = new Date().toISOString(),
+  ): Account | undefined {
+    if (!Number.isFinite(deficitUsd) || deficitUsd < 0) {
+      throw new Error("carryForwardDeficitUsd must be a non-negative, finite USD amount.");
+    }
+    const existing = this.byId.get(id);
+    if (!existing) return undefined;
+    return this.save({ ...existing, carryForwardDeficitUsd: deficitUsd, updatedAt: now });
   }
 }

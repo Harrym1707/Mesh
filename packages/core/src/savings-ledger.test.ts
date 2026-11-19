@@ -4,6 +4,7 @@ import { publishedModelPrices } from "./model-prices.js";
 import {
   auditEventPricing,
   chainLedgerRecord,
+  feeCents,
   priceLedgerUsage,
   recomputeInvoice,
   recomputeInvoiceWithAudit,
@@ -356,11 +357,24 @@ describe("carry-forward netting (G.5 mechanic)", () => {
   });
 
   it("offsets the fee by the carried deficit and reports the applied amount", () => {
-    const invoice = recomputeInvoice([paidEvent("a", 0.5)], { feePercent: 1, carryForwardDeficitUsd: 0.2 });
-    expect(invoice.carryForwardDeficitInUsd).toBe(0.2);
+    const invoice = recomputeInvoice([paidEvent("a", 500)], { feePercent: 1, carryForwardDeficitUsd: 200 });
+    expect(invoice.carryForwardDeficitInUsd).toBe(200);
     expect(invoice.carryForwardDeficitOutUsd).toBeUndefined();
     expect(invoice.verdict).toBe("charge");
-    expect(invoice.amountDueUsd).toBeCloseTo(0.003, 10); // 1% of (0.5 - 0.2)
+    expect(invoice.amountDueUsd).toBeCloseTo(3, 10); // 1% of (500 - 200)
+    expect(invoice.amountDueCents).toBe(300);
+  });
+
+  it("a carried deficit that leaves a positive remainder too small to bill is do_not_charge, with no new deficit", () => {
+    // 0.5 - 0.2 = $0.30 left; 1% of that is 0.3 of a cent.
+    const invoice = recomputeInvoice([paidEvent("a", 0.5)], { feePercent: 1, carryForwardDeficitUsd: 0.2 });
+    expect(invoice.carryForwardDeficitInUsd).toBe(0.2);
+    expect(invoice.verdict).toBe("do_not_charge");
+    expect(invoice.amountDueCents).toBe(0);
+    expect(invoice.amountDueUsd).toBe(0);
+    // The remainder is positive, so it is not a deficit and nothing rolls forward.
+    expect(invoice.carryForwardDeficitOutUsd).toBeUndefined();
+    expect("carryForwardDeficitOutUsd" in invoice).toBe(false);
   });
 
   it("carries the remaining deficit forward when it exceeds the period's savings", () => {
@@ -378,5 +392,147 @@ describe("carry-forward netting (G.5 mechanic)", () => {
 
   it("rejects a negative carry", () => {
     expect(() => recomputeInvoice([paidEvent("a", 0.1)], { carryForwardDeficitUsd: -1 })).toThrow();
+  });
+});
+
+describe("the fee rounds down to the cent, and the verdict agrees with the fee", () => {
+  const saved = (requestId: string, savedUsd: number): BillableEvent => ({
+    schemaVersion: 1,
+    requestId,
+    applicationId: "app",
+    invoicePeriod: "2026-11",
+    timestamp: "2026-11-10T10:00:00.000Z",
+    provider: "anthropic",
+    model: "claude-sonnet-5-5",
+    executionMode: "standard",
+    pricingStatus: "priced",
+    levers: [{ leverId: "duplicate-context-removal", kind: "lossless", savedUsd }],
+    status: "succeeded",
+  });
+  const at1 = (netUsd: number) => recomputeInvoice([saved("a", netUsd)], { feePercent: 1 });
+
+  it("net $0.3609 at 1%: the fee is 0.36 of a cent, so do_not_charge, 0 cents, nothing carried", () => {
+    const invoice = at1(0.3609);
+    expect(invoice.netVerifiedSavingsUsd).toBe(0.3609);
+    expect(invoice.verdict).toBe("do_not_charge");
+    expect(invoice.amountDueCents).toBe(0);
+    expect(invoice.amountDueUsd).toBe(0);
+    expect(invoice.carryForwardDeficitOutUsd).toBeUndefined();
+    // The savings figure itself is untouched and still rounds to the nearest cent.
+    expect(invoice.netVerifiedSavingsCents).toBe(36);
+  });
+
+  it("net $0.99 at 1% is 0 cents and do_not_charge; net $1.00 is 1 cent and charge", () => {
+    const under = at1(0.99);
+    expect(under.amountDueCents).toBe(0);
+    expect(under.verdict).toBe("do_not_charge");
+    expect(under.carryForwardDeficitOutUsd).toBeUndefined();
+
+    const exact = at1(1);
+    expect(exact.amountDueCents).toBe(1);
+    expect(exact.verdict).toBe("charge");
+    expect(exact.amountDueUsd).toBeCloseTo(0.01, 12);
+  });
+
+  it("rounds down, never to the nearest cent: $21.63 is 21 cents, $9.5947 is 9 cents, $0.50 is 0 cents", () => {
+    // Nearest-cent rounding made these 22 cents (1.017%) and 10 cents (1.04%).
+    const a = at1(21.63);
+    expect(a.amountDueCents).toBe(21);
+    expect(a.verdict).toBe("charge");
+    // amountDueUsd is the fee before rounding; the billed figure is amountDueCents.
+    expect(a.amountDueUsd).toBeCloseTo(0.2163, 12);
+
+    const b = at1(9.5947);
+    expect(b.amountDueCents).toBe(9);
+    expect(b.verdict).toBe("charge");
+
+    expect(at1(21.6267).amountDueCents).toBe(21);
+
+    // Half a cent of fee used to round up to a 1 cent charge.
+    const half = at1(0.5);
+    expect(half.amountDueCents).toBe(0);
+    expect(half.verdict).toBe("do_not_charge");
+    expect(at1(0.49).verdict).toBe("do_not_charge");
+    expect(at1(1.99).amountDueCents).toBe(1);
+  });
+
+  it("the fee is never more than the contracted percentage of net savings", () => {
+    for (const net of [1, 1.5, 9.5947, 21.63, 21.6267, 99.99, 149.995, 1234.5678]) {
+      for (const feePercent of [1, 2.5, 10, 15]) {
+        const invoice = recomputeInvoice([saved("a", net)], { feePercent });
+        expect(invoice.amountDueCents! / 100).toBeLessThanOrEqual((net * feePercent) / 100 + 1e-9);
+        // ...and less than one cent below it.
+        expect((net * feePercent) / 100 - invoice.amountDueCents! / 100).toBeLessThan(0.01);
+      }
+    }
+  });
+
+  it("whole-dollar savings from $1 to $500 at 1% owe exactly that many cents (no cent lost to binary floats)", () => {
+    for (let dollars = 1; dollars <= 500; dollars += 1) {
+      const invoice = at1(dollars);
+      expect(invoice.amountDueCents, `$${dollars}.00`).toBe(dollars);
+      expect(feeCents(dollars, 1), `$${dollars}.00`).toBe(dollars);
+    }
+    expect(at1(29).amountDueCents).toBe(29);
+    expect(at1(100).amountDueCents).toBe(100);
+  });
+
+  it("a fee that is exactly a whole number of cents is not floored to one less", () => {
+    // 0.29 * 100 is 28.999999999999996 in binary: a fee of exactly $0.29 is 29 cents.
+    expect(0.29 * 100).toBeLessThan(29);
+    expect(feeCents(0.29, 100)).toBe(29);
+    expect(recomputeInvoice([saved("a", 0.29)], { feePercent: 100 }).amountDueCents).toBe(29);
+    expect(feeCents(2.9, 10)).toBe(29);
+    expect(feeCents(29, 1)).toBe(29);
+    // Every whole-cent fee from 1 cent to $50.00, reached three ways.
+    for (let cents = 1; cents <= 5000; cents += 1) {
+      expect(feeCents(cents / 100, 100), `${cents} at 100%`).toBe(cents);
+      expect(feeCents(cents / 10, 10), `${cents} at 10%`).toBe(cents);
+      expect(feeCents(cents, 1), `${cents} at 1%`).toBe(cents);
+    }
+    // Savings summed from many small levers (0.1 added 1,000 times is not exactly 100).
+    const many = Array.from({ length: 1000 }, (_, i) => saved(`r${i}`, 0.1));
+    const summed = recomputeInvoice(many, { feePercent: 1 });
+    expect(summed.netVerifiedSavingsUsd).not.toBe(100);
+    expect(summed.amountDueCents).toBe(100);
+  });
+
+  it("the tolerance does not round a genuinely smaller fee up", () => {
+    expect(feeCents(0.9999, 1)).toBe(0);
+    expect(feeCents(99.999, 1)).toBe(99);
+    expect(feeCents(28.9999, 1)).toBe(28);
+  });
+
+  it("zero, negative and non-finite inputs owe nothing", () => {
+    expect(feeCents(0, 1)).toBe(0);
+    expect(feeCents(-5, 1)).toBe(0);
+    expect(feeCents(100, 0)).toBe(0);
+    expect(feeCents(Number.NaN, 1)).toBe(0);
+    expect(feeCents(Number.POSITIVE_INFINITY, 1)).toBe(0);
+  });
+
+  it("a zero fee rate is do_not_charge: the verdict is charge only when cents are owed", () => {
+    const invoice = recomputeInvoice([saved("a", 50)], { feePercent: 0 });
+    expect(invoice.amountDueCents).toBe(0);
+    expect(invoice.verdict).toBe("do_not_charge");
+  });
+
+  it("without a feePercent the verdict is unchanged: it only says whether net savings are positive", () => {
+    const small = recomputeInvoice([saved("a", 0.3609)]);
+    expect(small.verdict).toBe("charge");
+    expect(small.feePercent).toBeUndefined();
+    expect(small.amountDueCents).toBeUndefined();
+    expect(small.amountDueUsd).toBeUndefined();
+    // Below half a cent of savings still rounds to zero cents of savings.
+    expect(recomputeInvoice([saved("a", 0.0024)]).verdict).toBe("do_not_charge");
+    expect(recomputeInvoice([saved("a", 0.005)]).verdict).toBe("charge");
+    expect(recomputeInvoice([saved("a", -1)]).verdict).toBe("do_not_charge");
+  });
+
+  it("stays deterministic with a fee: shuffled or replayed events give a byte-identical invoice", () => {
+    const events = [saved("a", 0.2), saved("b", 0.1609), saved("c", 9.2338)];
+    const once = JSON.stringify(recomputeInvoice(events, { feePercent: 1 }));
+    const again = JSON.stringify(recomputeInvoice([events[2]!, events[0]!, events[1]!, ...events], { feePercent: 1 }));
+    expect(again).toBe(once);
   });
 });

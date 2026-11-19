@@ -1,6 +1,6 @@
 # Terms of use
 
-These terms cover the Mesh website, the Mesh software you install from it or from npm, and any paid arrangement with us. Last updated 12 November 2026.
+These terms cover the Mesh website, the Mesh software you install from it or from npm, and any paid arrangement with us. Last updated 18 November 2026.
 
 ## Who we are
 
@@ -31,8 +31,8 @@ You remain responsible for your account with your AI provider, for what you send
 ## Fees
 
 - No fee is due unless we have agreed billing with you in writing. Email is enough.
-- Where we have, the fee is 1% of verified savings for the month, and nothing else.
-- Verified savings are computed from the ledger on your machine. You can recompute them yourself with `mesh verify` or the separate `@harrym1707/verify` package. If your recomputation of the same ledger differs from our statement, yours prevails.
+- Where we have, the fee is 1% of verified savings for the month, rounded down to the cent, and nothing else. The month is the calendar month in UTC.
+- Verified savings are computed from the ledger on your machine. You can recompute a month yourself with `mesh statement --period YYYY-MM` (`mesh verify` re-checks the whole ledger and gives the total since install), or with the separate `@harrym1707/verify` package. If your recomputation of the same ledger differs from our statement, yours prevails.
 - If the verdict for a month is `do_not_charge`, you owe nothing for that month.
 - We do not take payment automatically. We send a statement and an invoice.
 - Fees exclude VAT and similar taxes, which are added where they apply.

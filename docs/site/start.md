@@ -184,7 +184,9 @@ npx -y -p @harrym1707/sdk mesh-quote your-export.jsonl --format litellm
 
 **1% of verified savings, monthly — nothing else.** No subscription, no
 seats, no minimum. Savings are measured per completed task from the
-provider's own reported usage; a month that saved nothing bills nothing. The
+provider's own reported usage; a month that saved nothing bills nothing. No
+fee is due until we have agreed billing with you in writing: how that works,
+month by month, is on [Pricing and billing](pricing.md). The
 measurement rules are published in full in the [methodology](methodology.md),
 and every number we quote traces to a command and a commit on the
 [evidence](evidence.md) page.

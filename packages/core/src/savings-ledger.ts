@@ -33,6 +33,9 @@ import {
  * - Negative components are netted, never clamped: a 1h cache-write surcharge
  *   that never earned its reads shows up AGAINST MESH on the invoice, and a
  *   net-non-positive period produces the "do_not_charge" verdict.
+ * - The fee rounds DOWN to the whole cent, in one place (`feeCents`), so it is
+ *   never more than the contracted percentage. A positive net whose fee is
+ *   below one cent is also "do_not_charge" when the fee rate is given.
  */
 
 export type LedgerExecutionMode = "standard" | "flex" | "batch";
@@ -392,6 +395,140 @@ export function auditEventPricing(event: BillableEvent, catalogue: PriceCatalogu
   return { status: "verified" };
 }
 
+/**
+ * The catalogue-derived input to {@link priceLedgerUsage} for one event: the
+ * same derivation {@link auditEventPricing} uses, so a re-derivation prices an
+ * event exactly the way it was priced when written.
+ */
+function pricingInputForEvent(event: BillableEvent): LedgerPricingInput | undefined {
+  if (!event.usage) return undefined;
+  const cacheLever = event.levers.find((lever) => lever.kind === "provider_cache");
+  const meshPlacedCacheControl = cacheLever !== undefined;
+  const meshPlacedTtl = cacheLever?.leverId === "cache-ttl-5m"
+    ? "5m"
+    : cacheLever?.leverId === "cache-ttl-1h"
+      ? "1h"
+      : undefined;
+  return {
+    provider: event.provider,
+    model: event.model,
+    at: event.timestamp.slice(0, 10),
+    executionMode: event.executionMode,
+    usage: event.usage,
+    meshPlacedCacheControl,
+    ...(meshPlacedTtl === undefined ? {} : { meshPlacedTtl }),
+  };
+}
+
+/**
+ * The catalogue-derived expected savedUsd for one lever, re-computed from the
+ * event's provider-verbatim usage, or undefined when the lever's basis is not
+ * deterministically derivable from usage × catalogue alone (exact_cache, and
+ * the measured lossless/lossy levers, whose savings come from a measurement
+ * path the usage does not by itself reconstruct — those are integrity-checked
+ * via {@link auditEventPricing} but their stored figure is accepted).
+ */
+function expectedLeverSavedUsd(lever: LedgerLever, priced: LedgerPricing): number | undefined {
+  if (priced.pricingStatus !== "priced") return undefined;
+  switch (lever.kind) {
+    case "tier":
+      return priced.tierSavedUsd ?? 0;
+    case "provider_cache":
+      return priced.cacheAttributedUsd ?? 0;
+    default:
+      return undefined;
+  }
+}
+
+export type SavingsReconciliation = {
+  /** True when every re-derivable lever's stored savedUsd is within tolerance. */
+  ok: boolean;
+  /** Levers whose savedUsd could be re-derived and were therefore checked. */
+  leversChecked: number;
+  /** The largest amount by which a stored savedUsd EXCEEDED its re-derived value. */
+  maxOverstatementUsd: number;
+  /** The first failing lever's human-readable reason, when ok is false. */
+  reason?: string;
+};
+
+/**
+ * Server-side savings re-derivation — the guard that stops the invoice trusting
+ * a stored `savedUsd` it cannot reproduce.
+ *
+ * At bill time we do NOT take the ledger's word for how much each lever saved.
+ * For every lever whose savings are a deterministic function of the event's
+ * provider-verbatim usage and the price catalogue (execution-tier deltas and
+ * MESH-placed provider-cache economics), we re-derive the figure and reconcile
+ * it against what is stored. A stored figure that EXCEEDS its re-derived value
+ * by more than a tiny tolerance is an overstatement: the caller must withhold
+ * the charge rather than bill the inflated amount. A stored figure at or below
+ * the re-derived value is a conservative under-claim and is allowed.
+ *
+ * The event's own pricing integrity is checked first: a `usage`/`actualUsd`
+ * that no longer prices to the stored cost (a tampered measurement) fails the
+ * reconciliation outright. Levers priced against a different catalogue version,
+ * or whose savings are not usage-derivable, are integrity-checked but their
+ * stored figure is accepted (and counted separately so callers can see how much
+ * of the bill was NOT independently re-derived).
+ */
+export function reconcileInvoiceSavings(
+  events: readonly BillableEvent[],
+  catalogue: PriceCatalogue,
+  options: Pick<InvoiceOptions, "period" | "failedTaskIds" | "gateVerdictOverrides"> & { toleranceUsd?: number } = {},
+): SavingsReconciliation {
+  const tolerance = options.toleranceUsd ?? 1e-6;
+  if (!Number.isFinite(tolerance) || tolerance < 0) {
+    throw new Error("toleranceUsd must be a non-negative, finite USD amount.");
+  }
+  const { billableEvents } = selectBillableEvents(events, options);
+
+  let leversChecked = 0;
+  let maxOverstatementUsd = 0;
+  let reason: string | undefined;
+
+  for (const event of billableEvents) {
+    // Re-derivation needs provider-verbatim usage. An event carrying none is
+    // outside this guard (its savings came from a measurement path usage does
+    // not reconstruct); its stored figure is accepted and left to the event's
+    // own pricingStatus, never flagged as fraud for being un-reconstructable.
+    if (!event.usage) continue;
+
+    // Integrity: a stored actualUsd that no longer prices from the stored usage
+    // is a tampered measurement — fail before trusting any lever on the event.
+    const audit = auditEventPricing(event, catalogue);
+    if (audit.status === "mismatch") {
+      return {
+        ok: false,
+        leversChecked,
+        maxOverstatementUsd,
+        reason: `event ${event.requestId}: stored actualUsd ${audit.storedUsd ?? "∅"} does not re-derive from usage (recomputed ${audit.recomputedUsd}).`,
+      };
+    }
+    // A version mismatch or an unpriced recompute means we cannot re-derive
+    // against THIS catalogue; the stored, version-pinned figure stands.
+    if (audit.status !== "verified") continue;
+
+    const pricingInput = pricingInputForEvent(event);
+    const priced = pricingInput === undefined
+      ? ({ pricingStatus: "unpriced", reason: "no usage" } as LedgerPricing)
+      : priceLedgerUsage(catalogue, pricingInput);
+
+    for (const lever of event.levers) {
+      if (leverUnbilledReason(lever, options.gateVerdictOverrides) !== undefined) continue;
+      const expected = expectedLeverSavedUsd(lever, priced);
+      if (expected === undefined) continue; // not usage-derivable; accepted
+      leversChecked += 1;
+      const overstatement = lever.savedUsd! - expected;
+      if (overstatement > maxOverstatementUsd) maxOverstatementUsd = overstatement;
+      if (overstatement > tolerance && reason === undefined) {
+        reason = `event ${event.requestId} lever ${lever.leverId}: stored savedUsd ${lever.savedUsd} exceeds re-derived ${expected} by ${overstatement.toFixed(6)}.`;
+      }
+    }
+  }
+
+  return { ok: reason === undefined, leversChecked, maxOverstatementUsd, ...(reason === undefined ? {} : { reason }) };
+}
+
 // ---------------------------------------------------------------------------
 // Invoice
 // ---------------------------------------------------------------------------
@@ -406,7 +543,11 @@ export type InvoiceOptions = {
   gateVerdictOverrides?: Record<string, "approved" | "rejected">;
   /** Tasks known to have failed quality out-of-band; all their turns' savings are excluded. */
   failedTaskIds?: readonly string[];
-  /** MESH's contracted share of net verified savings, 0-100. Omitted: no fee line. */
+  /**
+   * MESH's contracted share of net verified savings, 0-100. Omitted: no fee
+   * line, and the verdict then only says whether net savings are positive
+   * (see {@link Invoice.verdict}).
+   */
   feePercent?: number;
   /**
    * Verified-savings deficit carried in from prior periods (the ESPC G.5
@@ -459,11 +600,59 @@ export type Invoice = {
   carryForwardDeficitInUsd?: number;
   /** Deficit to carry into the NEXT period (this period's shortfall after netting). */
   carryForwardDeficitOutUsd?: number;
+  /**
+   * With a `feePercent`: the bill's own decision. "charge" only when the fee,
+   * rounded down to whole cents by {@link feeCents}, is at least one cent;
+   * "do_not_charge" for zero or negative net savings AND for a positive net
+   * whose fee is below one cent.
+   *
+   * Without a `feePercent` no fee can be worked out, so the verdict only says
+   * whether net verified savings (after any carried deficit) round to at least
+   * one cent. It is not a statement about a bill; pass the contracted
+   * `feePercent` wherever the verdict is shown to a customer.
+   */
   verdict: "charge" | "do_not_charge";
   feePercent?: number;
+  /**
+   * The fee before rounding to cents (feePercent of net savings after any
+   * carried deficit). Zero whenever the verdict is do_not_charge. Shown so the
+   * rounding is checkable; the amount actually billed is `amountDueCents`.
+   */
   amountDueUsd?: number;
+  /** The fee as billed: whole cents, rounded DOWN by {@link feeCents}. Zero whenever the verdict is do_not_charge. */
   amountDueCents?: number;
 };
+
+/**
+ * A fee that is a whole number of cents mathematically can land a hair below
+ * it in binary floating point (0.29 * 100 is 28.999999999999996). Anything
+ * within this many cents below a whole cent counts as that cent, so rounding
+ * down never loses a cent to representation error. One millionth of a cent.
+ */
+const FEE_CENT_TOLERANCE = 1e-6;
+
+/**
+ * THE FEE ROUNDING RULE. This is the only place it lives: the invoice
+ * recompute calls it, and the Stripe plan, the billing worker, the SDK and the
+ * CLI all read the cents it produced (or call it for a multi-spool total)
+ * rather than rounding a fee themselves.
+ *
+ * The rule: the fee is `feePercent` of net verified savings, rounded DOWN to
+ * the whole cent. Rounding to the nearest cent would sometimes bill more than
+ * the contracted percentage (22 cents on $21.63 is 1.017%); rounding down never
+ * does. To adopt a different rule, change the single `return` below.
+ *
+ * `billableNetUsd` is net verified savings after any carried deficit. A zero,
+ * negative or non-finite net, or a zero fee rate, owes nothing.
+ */
+export function feeCents(billableNetUsd: number, feePercent: number): number {
+  if (!Number.isFinite(billableNetUsd) || !Number.isFinite(feePercent)) return 0;
+  if (billableNetUsd <= 0 || feePercent <= 0) return 0;
+  // usd * (percent / 100) * 100 cents-per-dollar: the two hundreds cancel, so
+  // the fee in cents is one multiplication with no avoidable rounding step.
+  const exactFeeCents = billableNetUsd * feePercent;
+  return Math.floor(exactFeeCents + FEE_CENT_TOLERANCE);
+}
 
 function compareEvents(left: BillableEvent, right: BillableEvent): number {
   if (left.timestamp !== right.timestamp) return left.timestamp < right.timestamp ? -1 : 1;
@@ -571,6 +760,12 @@ export type LedgerAudit = {
  * change a single byte of the billing artifact, or "recompute it yourself"
  * stops being a guarantee and becomes a dispute. Replay counts are audit
  * telemetry and come back separately from recomputeInvoiceWithAudit.
+ *
+ * Pass `feePercent` to get the bill's verdict: "charge" only when the fee,
+ * rounded down to whole cents, is at least one cent. Without it the verdict
+ * only says whether net verified savings are positive (at least one cent
+ * after rounding), which is NOT the same thing: $0.36 of savings at 1% is
+ * positive and owes nothing.
  */
 export function recomputeInvoice(events: readonly BillableEvent[], options: InvoiceOptions = {}): Invoice {
   return recomputeInvoiceWithAudit(events, options).invoice;
@@ -643,6 +838,8 @@ export function recomputeInvoiceWithAudit(
     .sort((left, right) => (left.leverId < right.leverId ? -1 : left.leverId > right.leverId ? 1 : 0));
 
   const netVerifiedSavingsUsd = lineItems.reduce((sum, line) => sum + line.savedUsd, 0);
+  // A savings display figure, not the fee: it keeps rounding to the nearest
+  // cent. Only the fee rounds down (see feeCents).
   const netVerifiedSavingsCents = Math.round(netVerifiedSavingsUsd * 100);
   // Carry-forward netting (G.5 mechanic): the fee applies to this period's
   // net MINUS any deficit carried from prior periods, and a shortfall rolls
@@ -652,9 +849,18 @@ export function recomputeInvoiceWithAudit(
     throw new Error("carryForwardDeficitUsd must be a non-negative, finite USD amount.");
   }
   const netAfterCarryUsd = netVerifiedSavingsUsd - carryIn;
+  // Only a negative net is a deficit. A positive net whose fee is below one
+  // cent bills nothing and carries nothing.
   const carryOutUsd = Math.max(0, -netAfterCarryUsd);
-  const billableCents = Math.round(netAfterCarryUsd * 100);
-  const verdict: Invoice["verdict"] = billableCents > 0 ? "charge" : "do_not_charge";
+  // With a fee, the verdict is the bill's: charge only when the fee itself is
+  // at least one cent. Without one there is no fee to test, so the verdict
+  // only says whether net savings round to at least a cent (see Invoice.verdict).
+  const amountDueCents = options.feePercent === undefined
+    ? undefined
+    : feeCents(netAfterCarryUsd, options.feePercent);
+  const verdict: Invoice["verdict"] = amountDueCents === undefined
+    ? (Math.round(netAfterCarryUsd * 100) > 0 ? "charge" : "do_not_charge")
+    : (amountDueCents > 0 ? "charge" : "do_not_charge");
   const amountDueUsd = options.feePercent === undefined
     ? undefined
     : verdict === "charge"
@@ -684,7 +890,7 @@ export function recomputeInvoiceWithAudit(
     ...(options.feePercent === undefined ? {} : {
       feePercent: options.feePercent,
       amountDueUsd,
-      amountDueCents: Math.round((amountDueUsd ?? 0) * 100),
+      amountDueCents: amountDueCents ?? 0,
     }),
   };
   return { invoice, audit: { duplicatesIgnored } };

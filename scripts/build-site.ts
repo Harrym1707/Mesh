@@ -33,8 +33,9 @@ if (ORIGIN.includes("REPLACE-WITH-YOUR-DOMAIN")) {
 /** Page order defines the nav. */
 const PAGES: Array<{ file: string; nav: string }> = [
   { file: "start.md", nav: "Get started" },
+  { file: "pricing.md", nav: "Pricing" },
   { file: "overview.md", nav: "Overview" },
-  { file: "segments.md", nav: "Savings by segment" },
+  { file: "segments.md", nav: "Savings" },
   { file: "methodology.md", nav: "Methodology" },
   { file: "evidence.md", nav: "Evidence" },
   { file: "comparison.md", nav: "Honest comparison" },

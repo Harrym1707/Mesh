@@ -30,7 +30,14 @@ export function savingsSnapshotFromEvents(
 ): SavingsSnapshot {
   if (!chainOk) return { ...EMPTY, chainOk: false };
   if (events.length === 0) return EMPTY;
-  const invoice = recomputeInvoice(events, { feePercent: 1 });
+  // Recomputed WITHOUT a fee on purpose. A snapshot's `verdict` says whether
+  // MESH saved money (see SavingsSnapshot): it decides whether the sign-up
+  // invitation and the badge appear, and is not a statement about a bill.
+  // Passing a fee would turn it into the bill's verdict, which is do_not_charge
+  // for any savings whose fee is below one cent, and a customer with real
+  // savings would be told their stack is "already lean". Anything that reports
+  // a fee or a billing verdict recomputes with `feePercent` instead.
+  const invoice = recomputeInvoice(events);
   // Spend is what the provider actually charged for the metered (reduced)
   // traffic; the baseline is that plus the verified savings.
   const spendUsd = events.reduce((sum, event) => sum + (event.actualUsd ?? 0), 0);

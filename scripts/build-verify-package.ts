@@ -14,6 +14,13 @@
  * access, no telemetry.
  *
  *   node --import tsx scripts/build-verify-package.ts
+ *
+ * The committed packages/verify/pkg is the artifact as last published
+ * (0.1.0). It is regenerated only as part of a release that bumps the version
+ * below and publishes; until then it can lag this script and core. In
+ * particular the published 0.1.0 still rounds a fee to the nearest cent and
+ * its mesh-verify recomputes without a fee, whereas core now rounds the fee
+ * down (feeCents) and the mesh-verify written below recomputes at 1%.
  */
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -122,9 +129,18 @@ if (!chain.ok) {
   process.exit(1);
 }
 console.log(\`chain verified: \${chain.length} record(s), every hash links\`);
-const invoice = recomputeInvoice(records.map((record) => record.event));
+// Recomputed at MESH's published fee, so the verdict printed is the bill's own:
+// "charge" only when the fee, rounded down to the whole cent, is at least one cent.
+const FEE_PERCENT = 1;
+const invoice = recomputeInvoice(records.map((record) => record.event), { feePercent: FEE_PERCENT });
 console.log(JSON.stringify(invoice, null, 2));
-console.log(\`\\nverdict: \${invoice.verdict} — net verified savings $\${invoice.netVerifiedSavingsUsd.toFixed(4)}\`);
+const net = \`net verified savings $\${invoice.netVerifiedSavingsUsd.toFixed(4)}\`;
+const fee = invoice.verdict === "charge"
+  ? \`; fee at \${FEE_PERCENT}%, rounded down to the cent: $\${(invoice.amountDueCents / 100).toFixed(2)}\`
+  : invoice.netVerifiedSavingsUsd > 0
+    ? \`; the \${FEE_PERCENT}% fee is below one cent, so nothing is billed\`
+    : "";
+console.log(\`\\nverdict: \${invoice.verdict} — \${net}\${fee}\`);
 console.log("If MESH quoted you a different number from this same file, MESH is wrong: this recomputation is the contract.");
 `, "utf8");
 

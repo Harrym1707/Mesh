@@ -16,8 +16,9 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { recomputeInvoice, verifyLedgerChain, type LedgerRecord } from "../../core/src/savings-ledger.js";
+import { verifyLedgerChain, type LedgerRecord } from "../../core/src/savings-ledger.js";
 import { reduceRequest } from "../../sdk-js/src/reduce-request.js";
+import { recomputeBillInvoice, verdictNote } from "./bill-verdict.js";
 import { BUILD_COMMIT } from "./start.js";
 
 const LEDGER_DIR = join(homedir(), ".mesh", "ledger");
@@ -42,7 +43,88 @@ function sampleRequest(): unknown {
   };
 }
 
-type Check = { name: string; ok: boolean; detail: string };
+/** `notChecked` marks a check that was skipped because an earlier one failed: printed with a dash, never a tick. */
+export type Check = { name: string; ok: boolean; detail: string; notChecked?: boolean };
+
+/** One report line: a tick, a cross, or a dash for a check that was not run. */
+export function formatCheck(check: Check): string {
+  const mark = check.notChecked ? "–" : check.ok ? "✓" : "✗";
+  return `  ${mark} ${check.name.padEnd(12)} ${check.detail}`;
+}
+
+const isSpool = (file: string): boolean => file.endsWith(".jsonl") && !file.endsWith(".features.jsonl");
+
+/**
+ * Checks 3 and 4 over one ledger directory: every spool's hash chain, then the
+ * invoice recompute. Pure apart from reading the directory, so it is tested
+ * directly.
+ *
+ * A ledger that does not verify (a broken chain, a spool that cannot be read,
+ * a line that is not a ledger record) stops here: the invoice is NOT recomputed
+ * and no savings figure is printed, because a total worked out from a ledger
+ * that failed its check is not a verified total.
+ */
+export function ledgerChecks(ledgerDir: string): Check[] {
+  const spools = existsSync(ledgerDir) ? readdirSync(ledgerDir).filter(isSpool).sort() : [];
+  if (spools.length === 0) {
+    return [
+      { name: "ledger", ok: true, detail: "no ledger yet — run `mesh start` and use Claude Code, then verify again" },
+      { name: "determinism", ok: true, detail: "nothing to recompute yet" },
+    ];
+  }
+
+  const all: LedgerRecord[] = [];
+  const failures: string[] = [];
+  let total = 0;
+  for (const spool of spools) {
+    let text: string;
+    try {
+      text = readFileSync(join(ledgerDir, spool), "utf8");
+    } catch (cause) {
+      failures.push(`${spool}: could not be read (${cause instanceof Error ? cause.message : String(cause)})`);
+      continue;
+    }
+    const records: LedgerRecord[] = [];
+    let unreadableLine: number | undefined;
+    text.split(/\r?\n/).forEach((line, index) => {
+      if (line.trim() === "" || unreadableLine !== undefined) return;
+      try { records.push(JSON.parse(line) as LedgerRecord); } catch { unreadableLine = index + 1; }
+    });
+    if (unreadableLine !== undefined) {
+      failures.push(`${spool}: line ${unreadableLine} is not a readable ledger record`);
+      continue;
+    }
+    total += records.length;
+    const chain = verifyLedgerChain(records);
+    if (!chain.ok) failures.push(`${spool}: broken at seq ${chain.seq} (${chain.reason})`);
+    all.push(...records);
+  }
+
+  if (failures.length > 0) {
+    return [
+      { name: "ledger", ok: false, detail: failures.join("; ") },
+      { name: "determinism", ok: false, notChecked: true, detail: "not checked: the ledger did not verify" },
+    ];
+  }
+
+  const events = all.map((r) => r.event);
+  // Recomputed at the contracted fee, with the same options on every call, so
+  // the comparison is still a like-for-like determinism check and the verdict
+  // printed is the bill's own (do_not_charge when the fee is below one cent).
+  const once = JSON.stringify(recomputeBillInvoice(events));
+  const twice = JSON.stringify(recomputeBillInvoice(events));
+  const invoice = recomputeBillInvoice(events);
+  return [
+    { name: "ledger", ok: true, detail: `hash-chain verified across ${spools.length} spool(s), ${total} record(s)` },
+    {
+      name: "determinism",
+      ok: once === twice,
+      detail: once === twice
+        ? `invoice recomputes identically: $${invoice.netVerifiedSavingsUsd.toFixed(4)} verified (${verdictNote(invoice)})`
+        : "invoice is NON-deterministic — this should never happen; please report it",
+    },
+  ];
+}
 
 export async function runVerify(_argv: string[]): Promise<void> {
   const checks: Check[] = [];
@@ -78,44 +160,7 @@ export async function runVerify(_argv: string[]): Promise<void> {
   });
 
   // 3 + 4. LEDGER chain + invoice DETERMINISM, on the user's own spools.
-  if (!existsSync(LEDGER_DIR) || readdirSync(LEDGER_DIR).filter((f) => f.endsWith(".jsonl") && !f.endsWith(".features.jsonl")).length === 0) {
-    checks.push({ name: "ledger", ok: true, detail: "no ledger yet — run `mesh start` and use Claude Code, then verify again" });
-    checks.push({ name: "determinism", ok: true, detail: "nothing to recompute yet" });
-  } else {
-    const spools = readdirSync(LEDGER_DIR).filter((f) => f.endsWith(".jsonl") && !f.endsWith(".features.jsonl"));
-    const all: LedgerRecord[] = [];
-    let chainOk = true;
-    let chainDetail = "";
-    let total = 0;
-    for (const spool of spools) {
-      const records: LedgerRecord[] = [];
-      for (const line of readFileSync(join(LEDGER_DIR, spool), "utf8").trim().split(/\r?\n/)) {
-        if (line.trim() === "") continue;
-        try { records.push(JSON.parse(line) as LedgerRecord); } catch { /* skip */ }
-      }
-      total += records.length;
-      const chain = verifyLedgerChain(records);
-      if (!chain.ok) { chainOk = false; chainDetail = `${spool}: broken at seq ${chain.seq} (${chain.reason})`; }
-      all.push(...records);
-    }
-    checks.push({
-      name: "ledger",
-      ok: chainOk,
-      detail: chainOk ? `hash-chain verified across ${spools.length} spool(s), ${total} record(s)` : chainDetail,
-    });
-
-    const events = all.map((r) => r.event);
-    const once = JSON.stringify(recomputeInvoice(events));
-    const twice = JSON.stringify(recomputeInvoice(events));
-    const invoice = recomputeInvoice(events);
-    checks.push({
-      name: "determinism",
-      ok: once === twice,
-      detail: once === twice
-        ? `invoice recomputes identically: $${invoice.netVerifiedSavingsUsd.toFixed(4)} verified (${invoice.verdict})`
-        : "invoice is NON-deterministic — this should never happen; please report it",
-    });
-  }
+  checks.push(...ledgerChecks(LEDGER_DIR));
 
   // ---- report ----
   console.log("");
@@ -124,7 +169,7 @@ export async function runVerify(_argv: string[]): Promise<void> {
   let allOk = true;
   for (const c of checks) {
     allOk = allOk && c.ok;
-    console.log(`  ${c.ok ? "✓" : "✗"} ${c.name.padEnd(12)} ${c.detail}`);
+    console.log(formatCheck(c));
   }
   console.log("");
   console.log(`  Savings are measured from your provider's own reported usage, never MESH's estimate.`);
