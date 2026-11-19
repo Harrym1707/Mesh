@@ -15,6 +15,12 @@
  * Request ids, application ids, task ids, free-text reasons and anything else
  * a ledger event may carry are never copied into it (see statement.test.ts).
  * No network calls.
+ *
+ * The file is SIGNED with this install's statement key (statement-key.ts), so
+ * MESH can tell a statement written here from one written by whoever holds
+ * the ledger files. The signature says which install wrote the statement. It
+ * does not say the ledger on this machine is complete, and it does not stop
+ * an operator who ignores the billing script; see manual-billing-checks.ts.
  */
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
@@ -26,8 +32,13 @@ import { publishedModelPrices } from "../../core/src/model-prices.js";
 import {
   STATEMENT_SCHEMA,
   STATEMENT_SEAL_RULE,
+  STATEMENT_SIGNING_SINCE,
   checkStatementSeal,
+  signStatementSeal,
   statementSeal,
+  unsignedStatementOrigin,
+  verifyStatementSignature,
+  type StatementSignature,
 } from "../../core/src/manual-billing-checks.js";
 import { catalogueVersion } from "../../core/src/price-catalogue.js";
 import {
@@ -41,6 +52,7 @@ import {
 import { buildStripeInvoicePlan } from "../../core/src/stripe-billing.js";
 import { VERSION } from "./diag.js";
 import { BUILD_COMMIT, MESH_HOME } from "./start.js";
+import { loadOrCreateStatementKey, statementKeyPath } from "./statement-key.js";
 
 export { STATEMENT_SCHEMA };
 
@@ -73,12 +85,21 @@ recomputation disagrees with ours, yours wins.
                      Default ./mesh-statement-YYYY-MM.json.
   --json             Print the statement as JSON instead of text.
   --check <file>     Check that a statement file has not been edited since it
-                     was written (its sha256 seal), then exit.
+                     was written (its sha256 seal) and that its signature
+                     verifies against the key the file names, then exit.
+  --key              Print the fingerprint of this install's statement key
+                     (creating the key if there is none yet), then exit. Give
+                     the fingerprint to MESH once, when billing is agreed.
   --help             Show this message.
 
 Pass spool files to read exactly those instead of a ledger directory.
 Amounts are US dollars. The file holds numbers, lever names, model ids and
-hashes only: no prompts, no request content, no keys. No network calls.`;
+hashes only: no prompts, no request content, no keys. No network calls.
+
+The statement is signed with this install's statement key, kept in
+~/.mesh/identity/statement-key.json. The private half never leaves this
+machine and is never printed; MESH bills only from a statement signed by the
+key whose fingerprint you registered.`;
 
 // ---------------------------------------------------------------------------
 // Reading spools
@@ -264,7 +285,12 @@ export type StatementBody = {
   };
 };
 
-export type Statement = StatementBody & { sha256: string; sha256Of: string };
+/**
+ * A statement as written to the file. `signature` is present on everything
+ * `mesh statement` writes; like the seal fields it is outside the sealed body
+ * (it is made over the seal). `buildStatement` leaves it out when no key is given.
+ */
+export type Statement = StatementBody & { sha256: string; sha256Of: string; signature?: StatementSignature };
 
 export type StatementResult =
   | { valid: true; statement: Statement; spoolNames: string[] }
@@ -336,6 +362,11 @@ export type BuildStatementInput = {
   now?: Date;
   version?: string;
   build?: string;
+  /**
+   * The install's statement key, private half (see statement-key.ts). When
+   * given, the statement is signed. Never copied into the statement.
+   */
+  signingKey?: string;
 };
 
 /**
@@ -476,7 +507,23 @@ export function buildStatement(input: BuildStatementInput): StatementResult {
       repricing,
     },
   };
-  return { valid: true, statement: { ...body, sha256Of: SEAL_RULE, sha256: statementSeal(body) }, spoolNames };
+  const sealed: Statement = { ...body, sha256Of: SEAL_RULE, sha256: statementSeal(body) };
+  return {
+    valid: true,
+    statement: input.signingKey === undefined ? sealed : signStatement(sealed, input.signingKey),
+    spoolNames,
+  };
+}
+
+/**
+ * Sign a sealed statement with the install's statement key (private half).
+ * Signing comes after sealing: the signature is over the seal value, which
+ * covers every other field. Only the public key, its fingerprint and the
+ * signature go into the statement; the private key is used and dropped.
+ */
+export function signStatement(statement: Statement, signingKey: string): Statement & { signature: StatementSignature } {
+  const { signature: _previous, ...sealed } = statement;
+  return { ...sealed, signature: signStatementSeal(statement.sha256, signingKey) };
 }
 
 // ---------------------------------------------------------------------------
@@ -649,10 +696,10 @@ export function renderInvalid(result: Extract<StatementResult, { valid: false }>
 // Command
 // ---------------------------------------------------------------------------
 
-type Args = { period?: string; ledgerDir: string; out?: string; json: boolean; check?: string; spools: string[] };
+type Args = { period?: string; ledgerDir: string; out?: string; json: boolean; key: boolean; check?: string; spools: string[] };
 
 function parse(argv: string[]): Args {
-  const args: Args = { ledgerDir: join(MESH_HOME, "ledger"), json: false, spools: [] };
+  const args: Args = { ledgerDir: join(MESH_HOME, "ledger"), json: false, key: false, spools: [] };
   for (let index = 0; index < argv.length; index += 1) {
     const key = argv[index]!;
     if (key === "--help" || key === "-h") {
@@ -660,6 +707,7 @@ function parse(argv: string[]): Args {
       process.exit(0);
     }
     if (key === "--json") { args.json = true; continue; }
+    if (key === "--key") { args.key = true; continue; }
     if (!key.startsWith("--")) { args.spools.push(resolve(key)); continue; }
     const value = argv[index + 1];
     if (value === undefined || value.startsWith("--")) throw new Error(`${key} needs a value.`);
@@ -690,11 +738,61 @@ function runCheck(file: string): void {
   console.log(`  ✓ ${file} matches its sha256 seal (${statement.sha256}).`);
   console.log("    The seal shows the file was not altered by accident. The proof of the figures is");
   console.log("    recomputing them from the ledger itself.");
+
+  const signature = verifyStatementSignature(document);
+  if (signature.ok) {
+    console.log("  ✓ Its signature verifies against the statement key named in the file.");
+    console.log(`    Signed by statement key: ${signature.fingerprint}`);
+    console.log("    This shows the file is consistent with itself: whoever holds that key signed it.");
+    console.log("    It does not show whose key it is. MESH compares the fingerprint with the one the");
+    console.log("    customer registered; your own is printed by: mesh statement --key");
+    return;
+  }
+  // The file is untrusted: repeat its period and version only when they look like one.
+  const period = isPeriod(statement.period?.id) ? statement.period.id : "YYYY-MM";
+  if (signature.code === "unsigned") {
+    const { version, predatesSigning } = unsignedStatementOrigin(document);
+    if (predatesSigning) {
+      console.log("  ✗ It is NOT signed: it was written by a MESH release that does not sign statements");
+      console.log(`    (${version === undefined ? "it does not say which" : `it says MESH ${version}`}; signing starts with ${STATEMENT_SIGNING_SINCE}). MESH does not bill from an unsigned`);
+      console.log(`    statement. Update MESH to ${STATEMENT_SIGNING_SINCE} or later and write it again with:`);
+    } else {
+      console.log(`  ✗ It is NOT signed, although it says it was written by MESH ${version}, which signs every`);
+      console.log("    statement: its signature was removed, or it was not written by this command. MESH does");
+      console.log("    not bill from an unsigned statement. Write it again with:");
+    }
+    console.log(`    mesh statement --period ${period}`);
+    process.exit(1);
+  }
+  console.log(`  ✗ Its signature does NOT verify: ${signature.reason}`);
+  console.log("    The signature or the key in the file was changed after it was signed. Write the");
+  console.log(`    statement again with: mesh statement --period ${period}`);
+  process.exit(1);
 }
 
-export async function runStatement(argv: string[]): Promise<void> {
+/** `mesh statement --key`: the fingerprint, and what to do with it. Never the key itself. */
+function runKey(keyFile: string): void {
+  const { key, created } = loadOrCreateStatementKey(keyFile);
+  console.log("");
+  console.log(`  Statement key fingerprint for this MESH install${created ? " (key created just now)" : ""}:`);
+  console.log(`  ${key.fingerprint}`);
+  console.log("");
+  console.log("  Send it to MESH once, when billing is agreed, through the channel agreed in writing. It is public");
+  console.log("  and safe to share; the private half never leaves this machine. If you reinstall or move machine");
+  console.log("  the fingerprint changes, and you must register the new one the same way before your next statement.");
+  console.log("");
+  console.log(`  Key file (private, do not share): ${keyFile}`);
+  console.log("");
+}
+
+/** What the command reads besides its arguments. Tests point it away from the real ~/.mesh. */
+export type StatementCommandOptions = { meshHome?: string };
+
+export async function runStatement(argv: string[], options: StatementCommandOptions = {}): Promise<void> {
   const args = parse(argv);
+  const keyFile = statementKeyPath(options.meshHome ?? MESH_HOME);
   if (args.check !== undefined) { runCheck(args.check); return; }
+  if (args.key) { runKey(keyFile); return; }
   if (args.period === undefined) throw new Error(`--period YYYY-MM is required.\n\n${USAGE}`);
   if (!isPeriod(args.period)) throw new Error("--period must be a calendar month written YYYY-MM, for example 2026-11.");
 
@@ -723,8 +821,13 @@ export async function runStatement(argv: string[]): Promise<void> {
     process.exit(1);
   }
 
+  // Sign with this install's key, creating it on first use. A broken chain
+  // never gets this far, so it needs no key; a key file that is there but
+  // unusable stops here, before anything is written or printed.
+  const statement = signStatement(result.statement, loadOrCreateStatementKey(keyFile).key.privateKey);
+
   const out = args.out ?? resolve(`mesh-statement-${args.period}.json`);
-  const file = `${JSON.stringify(result.statement, null, 2)}\n`;
+  const file = `${JSON.stringify(statement, null, 2)}\n`;
   mkdirSync(dirname(out), { recursive: true });
   writeFileSync(out, file);
 
@@ -732,9 +835,10 @@ export async function runStatement(argv: string[]): Promise<void> {
     process.stdout.write(file);
     return;
   }
-  console.log(renderStatement(result.statement, result.spoolNames));
+  console.log(renderStatement(statement, result.spoolNames));
   console.log(`  Statement file  ${out}`);
-  console.log(`  sha256 seal     ${result.statement.sha256}`);
+  console.log(`  sha256 seal     ${statement.sha256}`);
+  console.log(`  Signed by this install's statement key: ${statement.signature.fingerprint}`);
   console.log("  It holds numbers, lever names, model ids and hashes only. Send it to MESH with");
   console.log("  your ledger files; check it later with: mesh statement --check <file>");
   console.log("");
