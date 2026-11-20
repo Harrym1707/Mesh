@@ -59,6 +59,35 @@ const isPlainObject = (value: unknown): value is AnyObject =>
 const digest = (value: unknown): string =>
   createHash("sha256").update(JSON.stringify(value ?? null) ?? "null").digest("hex").slice(0, 32);
 
+// A long-running autonomous agent's history grows every turn; storing one
+// hash per message forever (the original design) made this guard's own
+// memory grow without bound on exactly the workload it exists to help. A
+// hash chain carries the same prefix-equality check in a fixed-size value:
+// chain_i = H(chain_{i-1} || digest(message_i)). Two conversations' chains
+// agree at position n iff their first n messages agree (by digest collision
+// resistance), which is all `historyExtends` below ever needed — the guard
+// never needed to know WHICH earlier message changed, only whether any did.
+const HISTORY_CHAIN_SEED = createHash("sha256").update("mesh-cache-guard-history-chain-seed").digest("hex").slice(0, 32);
+
+const chainStep = (chain: string, messageDigest: string): string =>
+  createHash("sha256").update(chain).update(messageDigest).digest("hex").slice(0, 32);
+
+/**
+ * One pass over `messages`, returning the chain value after exactly
+ * `markAt` of them (`undefined` if there are fewer than that) and after all
+ * of them. Walking once keeps this the same O(length) cost `messages.map
+ * (digest)` already paid, whatever `markAt` is.
+ */
+function chainThrough(messages: unknown[], markAt: number): { atMark: string | undefined; full: string } {
+  let chain = HISTORY_CHAIN_SEED;
+  let atMark = markAt === 0 ? HISTORY_CHAIN_SEED : undefined;
+  for (let i = 0; i < messages.length; i++) {
+    chain = chainStep(chain, digest(messages[i]));
+    if (i + 1 === markAt) atMark = chain;
+  }
+  return { atMark, full: chain };
+}
+
 export type CacheStampDecision = {
   /** False withholds every breakpoint. */
   stamp: boolean;
@@ -83,7 +112,8 @@ type Track = { volatile: boolean; stableStreak: number };
 
 type ConversationEntry = {
   prefixHash: string;
-  messageHashes: string[];
+  historyChain: string;
+  historyLength: number;
   prefix: Track;
   history: Track;
 };
@@ -122,15 +152,17 @@ export class CachePrefixVolatilityGuard {
     const prefixHash = context.stampedPrefix !== undefined
       ? `span:${digest(context.stampedPrefix)}`
       : `raw:${digest([request.tools ?? null, request.system ?? null])}`;
-    const messageHashes = (request.messages as unknown[]).map(digest);
+    const messages = request.messages as unknown[];
 
     const prior = this.conversations.get(key);
     if (prior !== undefined) this.conversations.delete(key);
 
     if (prior === undefined) {
+      const { full } = chainThrough(messages, messages.length);
       this.conversations.set(key, {
         prefixHash,
-        messageHashes,
+        historyChain: full,
+        historyLength: messages.length,
         prefix: { volatile: false, stableStreak: 0 },
         history: { volatile: false, stableStreak: 0 },
       });
@@ -139,13 +171,18 @@ export class CachePrefixVolatilityGuard {
     }
 
     const prefixChanged = prior.prefixHash !== prefixHash;
-    const historyExtends =
-      messageHashes.length >= prior.messageHashes.length &&
-      prior.messageHashes.every((hash, index) => messageHashes[index] === hash);
+    const { atMark, full } = chainThrough(messages, prior.historyLength);
+    const historyExtends = messages.length >= prior.historyLength && atMark === prior.historyChain;
 
     const prefix = advance(prior.prefix, prefixChanged);
     const history = advance(prior.history, !historyExtends);
-    this.conversations.set(key, { prefixHash, messageHashes, prefix: prefix.track, history: history.track });
+    this.conversations.set(key, {
+      prefixHash,
+      historyChain: full,
+      historyLength: messages.length,
+      prefix: prefix.track,
+      history: history.track,
+    });
 
     if (!prefix.ok) {
       return {

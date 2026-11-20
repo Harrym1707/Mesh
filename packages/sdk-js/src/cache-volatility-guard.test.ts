@@ -124,6 +124,70 @@ describe("CachePrefixVolatilityGuard", () => {
     // A returns: its volatility record is gone, so it is treated as new.
     expect(guard.observe(turn(2, "09:10:00Z")).stamp).toBe(true);
   });
+
+  // An autonomous agent's history grows every turn and can run for hundreds
+  // of them; the guard must not grow its own per-conversation memory to
+  // match (a long-horizon agent, the shape the mandate itself names, should
+  // not make this guard the thing that leaks). These lock in the fixed-size
+  // storage and the exact extension semantics it must still enforce.
+  describe("long-horizon memory bound", () => {
+    /** Every stored conversation entry, whatever its history's length. */
+    const entryOf = (guard: CachePrefixVolatilityGuard, request: Record<string, unknown>): Record<string, unknown> => {
+      const key = (guard as unknown as { conversations: Map<string, unknown> }).conversations;
+      // keyed by digest([model, messages[0]]); there is exactly one entry
+      // after a single observe(), so grab it without recomputing the digest.
+      void request;
+      return [...key.values()][0] as Record<string, unknown>;
+    };
+
+    it("stores a fixed-size entry whether the history has 1 message or 500", () => {
+      const short = new CachePrefixVolatilityGuard();
+      short.observe(turn(0));
+      const long = new CachePrefixVolatilityGuard();
+      long.observe(turn(249)); // turn(n) has 2n+1 messages: 499 here
+      const shortEntry = entryOf(short, turn(0)) as { historyChain: string; historyLength: number };
+      const longEntry = entryOf(long, turn(249)) as { historyChain: string; historyLength: number };
+      // The chain itself is a fixed-width digest regardless of history
+      // length; only the length COUNTER (a single number) differs, never an
+      // array sized to the conversation.
+      expect(shortEntry.historyChain).toHaveLength(longEntry.historyChain.length);
+      expect(shortEntry.historyLength).toBe(1);
+      expect(longEntry.historyLength).toBe(499);
+      expect(Object.keys(shortEntry).sort()).toEqual(Object.keys(longEntry).sort());
+    });
+
+    it("keeps extension and churn detection correct across hundreds of turns", () => {
+      const guard = new CachePrefixVolatilityGuard();
+      for (let index = 0; index < 300; index += 1) {
+        expect(guard.observe(turn(index)).stamp).toBe(true);
+      }
+      // Replacing only the newest-but-one message (not an extension) is still
+      // caught after 300 turns' worth of history, not just on short fixtures.
+      const tampered = turn(299) as { messages: Array<Record<string, unknown>> };
+      tampered.messages[tampered.messages.length - 2] = { role: "assistant", content: "[tampered]" };
+      const decision = guard.observe(tampered);
+      expect(decision.messageBreakpoint).toBe(false);
+      expect(decision.reason).toContain("history was rewritten");
+    });
+
+    it("treats a shorter history as rewritten, not extended, at any length", () => {
+      const guard = new CachePrefixVolatilityGuard();
+      guard.observe(turn(50));
+      const truncated = turn(50) as { messages: Array<Record<string, unknown>> };
+      truncated.messages = truncated.messages.slice(0, -4);
+      expect(guard.observe(truncated).messageBreakpoint).toBe(false);
+    });
+
+    it("treats an insertion in the middle of history as rewritten, not extended", () => {
+      const guard = new CachePrefixVolatilityGuard();
+      guard.observe(turn(10));
+      const spliced = turn(10) as { messages: Array<Record<string, unknown>> };
+      spliced.messages.splice(3, 0, { role: "user", content: "inserted out of band" });
+      // Longer than before, but not a true prefix extension: the insertion
+      // shifts every later index, so it must still be caught.
+      expect(guard.observe(spliced).messageBreakpoint).toBe(false);
+    });
+  });
 });
 
 describe("reduceRequest with the guard and the volatile-tail placement", () => {
