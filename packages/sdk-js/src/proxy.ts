@@ -10,6 +10,7 @@ import { collectRequestText, measureOutputReEmission } from "../../core/dist/src
 import { normalizeProviderUsage, responseServiceTier } from "../../core/dist/src/provider-usage.js";
 import { responseText } from "./replay-gate.js";
 import { CachePrefixVolatilityGuard } from "./cache-volatility-guard.js";
+import { FanOutLatch, fanOutPrefixHash, type FanOutLatchOptions } from "./fanout-latch.js";
 import { reduceRequest, type MeshTokenReductionConfig } from "./reduce-request.js";
 import { extractBlindFeatures } from "./blind-features.js";
 import { createSavingsLedger, type SavingsLedger } from "./savings-ledger.js";
@@ -92,6 +93,16 @@ export type MeshProxyOptions = {
    * `mesh theo --gate <path>` reads it.
    */
   requestCapture?: { path: string; limit?: number; maxBytes?: number };
+  /**
+   * Opt-in shared-prefix fan-out cache-race repair (see `fanout-latch.ts`).
+   * When set, requests whose {model, tools, system} match one already in
+   * flight are held until that leader's upstream response begins (or
+   * `maxHoldMs` elapses), so a multi-agent fan-out that shares a prefix
+   * writes the provider cache once instead of racing N writes. OFF unless
+   * set: holding a request trades a small latency cost for the cache
+   * saving, and that trade is a per-deployment decision, never a default.
+   */
+  fanOutLatch?: boolean | FanOutLatchOptions;
 };
 
 export type MeshProxy = {
@@ -317,6 +328,10 @@ export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
       ? reductionOption
       : () => reductionOption ?? LOSSLESS_DEFAULT;
   let volatilityGuard: CachePrefixVolatilityGuard | undefined;
+  // Off unless options.fanOutLatch is set — see the option's own doc comment.
+  const fanOutLatch: FanOutLatch | undefined = options.fanOutLatch
+    ? new FanOutLatch(options.fanOutLatch === true ? {} : options.fanOutLatch)
+    : undefined;
   const currentReduction = (modelId?: string): MeshTokenReductionConfig => {
     let base: MeshTokenReductionConfig;
     try {
@@ -613,6 +628,24 @@ export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
       recentRequestHashes.set(bodyHash, requestId);
     }
 
+    // Shared-prefix fan-out latch (see fanout-latch.ts), off unless
+    // options.fanOutLatch was set. Keyed on exactly what a provider's
+    // longest-prefix cache match depends on, post-reduction so MESH's own
+    // levers are never mistaken for two different prefixes. A follower
+    // AWAITS HERE, before the upstream call, and only the leader ever
+    // releases the hold (a follower releasing it would wrongly unblock a
+    // later, unrelated leader for the same prefix).
+    const reducedForFanOut = typeof reducedRequest === "object" && reducedRequest !== null
+      ? reducedRequest as AnyObject
+      : undefined;
+    const fanOutHash = fanOutLatch
+      ? fanOutPrefixHash({ model: requestModelId, tools: reducedForFanOut?.tools, system: reducedForFanOut?.system })
+      : undefined;
+    const fanOutRole = fanOutHash !== undefined ? await fanOutLatch!.acquire(fanOutHash) : undefined;
+    const releaseFanOutLatch = (): void => {
+      if (fanOutRole === "leader" && fanOutHash !== undefined) fanOutLatch!.release(fanOutHash);
+    };
+
     const startedAt = Date.now();
     let upstreamResponse: Response;
     try {
@@ -625,6 +658,7 @@ export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
         redirect: "manual", // never carry the caller's key to a redirect target
       });
     } catch (cause) {
+      releaseFanOutLatch();
       clearTimeout(phaseTimer);
       if (!res.headersSent && !res.destroyed) {
         res.writeHead(502, { "content-type": "application/json" });
@@ -632,6 +666,11 @@ export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
       }
       return;
     }
+    // The leader's response headers just arrived — exactly the "first byte"
+    // moment the provider commits a cache write by. Release any followers
+    // now, before streaming the body through, so they resume as early as the
+    // real cache-availability semantics allow.
+    releaseFanOutLatch();
     clearTimeout(phaseTimer);
 
     const responseHeaders: Record<string, string> = {};

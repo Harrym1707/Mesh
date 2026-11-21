@@ -115,6 +115,7 @@ export type {
   SemanticCompactor,
 } from "./semantic-compaction.js";
 export { CachePrefixVolatilityGuard, type CacheStampDecision } from "./cache-volatility-guard.js";
+export { FanOutLatch, fanOutPrefixHash, type FanOutLatchOptions, type FanOutPrefixParts } from "./fanout-latch.js";
 export { renderLedgerReport, type LedgerReportOptions, type LedgerReportSpool } from "./report.js";
 export {
   MESH_SIGNUP_URL,
