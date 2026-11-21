@@ -480,3 +480,164 @@ describe("MESH proxy — provably-blind learning stream", () => {
     expect(() => readFileSync(join(dir, "plain-anthropic.features.jsonl"), "utf8")).toThrow();
   });
 });
+
+describe("MESH proxy — fan-out latch (opt-in)", () => {
+  /**
+   * An upstream that holds EVERY response's headers for `delayMs` before
+   * answering, and records when each request actually arrived. This stands
+   * in for a provider's real time-to-first-byte on a cold cache write: the
+   * thing the latch should make a held-back racer wait past.
+   */
+  function delayedUpstream(seen: Array<{ arrivedAt: number; body: AnyObject }>, delayMs: number): Promise<{ server: Server; url: string }> {
+    const server = createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on("data", (c: Buffer) => chunks.push(c));
+      req.on("end", () => {
+        const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as AnyObject;
+        seen.push({ arrivedAt: Date.now(), body });
+        setTimeout(() => {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({
+            id: "msg_stub",
+            content: [{ type: "text", text: "ok" }],
+            usage: { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+          }));
+        }, delayMs);
+      });
+    });
+    return new Promise((resolve) => {
+      server.listen(0, "127.0.0.1", () => {
+        const port = (server.address() as { port: number }).port;
+        resolve({ server, url: `http://127.0.0.1:${port}` });
+      });
+    });
+  }
+
+  const sharedRequest = (name: string): AnyObject => ({
+    model: "claude-sonnet-5-5-20260514",
+    max_tokens: 100,
+    system: "Shared fan-out system prompt.",
+    tools: [{ name: "search", description: "search", input_schema: { type: "object" } }],
+    messages: [{ role: "user", content: `sub-agent ${name}, start work` }],
+  });
+
+  it("holds a follower sharing the leader's prefix until the leader's headers arrive", async () => {
+    const seen: Array<{ arrivedAt: number; body: AnyObject }> = [];
+    const upstream = await delayedUpstream(seen, 80);
+    const dir = mkdtempSync(join(tmpdir(), "mesh-fanout-"));
+    const proxy = await startMeshProxy({
+      ledgerDirectory: dir,
+      anthropicUpstream: upstream.url,
+      fanOutLatch: true,
+    });
+    try {
+      const sendAt = Date.now();
+      const [a, b] = await Promise.all([
+        fetch(`${proxy.url}/v1/messages`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-api-key": "k" },
+          body: JSON.stringify(sharedRequest("A")),
+        }),
+        fetch(`${proxy.url}/v1/messages`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-api-key": "k" },
+          body: JSON.stringify(sharedRequest("B")),
+        }),
+      ]);
+      expect(a.status).toBe(200);
+      expect(b.status).toBe(200);
+      expect(seen).toHaveLength(2);
+      const [first, second] = [...seen].sort((x, y) => x.arrivedAt - y.arrivedAt);
+      // The leader arrives upstream right away; the follower is held until
+      // the leader's headers resolve (~80ms later), not sent concurrently.
+      expect(first!.arrivedAt - sendAt).toBeLessThan(40);
+      expect(second!.arrivedAt - first!.arrivedAt).toBeGreaterThanOrEqual(60);
+    } finally {
+      await proxy.close();
+      upstream.server.close();
+    }
+  });
+
+  it("does not hold requests back when fanOutLatch is not set (default, unchanged behaviour)", async () => {
+    const seen: Array<{ arrivedAt: number; body: AnyObject }> = [];
+    const upstream = await delayedUpstream(seen, 80);
+    const dir = mkdtempSync(join(tmpdir(), "mesh-nofanout-"));
+    const proxy = await startMeshProxy({ ledgerDirectory: dir, anthropicUpstream: upstream.url });
+    try {
+      const sendAt = Date.now();
+      await Promise.all([
+        fetch(`${proxy.url}/v1/messages`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-api-key": "k" },
+          body: JSON.stringify(sharedRequest("A")),
+        }),
+        fetch(`${proxy.url}/v1/messages`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-api-key": "k" },
+          body: JSON.stringify(sharedRequest("B")),
+        }),
+      ]);
+      expect(seen).toHaveLength(2);
+      for (const s of seen) expect(s.arrivedAt - sendAt).toBeLessThan(40);
+    } finally {
+      await proxy.close();
+      upstream.server.close();
+    }
+  });
+
+  it("never holds requests with a different prefix back from each other", async () => {
+    const seen: Array<{ arrivedAt: number; body: AnyObject }> = [];
+    const upstream = await delayedUpstream(seen, 80);
+    const dir = mkdtempSync(join(tmpdir(), "mesh-fanout-distinct-"));
+    const proxy = await startMeshProxy({ ledgerDirectory: dir, anthropicUpstream: upstream.url, fanOutLatch: true });
+    try {
+      const sendAt = Date.now();
+      await Promise.all([
+        fetch(`${proxy.url}/v1/messages`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-api-key": "k" },
+          body: JSON.stringify({ ...sharedRequest("A"), system: "System prompt for agent A." }),
+        }),
+        fetch(`${proxy.url}/v1/messages`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-api-key": "k" },
+          body: JSON.stringify({ ...sharedRequest("B"), system: "Completely different system prompt for agent B." }),
+        }),
+      ]);
+      expect(seen).toHaveLength(2);
+      for (const s of seen) expect(s.arrivedAt - sendAt).toBeLessThan(40);
+    } finally {
+      await proxy.close();
+      upstream.server.close();
+    }
+  });
+
+  it("releases a held follower immediately if the leader's upstream call errors (fail-open)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mesh-fanout-error-"));
+    // No server listening on this port: the leader's fetch rejects fast.
+    const deadUpstream = "http://127.0.0.1:1";
+    const proxy = await startMeshProxy({ ledgerDirectory: dir, anthropicUpstream: deadUpstream, fanOutLatch: { maxHoldMs: 10_000 } });
+    try {
+      const sendAt = Date.now();
+      const [a, b] = await Promise.all([
+        fetch(`${proxy.url}/v1/messages`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-api-key": "k" },
+          body: JSON.stringify(sharedRequest("A")),
+        }),
+        fetch(`${proxy.url}/v1/messages`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-api-key": "k" },
+          body: JSON.stringify(sharedRequest("B")),
+        }),
+      ]);
+      // Both fail (no upstream to answer), but quickly: the follower must not
+      // sit held for the full 10s timeout waiting on a leader that errored.
+      expect(a.status).toBe(502);
+      expect(b.status).toBe(502);
+      expect(Date.now() - sendAt).toBeLessThan(5_000);
+    } finally {
+      await proxy.close();
+    }
+  });
+});

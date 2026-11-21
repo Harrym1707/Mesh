@@ -360,3 +360,56 @@ describe("compaction priced from recorded ledger traffic", () => {
       .toThrow(/after the first turn/);
   });
 });
+
+describe("cache simulator — write availability delay (fan-out races)", () => {
+  const sharedPrefix = filler(2_000); // well clear of both providers' minimums
+
+  it("without the delay (every existing policy), a simultaneous racer still reads the leader's write", () => {
+    // This is the pre-existing, deliberately optimistic default: nothing
+    // elapses between a write and when another request can see it. Pinning
+    // it here documents that every published number stays reachable as-is.
+    const requests: SimulatedRequest[] = [
+      { atSeconds: 0, prompt: sharedPrefix, outputTokens: 10 },
+      { atSeconds: 0, prompt: sharedPrefix, outputTokens: 10 },
+    ];
+    const result = simulateCache(requests, ANTHROPIC_CACHE_5M, price);
+    expect(result.calls[0]!.missReason).toBe("first-request");
+    expect(result.calls[1]!.cachedInputTokens).toBeGreaterThan(0);
+    expect(result.calls[1]!.missReason).toBeUndefined();
+  });
+
+  it("with a write availability delay, two truly simultaneous requests BOTH miss and BOTH write", () => {
+    const policy = { ...ANTHROPIC_CACHE_5M, writeAvailabilityDelaySeconds: 2 };
+    const requests: SimulatedRequest[] = [
+      { atSeconds: 0, prompt: sharedPrefix, outputTokens: 10 },
+      { atSeconds: 0, prompt: sharedPrefix, outputTokens: 10 },
+    ];
+    const result = simulateCache(requests, policy, price);
+    expect(result.calls[0]!.missReason).toBe("first-request");
+    expect(result.calls[0]!.writtenInputTokens).toBeGreaterThan(0);
+    // The racer: the leader's entry exists but is not yet VISIBLE at the same
+    // instant, so it misses too — and pays a second write premium, exactly
+    // the loss a fan-out latch exists to repair.
+    expect(result.calls[1]!.cachedInputTokens).toBe(0);
+    expect(result.calls[1]!.missReason).toBe("not-yet-available");
+    expect(result.calls[1]!.writtenInputTokens).toBeGreaterThan(0);
+  });
+
+  it("a request arriving after the delay elapses reads the now-available entry", () => {
+    const policy = { ...ANTHROPIC_CACHE_5M, writeAvailabilityDelaySeconds: 2 };
+    const requests: SimulatedRequest[] = [
+      { atSeconds: 0, prompt: sharedPrefix, outputTokens: 10 },
+      { atSeconds: 2, prompt: sharedPrefix, outputTokens: 10 }, // exactly at the delay boundary
+    ];
+    const result = simulateCache(requests, policy, price);
+    expect(result.calls[1]!.cachedInputTokens).toBeGreaterThan(0);
+    expect(result.calls[1]!.missReason).toBeUndefined();
+  });
+
+  it("the delay never affects a below-minimum prefix's miss reason", () => {
+    const short = filler(100);
+    const policy = { ...OPENAI_CACHE, writeAvailabilityDelaySeconds: 5 };
+    const result = simulateCache(stream([short, short]), policy, price);
+    expect(result.calls[1]!.missReason).toBe("below-minimum");
+  });
+});
