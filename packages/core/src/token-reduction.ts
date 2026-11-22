@@ -32,22 +32,34 @@ const CODE_FENCE = /```[\s\S]*?```|`[^`\n]+`/g;
  * string by one constant. Expect roughly +/-15% against a real tokenizer; good
  * enough to rank candidate reductions, not good enough to bill on.
  */
+// The three alternatives are captured (rather than left as one unlabelled
+// match) so the classification below can read which one matched off the
+// match object the split already produced, instead of running two more
+// regexes (`/^\s+$/`, `/^[\p{L}\p{N}']+$/u`) over every chunk to ask a
+// question the split already answered. Profiling this counter against the
+// proxy's realistic agent fixture (evals/run-proxy-overhead.ts) showed it
+// dominating per-request CPU time, almost all of it in those two redundant
+// re-tests; this produces the identical classification (and identical
+// counts — see the "matches the three-regex reference" test) for roughly a
+// third of the regex work.
+const WORD_RUN = /([\p{L}\p{N}']+)|([^\p{L}\p{N}'\s]+)|(\s+)/gu;
+
 export const approximateTokenCount: TokenCounter = (text) => {
   if (text === "") return 0;
   let total = 0;
-  for (const match of text.matchAll(/[\p{L}\p{N}']+|[^\p{L}\p{N}'\s]+|\s+/gu)) {
-    const chunk = match[0]!;
-    if (/^\s+$/.test(chunk)) {
+  for (const match of text.matchAll(WORD_RUN)) {
+    const [, word, symbol, whitespace] = match;
+    if (whitespace !== undefined) {
       // Runs of whitespace mostly ride along with an adjacent token; newlines do not.
-      total += (chunk.match(/\n/g)?.length ?? 0);
+      total += (whitespace.match(/\n/g)?.length ?? 0);
       continue;
     }
-    if (/^[\p{L}\p{N}']+$/u.test(chunk)) {
-      total += Math.max(1, Math.ceil(chunk.length / 4.5));
+    if (word !== undefined) {
+      total += Math.max(1, Math.ceil(word.length / 4.5));
       continue;
     }
     // Punctuation and symbols tokenize densely.
-    total += Math.max(1, Math.ceil(chunk.length / 2));
+    total += Math.max(1, Math.ceil(symbol!.length / 2));
   }
   return total;
 };
