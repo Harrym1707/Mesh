@@ -54,6 +54,43 @@ describe("approximate token count", () => {
     const prose = "a".repeat(json.length);
     expect(approximateTokenCount(json)).toBeGreaterThan(approximateTokenCount(prose));
   });
+
+  /** The original three-regex classifier, kept only as a reference to check the
+   * single-pass capture-group rewrite (perf fix) against: same split, same
+   * counts, for anything the rewrite could plausibly get wrong. */
+  function referenceTokenCount(text: string): number {
+    if (text === "") return 0;
+    let total = 0;
+    for (const match of text.matchAll(/[\p{L}\p{N}']+|[^\p{L}\p{N}'\s]+|\s+/gu)) {
+      const chunk = match[0]!;
+      if (/^\s+$/.test(chunk)) {
+        total += (chunk.match(/\n/g)?.length ?? 0);
+        continue;
+      }
+      if (/^[\p{L}\p{N}']+$/u.test(chunk)) {
+        total += Math.max(1, Math.ceil(chunk.length / 4.5));
+        continue;
+      }
+      total += Math.max(1, Math.ceil(chunk.length / 2));
+    }
+    return total;
+  }
+
+  it("matches the three-regex reference on prose, code, JSON, unicode and whitespace", () => {
+    const samples = [
+      "",
+      "hello world",
+      "The quick brown fox jumped over the lazy dog's back, twice!! ...",
+      '{"a":1,"b":[2,3],"c":{"d":"e","list":["x","y","z"]}}\n',
+      "function foo(a, b) {\n  return a + b; // sum\n}\n\n\ndone.",
+      "café élève 日本語 😀😀 don't can't it's",
+      "   leading and trailing whitespace   \n\n\t\t  \n",
+      "a".repeat(5000) + "\n".repeat(50) + "!@#$%^&*()".repeat(200),
+    ];
+    for (const sample of samples) {
+      expect(approximateTokenCount(sample)).toBe(referenceTokenCount(sample));
+    }
+  });
 });
 
 describe("dedupeRepeatedBlocks", () => {
