@@ -35,3 +35,4 @@ export * from "./github-oauth.js";
 export * from "./stripe-client.js";
 export * from "./billing-worker.js";
 export * from "./manual-billing-checks.js";
+export * from "./customer-key-registry.js";
