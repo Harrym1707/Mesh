@@ -230,6 +230,8 @@ h2.rise{opacity:1;transform:none;transition:none}
 .field-ocean .overlap circle{fill:#F1F7FB}
 .field-ocean .btn{background:#F1F7FB;color:var(--ocean)}
 .field-ocean .btn:hover{background:#fff}
+.field-ocean .price-more{margin:var(--s3) 0 0;font-size:14px}
+.field-ocean .price-more a{color:#eaf4fb}
 
 /* ---------- sections ---------- */
 section{padding:var(--s7) var(--s4);position:relative;z-index:1}
@@ -357,7 +359,7 @@ section h2::after{content:"";position:absolute;left:50%;transform:translateX(-50
     <p class="cta-note rise">One command &middot; no signup &middot; keep your own key &middot; <b>verify every number yourself</b></p>
   </div>
   <aside class="hero-proof rise">
-    <p class="lbl"><span class="pct">22.0<span>%</span></span> net savings on our last live export &mdash; verified on the provider&rsquo;s own usage, recomputable from a ledger you hold.</p>
+    <p class="lbl"><span class="pct">18.2<span>%</span></span> net savings on our last live export: our own test agents, 30 real API requests, recomputable from a ledger you hold.</p>
   </aside>
 </header>
 </div>
@@ -494,24 +496,24 @@ The ledger is yours; this command recomputes the invoice from it with no network
       <h2>Proven, line by line.</h2>
       <p class="note">Most savings claims are projections. Ours come with the receipt: we ran real requests, published every line, and the rows add up to the total &mdash; check them.</p>
       <div class="figure">37.9%</div>
-      <p class="cap">saved by a single lever &mdash; switching Claude&rsquo;s cache on &mdash; measured both ways on identical prompts, answers unchanged. The receipt beside is our latest small live run: 22.0% of real spend saved and billing on every active agent, the cache lever earning live. The full measured range is 26&ndash;73% by traffic type &rarr; <a href="evidence.html">evidence</a>.</p>
+      <p class="cap">saved by a single lever &mdash; switching Claude&rsquo;s cache on &mdash; measured both ways on identical prompts, answers unchanged. The receipt beside is our latest small live run on our own test agents: 18.2% of real spend saved, the cache lever earning live, and nothing billed where there was nothing to save. The full measured range is 26&ndash;73% by traffic type &rarr; <a href="evidence.html">evidence</a>.</p>
     </div>
     <div class="slip rise in-self" aria-label="The export, row by row">
       <h3>MESH &mdash; LIVE EXPORT</h3>
-      <p class="meta">Second export &middot; 2026-10-19 &middot; claude-sonnet-5-5 &middot; 30 requests &middot; 5 hash chains verified</p>
+      <p class="meta">Live export &middot; 2026-10-26 &middot; claude-sonnet-5-5 &middot; 30 requests &middot; 5 hash chains verified</p>
       <p class="grp">SPEND, BY AGENT</p>
-      <div class="row"><span class="desc">coding-agent</span><span class="lead-dots"></span><span class="val">$0.0691</span></div>
-      <div class="row"><span class="desc">rag-docqa</span><span class="lead-dots"></span><span class="val">$0.0406</span></div>
-      <div class="row"><span class="desc">batch-classifier</span><span class="lead-dots"></span><span class="val">$0.0355</span></div>
+      <div class="row"><span class="desc">coding-agent</span><span class="lead-dots"></span><span class="val">$0.0592</span></div>
+      <div class="row"><span class="desc">rag-docqa</span><span class="lead-dots"></span><span class="val">$0.0391</span></div>
+      <div class="row"><span class="desc">batch-classifier</span><span class="lead-dots"></span><span class="val">$0.0452</span></div>
       <div class="row"><span class="desc">support-chat</span><span class="lead-dots"></span><span class="val">$0.0522</span></div>
-      <div class="row"><span class="desc">already-lean</span><span class="lead-dots"></span><span class="val">$0.0057</span></div>
+      <div class="row"><span class="desc">already-lean</span><span class="lead-dots"></span><span class="val">$0.0053</span></div>
       <p class="grp">VERIFIED SAVINGS, BY LEVER</p>
-      <div class="row"><span class="desc">coding-agent — cap + schemas, net of cache</span><span class="lead-dots"></span><span class="val">$0.0206</span></div>
-      <div class="row"><span class="desc">batch-classifier — cache stamp, earning</span><span class="lead-dots"></span><span class="val">$0.0101</span></div>
+      <div class="row"><span class="desc">coding-agent — cap + schemas + cache</span><span class="lead-dots"></span><span class="val">$0.0225</span></div>
       <div class="row"><span class="desc">rag-docqa — duplicate excerpt removed</span><span class="lead-dots"></span><span class="val">$0.0086</span></div>
       <div class="row"><span class="desc">support-chat — tool-schema compaction</span><span class="lead-dots"></span><span class="val">$0.0054</span></div>
+      <div class="row"><span class="desc">batch-classifier — cache stamp withheld, nothing billed</span><span class="lead-dots"></span><span class="val">$0.0000</span></div>
       <div class="row"><span class="desc">already-lean — nothing to remove</span><span class="lead-dots"></span><span class="val">$0.0000</span></div>
-      <div class="total-row"><span>NET VERIFIED SAVINGS</span><span>$0.0447 &middot; 22.0%</span></div>
+      <div class="total-row"><span>NET VERIFIED SAVINGS</span><span>$0.0365 &middot; 18.2%</span></div>
     </div>
   </div>
 </section>
@@ -552,7 +554,8 @@ The ledger is yours; this command recomputes the invoice from it with no network
         <li>If a move loses money, that loss is ours, not yours</li>
         <li>Already efficient? Our quote will say: <strong>do not pay us</strong></li>
       </ul>
-      <a class="btn" href="start.html">Run the quote on your own export</a>
+      <a class="btn" href="pricing.html">How billing works</a>
+      <p class="price-more"><a href="start.html">Or run the quote on your own export first</a></p>
     </div>
   </div>
 </section>
@@ -566,7 +569,7 @@ The ledger is yours; this command recomputes the invoice from it with no network
       <details name="faq"><summary>How can you bill for money I didn&rsquo;t spend?<span class="plus"></span></summary><div class="answer-wrap"><div class="answer">The way energy performance contracts have done it since 1995: a defined baseline, provider-verbatim measurements, an agreed adjustment method. Every request writes an append-only hash-chained event; the invoice is a pure function over those events. <a href="methodology.html">Methodology</a></div></div></details>
       <details name="faq"><summary>What do you do with my prompts?<span class="plus"></span></summary><div class="answer-wrap"><div class="answer">Analysis runs locally; prompts never leave your machine. The ledger records usage numbers, lever names and hashes &mdash; not content. Your API key passes through the proxy verbatim and is never stored.</div></div></details>
       <details name="faq"><summary>Where does MESH lose?<span class="plus"></span></summary><div class="answer-wrap"><div class="answer">Busy interactive agents cap around 29% before cache enablement; already-optimised stacks get 0&ndash;5% and a do-not-pay-us verdict; a free trimmer may be all you need if you don&rsquo;t need the saving verified. <a href="comparison.html">The honest comparison</a></div></div></details>
-      <details name="faq"><summary>Are these numbers real?<span class="plus"></span></summary><div class="answer-wrap"><div class="answer">Every figure traces to a runnable command and a commit. The bands are simulator-measured at published provider prices and labelled so; the 22.0% receipt above is real traffic. Your pilot replaces all of it with your own number before any fee exists. <a href="evidence.html">Evidence</a></div></div></details>
+      <details name="faq"><summary>Are these numbers real?<span class="plus"></span></summary><div class="answer-wrap"><div class="answer">Every figure traces to a runnable command and a commit. The bands are simulator-measured at published provider prices and labelled so; the 18.2% receipt above is real traffic. Your pilot replaces all of it with your own number before any fee exists. <a href="evidence.html">Evidence</a></div></div></details>
     </div>
   </div>
 </section>
@@ -590,7 +593,7 @@ The ledger is yours; this command recomputes the invoice from it with no network
 
 <footer class="quiet-foot">
   <span>mesh &mdash; verified LLM cost reduction</span>
-  <span class="links"><a href="overview.html">Overview</a><a href="segments.html">Savings</a><a href="methodology.html">Methodology</a><a href="evidence.html">Evidence</a><a href="comparison.html">Comparison</a><a href="start.html">Get started</a><a href="faq.html">FAQ</a><a href="https://github.com/Harrym1707/Mesh/issues/new">Contact</a><a href="https://github.com/Harrym1707/Mesh">GitHub</a><a href="llms.txt">llms.txt</a><a href="terms.html">Terms</a><a href="privacy.html">Privacy</a></span>
+  <span class="links"><a href="overview.html">Overview</a><a href="segments.html">Savings</a><a href="methodology.html">Methodology</a><a href="evidence.html">Evidence</a><a href="comparison.html">Comparison</a><a href="start.html">Get started</a><a href="pricing.html">Pricing</a><a href="faq.html">FAQ</a><a href="https://github.com/Harrym1707/Mesh/issues/new">Contact</a><a href="https://github.com/Harrym1707/Mesh">GitHub</a><a href="llms.txt">llms.txt</a><a href="terms.html">Terms</a><a href="privacy.html">Privacy</a></span>
   <span class="right">2026 &middot; BUSL-1.1</span>
 </footer>
 

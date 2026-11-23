@@ -6,7 +6,7 @@
  * hardened client instead of re-rolling fetch calls. Everything is
  * form-encoded, idempotency-keyed, and zero-dependency, matching the repo.
  *
- * SAFETY: the client refuses a live secret key (sk_live_…) unless `allowLive`
+ * SAFETY: the client refuses a live key (sk_live_… or rk_live_…) unless `allowLive`
  * is passed explicitly. The automated signup/metering/billing paths NEVER pass
  * it, so no amount of configuration can make the unattended system charge real
  * money — live billing stays the deliberate, human-gated mesh-bill --live path.
@@ -102,6 +102,17 @@ export class StripeApiError extends Error {
 }
 
 /**
+ * Whether a Stripe API key is a LIVE-mode key. Covers both the standard secret
+ * key (sk_live_…) and a restricted key (rk_live_…): a restricted live key
+ * creates real invoices and charges just the same, so it must hit every guard
+ * a standard live key hits. Anchored at the start of the string, so a test key
+ * that merely contains "_live_" later on is not misclassified.
+ */
+export function isLiveStripeKey(secretKey: string): boolean {
+  return /^(sk|rk)_live_/.test(secretKey);
+}
+
+/**
  * Create the real Stripe client. `allowLive` defaults to false: a live key is
  * refused unless the caller opts in deliberately (only the human-gated
  * mesh-bill path ever does).
@@ -111,7 +122,7 @@ export function createStripeClient(
   options: { allowLive?: boolean; fetch?: typeof fetch } = {},
 ): StripeClient {
   if (!secretKey) throw new Error("A Stripe secret key is required.");
-  const mode: StripeMode = secretKey.startsWith("sk_live_") ? "live" : "test";
+  const mode: StripeMode = isLiveStripeKey(secretKey) ? "live" : "test";
   if (mode === "live" && options.allowLive !== true) {
     throw new Error(
       "Refusing a LIVE Stripe key for the automated path. Self-serve signup and billing run " +

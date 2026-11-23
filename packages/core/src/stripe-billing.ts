@@ -14,10 +14,12 @@ import type { Invoice } from "./savings-ledger.js";
  * The invariants that matter for a verified-savings vendor:
  *   - A broken/unverified ledger NEVER bills. verdict carries DO_NOT_BILL.
  *   - A non-positive net period bills nothing (do_not_charge), and a carried
- *     deficit is surfaced, never hidden.
+ *     deficit is surfaced, never hidden. A positive net whose fee is below one
+ *     cent bills nothing either, and the reason says so.
  *   - The amount is 1% (or the contracted feePercent) of NET verified savings,
- *     taken straight from the invoice — this module does not recompute savings,
- *     it only formats the already-verified number for Stripe.
+ *     taken straight from the invoice — this module does not recompute savings
+ *     and never rounds the fee: `amountDueCents` already carries the one
+ *     rounding rule (`feeCents` in savings-ledger.ts, rounded down to the cent).
  *   - The line-item description traces to the recomputable statement, so the
  *     customer can check the charge against their own ledger.
  *   - Every create call carries an idempotency key keyed on customer+period, so
@@ -64,6 +66,78 @@ export type StripeInvoicePlan =
 
 const DEFAULT_CURRENCY = "usd";
 
+export type LiveChargeGate = { ok: true } | { ok: false; reason: string };
+
+/**
+ * The deliberate human gate on a LIVE charge, made real (the doc promised an
+ * amount re-type that the script never implemented).
+ *
+ * A live key may charge real money, so before any live charge the operator must
+ * (a) pass `--live` deliberately and (b) re-type the exact amount to be charged.
+ * Test mode needs neither. Returning a reason rather than throwing keeps this
+ * pure and unit-testable: the caller prints the reason and charges nothing.
+ */
+export function checkLiveChargeConfirmation(params: {
+  /** The key is a live key (sk_live_…). */
+  isLive: boolean;
+  /** `--live` was passed. */
+  requestedLive: boolean;
+  /** The exact amount the plan will charge (integer cents). */
+  amountCents: number;
+  /** The amount the operator re-typed to confirm (integer cents), if any. */
+  confirmAmountCents?: number;
+}): LiveChargeGate {
+  if (!params.isLive) return { ok: true };
+  if (!params.requestedLive) {
+    return {
+      ok: false,
+      reason:
+        "Refusing to charge against a LIVE Stripe key. This creates real charges. Use a test key " +
+        "(sk_test_…), or pass --live deliberately.",
+    };
+  }
+  // Neither refusal prints the amount or a ready-made flag: the operator has to
+  // read it off the plan and type it, or the re-type confirms nothing.
+  if (params.confirmAmountCents === undefined) {
+    return {
+      ok: false,
+      reason:
+        "A LIVE charge must be confirmed by re-typing the amount it will charge, in cents, with " +
+        "--confirm-amount-cents. Read the amount from the plan printed above. Charging nothing.",
+    };
+  }
+  if (params.confirmAmountCents !== params.amountCents) {
+    return {
+      ok: false,
+      reason:
+        `Amount re-type mismatch: you typed ${params.confirmAmountCents}¢, which is not the amount the plan ` +
+        "charges. Read the amount from the plan printed above. Charging nothing.",
+    };
+  }
+  return { ok: true };
+}
+
+/** Runs without installing MESH: the independent check of any statement. */
+const VERIFY_PACKAGE_COMMAND = "npx -y -p @harrym1707/verify mesh-verify";
+
+/**
+ * How the customer checks this charge themselves, printed on the Stripe line
+ * item. Their own statement for the period first (the real period filled in),
+ * then the standalone verify package as the independent second check of the
+ * net savings (its 0.1.0 release rounds a fee half up, so it is named for
+ * the savings, not the fee). An
+ * invoice across all recorded periods has no single period to name, so it
+ * never prints a `mesh statement` command that would not run.
+ */
+export function recomputeInstruction(period: string | null): string {
+  const independent = `${VERIFY_PACKAGE_COMMAND} <your spool>`;
+  const yoursWins = "If your recomputation disagrees, yours wins.";
+  if (period !== null && /^\d{4}-(0[1-9]|1[0-2])$/.test(period)) {
+    return `Check it on your own machine: mesh statement --period ${period}. Independent check of the savings: ${independent}. ${yoursWins}`;
+  }
+  return `Check the savings on your own machine with the independent check: ${independent}. ${yoursWins}`;
+}
+
 /**
  * Build the Stripe plan for one recomputed invoice.
  *
@@ -91,16 +165,24 @@ export function buildStripeInvoicePlan(
     throw new Error("Invoice was not recomputed with a feePercent; cannot build a billing plan.");
   }
 
+  // The recompute already answers do_not_charge when the fee is below one cent;
+  // the amount guard stays as defence in depth, so a hand-built or older
+  // invoice that says "charge" with zero cents still bills nothing.
   if (invoice.verdict !== "charge" || invoice.amountDueCents <= 0) {
     const carried = invoice.carryForwardDeficitOutUsd ?? 0;
+    const carriedIn = invoice.carryForwardDeficitInUsd ?? 0;
+    const billableNetUsd = invoice.netVerifiedSavingsUsd - carriedIn;
     let reason: string;
     if (carried > 0) {
       reason = `do_not_charge: $${carried.toFixed(4)} verified-savings deficit carries forward; fees resume only after it is recovered.`;
-    } else if (invoice.verdict === "charge" && invoice.netVerifiedSavingsUsd > 0) {
-      // Savings ARE positive, but the fee on them rounds below one cent — the
-      // smallest amount Stripe can bill — so nothing is billed yet. (Distinct
-      // from the zero/negative-savings case below, which this used to conflate.)
-      reason = `do_not_charge: the ${invoice.feePercent}% fee on $${invoice.netVerifiedSavingsUsd.toFixed(4)} net verified savings rounds below one cent, so nothing is billed yet.`;
+    } else if (billableNetUsd > 0) {
+      // Savings ARE positive, but the fee on them is below one cent — the
+      // smallest amount that can be billed — so nothing is billed yet. Keyed on
+      // the figures, not the verdict: the recompute reports this case as
+      // do_not_charge. (Distinct from the zero/negative-savings case below.)
+      reason =
+        `do_not_charge: the ${invoice.feePercent}% fee on $${billableNetUsd.toFixed(4)} net verified savings` +
+        `${carriedIn > 0 ? ` (after $${carriedIn.toFixed(4)} deficit carried in)` : ""} is below one cent, so nothing is billed yet.`;
     } else {
       reason = "do_not_charge: the period's net verified savings were not positive, so nothing is billed.";
     }
@@ -116,7 +198,7 @@ export function buildStripeInvoicePlan(
   const description =
     `MESH fee — ${invoice.feePercent}% of $${(net - carryIn).toFixed(2)} net verified savings` +
     `${carryIn > 0 ? ` (after $${carryIn.toFixed(2)} deficit carried in)` : ""}, period ${period}. ` +
-    `Recompute: npx -y -p @harrym1707/verify mesh-verify <your spool>. If your recomputation disagrees, yours wins.`;
+    recomputeInstruction(invoice.period);
 
   return {
     action: "bill",

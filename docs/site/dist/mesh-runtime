@@ -17,6 +17,20 @@ var __export = (target, all) => {
 };
 
 // packages/core/src/cost.ts
+function estimateTokenCost(inputTokens, outputTokens, price, cacheUsage = {}) {
+  const cached = cacheUsage.cachedInputTokens ?? 0;
+  const cacheWrite = cacheUsage.cacheWriteInputTokens ?? 0;
+  const cacheWrite1h = cacheUsage.cacheWrite1hInputTokens ?? 0;
+  if (!Number.isFinite(cached) || cached < 0 || !Number.isFinite(cacheWrite) || cacheWrite < 0 || !Number.isFinite(cacheWrite1h) || cacheWrite1h < 0 || cached + cacheWrite > inputTokens || cacheWrite1h > cacheWrite) {
+    throw new Error("Cached input token counts must be non-negative and no greater than total input tokens.");
+  }
+  const cacheWrite5m = cacheWrite - cacheWrite1h;
+  if (cached > 0 && price.cachedInputPerMillion === void 0 || cacheWrite5m > 0 && price.cacheWriteInputPerMillion === void 0 || cacheWrite1h > 0 && price.cacheWrite1hInputPerMillion === void 0) {
+    throw new Error("Cached input pricing is required to calculate actual cost for cached tokens.");
+  }
+  const uncached = inputTokens - cached - cacheWrite;
+  return uncached / 1e6 * price.inputPerMillion + cached / 1e6 * (price.cachedInputPerMillion ?? 0) + cacheWrite5m / 1e6 * (price.cacheWriteInputPerMillion ?? 0) + cacheWrite1h / 1e6 * (price.cacheWrite1hInputPerMillion ?? 0) + outputTokens / 1e6 * price.outputPerMillion;
+}
 var init_cost = __esm({
   "packages/core/src/cost.ts"() {
     "use strict";
@@ -24,6 +38,7 @@ var init_cost = __esm({
 });
 
 // packages/core/src/price-catalogue.ts
+import { createHash } from "node:crypto";
 function assertIsoDate(value, label) {
   if (!ISO_DATE.test(value) || Number.isNaN(Date.parse(value))) {
     throw new Error(`${label} must be an ISO calendar date (YYYY-MM-DD); received ${JSON.stringify(value)}.`);
@@ -169,6 +184,37 @@ function lookupPrice(catalogue, query, inputTokens = 0) {
   const price = override.tiers ? withoutBound(tierFor(override.tiers, inputTokens)) : discounted(tier, override.discountPercent);
   return { status: "priced", price, entry: entry3, negotiated: override };
 }
+function priceUsage(catalogue, query, usage) {
+  for (const [name, value] of Object.entries(usage)) {
+    if (value === void 0) continue;
+    if (!Number.isFinite(value) || value < 0) {
+      throw new Error(`Token usage ${name} must be a non-negative finite number.`);
+    }
+  }
+  const lookup = lookupPrice(catalogue, query, usage.inputTokens);
+  if (lookup.status === "unpriced") return lookup;
+  const cached = usage.cachedInputTokens ?? 0;
+  const cacheWrite = usage.cacheWriteInputTokens ?? 0;
+  const cacheWrite1h = usage.cacheWrite1hInputTokens ?? 0;
+  if (cacheWrite1h > cacheWrite) {
+    return {
+      status: "unpriced",
+      reason: `${query.provider}/${query.model} reports more 1h cache writes (${cacheWrite1h}) than total cache writes (${cacheWrite}).`
+    };
+  }
+  if (cached > 0 && lookup.price.cachedInputPerMillion === void 0 || cacheWrite - cacheWrite1h > 0 && lookup.price.cacheWriteInputPerMillion === void 0 || cacheWrite1h > 0 && lookup.price.cacheWrite1hInputPerMillion === void 0) {
+    return {
+      status: "unpriced",
+      reason: `${query.provider}/${query.model} billed cached input tokens on ${query.at}, but the catalogue has no cached-input rate for it.`
+    };
+  }
+  const costUsd = estimateTokenCost(usage.inputTokens, usage.outputTokens, lookup.price, {
+    cachedInputTokens: usage.cachedInputTokens,
+    cacheWriteInputTokens: usage.cacheWriteInputTokens,
+    cacheWrite1hInputTokens: usage.cacheWrite1hInputTokens
+  });
+  return { status: "priced", costUsd, price: lookup.price, entry: lookup.entry, negotiated: lookup.negotiated };
+}
 function canonicalJson(value) {
   if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
   if (Array.isArray(value)) {
@@ -176,6 +222,9 @@ function canonicalJson(value) {
   }
   const entries = Object.entries(value).filter(([, member]) => member !== void 0).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([key, member]) => `${JSON.stringify(key)}:${canonicalJson(member)}`);
   return `{${entries.join(",")}}`;
+}
+function catalogueVersion(catalogue) {
+  return createHash("sha256").update(canonicalJson(catalogue)).digest("hex").slice(0, 16);
 }
 function canonicalSegments(value) {
   return value.toLowerCase().replace(/[-_]latest$/, "").replace(/[-_]20\d{2}[-_]\d{2}[-_]\d{2}$/, "").replace(/[-_]20\d{6}$/, "").split(/[^a-z0-9]+/).filter((segment) => segment !== "");
@@ -237,9 +286,9 @@ var init_price_catalogue = __esm({
 });
 
 // packages/core/src/savings-ledger.ts
-import { createHash } from "node:crypto";
+import { createHash as createHash2 } from "node:crypto";
 function ledgerEventHash(seq, prevHash, event) {
-  return createHash("sha256").update(`${seq}
+  return createHash2("sha256").update(`${seq}
 ${prevHash}
 ${canonicalJson(event)}`).digest("hex");
 }
@@ -260,6 +309,93 @@ function verifyLedgerChain(records) {
     prevHash = record.eventHash;
   }
   return { ok: true, length: records.length };
+}
+function priceLedgerUsage(catalogue, input) {
+  const resolution = resolveModelId(catalogue, input.provider, input.model);
+  if (resolution.status === "unresolved") {
+    return { pricingStatus: "unpriced", reason: resolution.reason };
+  }
+  const split5m = input.usage.cacheWrite5mInputTokens;
+  const split1h = input.usage.cacheWrite1hInputTokens;
+  const splitReported = split5m !== void 0 || split1h !== void 0;
+  if (splitReported && (split5m ?? 0) + (split1h ?? 0) !== input.usage.cacheWriteInputTokens) {
+    return {
+      pricingStatus: "unpriced",
+      reason: `Cache-write TTL split (5m ${split5m ?? 0} + 1h ${split1h ?? 0}) does not sum to cacheWriteInputTokens ${input.usage.cacheWriteInputTokens}.`
+    };
+  }
+  const write1hForPricing = splitReported ? split1h ?? 0 : input.meshPlacedCacheControl && input.meshPlacedTtl !== "5m" ? input.usage.cacheWriteInputTokens : 0;
+  const pricingUsage = {
+    inputTokens: input.usage.inputTokens,
+    outputTokens: input.usage.outputTokens,
+    cachedInputTokens: input.usage.cachedInputTokens,
+    cacheWriteInputTokens: input.usage.cacheWriteInputTokens,
+    cacheWrite1hInputTokens: write1hForPricing
+  };
+  const query = { provider: input.provider, model: resolution.model, at: input.at };
+  const actual = priceUsage(catalogue, { ...query, mode: input.executionMode }, pricingUsage);
+  if (actual.status === "unpriced") return { pricingStatus: "unpriced", reason: actual.reason };
+  const actualInputOnly = priceUsage(catalogue, { ...query, mode: input.executionMode }, {
+    ...pricingUsage,
+    outputTokens: 0
+  });
+  if (actualInputOnly.status === "unpriced") {
+    return { pricingStatus: "unpriced", reason: actualInputOnly.reason };
+  }
+  const standardWithCache = input.executionMode === "standard" ? actual : priceUsage(catalogue, { ...query, mode: "standard" }, pricingUsage);
+  if (standardWithCache.status === "unpriced") {
+    return { pricingStatus: "unpriced", reason: standardWithCache.reason };
+  }
+  const fullRateStandard = priceUsage(catalogue, { ...query, mode: "standard" }, {
+    inputTokens: input.usage.inputTokens,
+    outputTokens: input.usage.outputTokens
+  });
+  if (fullRateStandard.status === "unpriced") {
+    return { pricingStatus: "unpriced", reason: fullRateStandard.reason };
+  }
+  const cacheDeltaUsd = fullRateStandard.costUsd - standardWithCache.costUsd;
+  const hasCacheTraffic = input.usage.cachedInputTokens > 0 || input.usage.cacheWriteInputTokens > 0;
+  return {
+    pricingStatus: "priced",
+    actualUsd: actual.costUsd,
+    inputUsd: actualInputOnly.costUsd,
+    ...input.executionMode === "standard" ? {} : { tierSavedUsd: standardWithCache.costUsd - actual.costUsd },
+    ...hasCacheTraffic ? input.meshPlacedCacheControl ? { cacheAttributedUsd: cacheDeltaUsd } : { providerCacheAlreadyOwnedUsd: cacheDeltaUsd } : {}
+  };
+}
+function auditEventPricing(event, catalogue) {
+  const version = catalogueVersion(catalogue);
+  if (event.catalogueVersion !== void 0 && event.catalogueVersion !== version) {
+    return { status: "catalogue_version_mismatch", eventVersion: event.catalogueVersion, catalogueVersion: version };
+  }
+  if (!event.usage) {
+    return event.actualUsd === void 0 ? { status: "verified" } : { status: "mismatch", field: "actualUsd", storedUsd: event.actualUsd, recomputedUsd: Number.NaN };
+  }
+  const cacheLever = event.levers.find((lever) => lever.kind === "provider_cache");
+  const meshPlacedCacheControl = cacheLever !== void 0;
+  const meshPlacedTtl = cacheLever?.leverId === "cache-ttl-5m" ? "5m" : cacheLever?.leverId === "cache-ttl-1h" ? "1h" : void 0;
+  const priced = priceLedgerUsage(catalogue, {
+    provider: event.provider,
+    model: event.model,
+    at: event.timestamp.slice(0, 10),
+    executionMode: event.executionMode,
+    usage: event.usage,
+    meshPlacedCacheControl,
+    ...meshPlacedTtl === void 0 ? {} : { meshPlacedTtl }
+  });
+  if (priced.pricingStatus === "unpriced") {
+    return event.pricingStatus === "unpriced" ? { status: "verified" } : { status: "unpriced", reason: priced.reason };
+  }
+  if (priced.actualUsd !== event.actualUsd) {
+    return { status: "mismatch", field: "actualUsd", storedUsd: event.actualUsd, recomputedUsd: priced.actualUsd };
+  }
+  return { status: "verified" };
+}
+function feeCents(billableNetUsd, feePercent) {
+  if (!Number.isFinite(billableNetUsd) || !Number.isFinite(feePercent)) return 0;
+  if (billableNetUsd <= 0 || feePercent <= 0) return 0;
+  const exactFeeCents = billableNetUsd * feePercent;
+  return Math.floor(exactFeeCents + FEE_CENT_TOLERANCE);
 }
 function compareEvents(left, right) {
   if (left.timestamp !== right.timestamp) return left.timestamp < right.timestamp ? -1 : 1;
@@ -382,8 +518,8 @@ ${lever.leverId}`;
   }
   const netAfterCarryUsd = netVerifiedSavingsUsd - carryIn;
   const carryOutUsd = Math.max(0, -netAfterCarryUsd);
-  const billableCents = Math.round(netAfterCarryUsd * 100);
-  const verdict = billableCents > 0 ? "charge" : "do_not_charge";
+  const amountDueCents = options.feePercent === void 0 ? void 0 : feeCents(netAfterCarryUsd, options.feePercent);
+  const verdict = amountDueCents === void 0 ? Math.round(netAfterCarryUsd * 100) > 0 ? "charge" : "do_not_charge" : amountDueCents > 0 ? "charge" : "do_not_charge";
   const amountDueUsd = options.feePercent === void 0 ? void 0 : verdict === "charge" ? netAfterCarryUsd * options.feePercent / 100 : 0;
   const invoice = {
     schemaVersion: 1,
@@ -408,17 +544,18 @@ ${lever.leverId}`;
     ...options.feePercent === void 0 ? {} : {
       feePercent: options.feePercent,
       amountDueUsd,
-      amountDueCents: Math.round((amountDueUsd ?? 0) * 100)
+      amountDueCents: amountDueCents ?? 0
     }
   };
   return { invoice, audit: { duplicatesIgnored } };
 }
-var LEDGER_GENESIS_HASH;
+var LEDGER_GENESIS_HASH, FEE_CENT_TOLERANCE;
 var init_savings_ledger = __esm({
   "packages/core/src/savings-ledger.ts"() {
     "use strict";
     init_price_catalogue();
     LEDGER_GENESIS_HASH = "0".repeat(64);
+    FEE_CENT_TOLERANCE = 1e-6;
   }
 });
 
@@ -745,14 +882,14 @@ var init_provider_usage = __esm({
 });
 
 // packages/core/dist/src/confidence.js
-import { createHash as createHash2 } from "node:crypto";
+import { createHash as createHash3 } from "node:crypto";
 function mean(values) {
   if (values.length === 0)
     throw new Error("Cannot take the mean of an empty set.");
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 function seededRandom(seed) {
-  let state = Number.parseInt(createHash2("sha256").update(seed).digest("hex").slice(0, 8), 16) >>> 0;
+  let state = Number.parseInt(createHash3("sha256").update(seed).digest("hex").slice(0, 8), 16) >>> 0;
   return () => {
     state = state + 1831565813 >>> 0;
     let value = state;
@@ -825,7 +962,7 @@ var init_confidence = __esm({
 });
 
 // packages/core/dist/src/price-catalogue.js
-import { createHash as createHash3 } from "node:crypto";
+import { createHash as createHash4 } from "node:crypto";
 function assertIsoDate2(value, label) {
   if (!ISO_DATE2.test(value) || Number.isNaN(Date.parse(value))) {
     throw new Error(`${label} must be an ISO calendar date (YYYY-MM-DD); received ${JSON.stringify(value)}.`);
@@ -1014,7 +1151,7 @@ function canonicalJson2(value) {
   return `{${entries.join(",")}}`;
 }
 function catalogueVersion2(catalogue) {
-  return createHash3("sha256").update(canonicalJson2(catalogue)).digest("hex").slice(0, 16);
+  return createHash4("sha256").update(canonicalJson2(catalogue)).digest("hex").slice(0, 16);
 }
 function canonicalSegments2(value) {
   return value.toLowerCase().replace(/[-_]latest$/, "").replace(/[-_]20\d{2}[-_]\d{2}[-_]\d{2}$/, "").replace(/[-_]20\d{6}$/, "").split(/[^a-z0-9]+/).filter((segment) => segment !== "");
@@ -2454,7 +2591,7 @@ var init_replay_gate = __esm({
 });
 
 // packages/sdk-js/src/cache-volatility-guard.ts
-import { createHash as createHash4 } from "node:crypto";
+import { createHash as createHash5 } from "node:crypto";
 function advance(prior, churned) {
   if (churned) return { track: { volatile: true, stableStreak: 0 }, ok: false, proving: false };
   if (!prior.volatile) return { track: prior, ok: true, proving: false };
@@ -2467,7 +2604,7 @@ var init_cache_volatility_guard = __esm({
   "packages/sdk-js/src/cache-volatility-guard.ts"() {
     "use strict";
     isPlainObject4 = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
-    digest = (value) => createHash4("sha256").update(JSON.stringify(value ?? null) ?? "null").digest("hex").slice(0, 32);
+    digest = (value) => createHash5("sha256").update(JSON.stringify(value ?? null) ?? "null").digest("hex").slice(0, 32);
     PROVING = "this conversation's prefix changed on an earlier turn; waiting for it to prove stable before stamping again";
     CachePrefixVolatilityGuard = class {
       constructor(maxConversations = 1e3) {
@@ -2605,9 +2742,9 @@ var init_blind_features = __esm({
 });
 
 // packages/core/dist/src/savings-ledger.js
-import { createHash as createHash5 } from "node:crypto";
+import { createHash as createHash6 } from "node:crypto";
 function ledgerEventHash2(seq, prevHash, event) {
-  return createHash5("sha256").update(`${seq}
+  return createHash6("sha256").update(`${seq}
 ${prevHash}
 ${canonicalJson2(event)}`).digest("hex");
 }
@@ -2616,7 +2753,7 @@ function chainLedgerRecord(event, previous) {
   const prevHash = previous ? previous.eventHash : LEDGER_GENESIS_HASH2;
   return { seq, prevHash, eventHash: ledgerEventHash2(seq, prevHash, event), event };
 }
-function priceLedgerUsage(catalogue, input) {
+function priceLedgerUsage2(catalogue, input) {
   const resolution = resolveModelId2(catalogue, input.provider, input.model);
   if (resolution.status === "unresolved") {
     return { pricingStatus: "unpriced", reason: resolution.reason };
@@ -2681,7 +2818,7 @@ var init_savings_ledger2 = __esm({
 
 // packages/sdk-js/src/ledger-mirror.ts
 function delay(ms) {
-  return new Promise((resolve4) => setTimeout(resolve4, ms));
+  return new Promise((resolve5) => setTimeout(resolve5, ms));
 }
 var LedgerMirror;
 var init_ledger_mirror = __esm({
@@ -2807,7 +2944,7 @@ function billableEventFromRequest(event, config, catalogue, pinnedCatalogueVersi
   const meshPlacedTtl = ttlChange === void 0 ? void 0 : CACHE_TTL_LEVERS.get(ttlChange.lever);
   const executionMode = executionModeOf(event.responseServiceTier);
   const usage = usageOf(event);
-  const pricing = usage === void 0 ? { pricingStatus: "unpriced", reason: "The event carries no complete, valid provider-verbatim usage." } : priceLedgerUsage(catalogue, {
+  const pricing = usage === void 0 ? { pricingStatus: "unpriced", reason: "The event carries no complete, valid provider-verbatim usage." } : priceLedgerUsage2(catalogue, {
     provider,
     model: event.model,
     at: event.timestamp.slice(0, 10),
@@ -2986,7 +3123,7 @@ var init_savings_ledger3 = __esm({
 // packages/sdk-js/src/proxy.ts
 import { createServer } from "node:http";
 import { Readable } from "node:stream";
-import { createHash as createHash6, randomUUID } from "node:crypto";
+import { createHash as createHash7, randomUUID } from "node:crypto";
 import { appendFileSync as appendFileSync2, existsSync as existsSync2, mkdirSync as mkdirSync2, statSync } from "node:fs";
 import { dirname as dirname2, join } from "node:path";
 function forwardHeaders(req, provider) {
@@ -3005,7 +3142,7 @@ function forwardHeaders(req, provider) {
   return out;
 }
 function readBody(req) {
-  return new Promise((resolve4, reject) => {
+  return new Promise((resolve5, reject) => {
     const chunks = [];
     let received = 0;
     req.on("data", (chunk) => {
@@ -3017,7 +3154,7 @@ function readBody(req) {
       }
       chunks.push(chunk);
     });
-    req.on("end", () => resolve4(Buffer.concat(chunks)));
+    req.on("end", () => resolve5(Buffer.concat(chunks)));
     req.on("error", reject);
   });
 }
@@ -3321,7 +3458,7 @@ ${provider}`;
     const IDLE_TIMEOUT_MS = 12e4;
     let phaseTimer = setTimeout(() => abortUpstream("upstream produced no response headers within 120s"), HEADER_TIMEOUT_MS);
     const requestId = randomUUID();
-    const bodyHash = createHash6("sha256").update(applicationId).update("\n").update(rawBody).digest("hex");
+    const bodyHash = createHash7("sha256").update(applicationId).update("\n").update(rawBody).digest("hex");
     const duplicateOfRequestId = recentRequestHashes.get(bodyHash);
     if (duplicateOfRequestId === void 0) {
       while (recentRequestHashes.size >= RECENT_HASH_CAP) {
@@ -3493,12 +3630,12 @@ ${provider}`;
     });
   });
   server.maxConnections = 256;
-  return new Promise((resolve4, reject) => {
+  return new Promise((resolve5, reject) => {
     server.once("error", reject);
     server.listen(options.port ?? 0, "127.0.0.1", () => {
       const address = server.address();
       const port = typeof address === "object" && address !== null ? address.port : options.port ?? 0;
-      resolve4({
+      resolve5({
         port,
         url: `http://127.0.0.1:${port}`,
         close: () => new Promise((done, fail) => server.close((err) => err ? fail(err) : done()))
@@ -4277,9 +4414,71 @@ var init_output_diagnostics2 = __esm({
 });
 
 // packages/core/src/stripe-billing.ts
+function recomputeInstruction(period) {
+  const independent = `${VERIFY_PACKAGE_COMMAND} <your spool>`;
+  const yoursWins = "If your recomputation disagrees, yours wins.";
+  if (period !== null && /^\d{4}-(0[1-9]|1[0-2])$/.test(period)) {
+    return `Check it on your own machine: mesh statement --period ${period}. Independent check of the savings: ${independent}. ${yoursWins}`;
+  }
+  return `Check the savings on your own machine with the independent check: ${independent}. ${yoursWins}`;
+}
+function buildStripeInvoicePlan(invoice, chainVerified, options) {
+  if (!chainVerified) {
+    return {
+      action: "do_not_bill",
+      reason: "Ledger chain failed verification \u2014 a statement over an unverifiable ledger is not an invoice.",
+      chainUnverified: true
+    };
+  }
+  if (!options.stripeCustomerId || !options.stripeCustomerId.startsWith("cus_")) {
+    throw new Error("A Stripe customer id (cus_\u2026) is required to build a billing plan.");
+  }
+  if (invoice.feePercent === void 0 || invoice.amountDueCents === void 0) {
+    throw new Error("Invoice was not recomputed with a feePercent; cannot build a billing plan.");
+  }
+  if (invoice.verdict !== "charge" || invoice.amountDueCents <= 0) {
+    const carried = invoice.carryForwardDeficitOutUsd ?? 0;
+    const carriedIn = invoice.carryForwardDeficitInUsd ?? 0;
+    const billableNetUsd = invoice.netVerifiedSavingsUsd - carriedIn;
+    let reason;
+    if (carried > 0) {
+      reason = `do_not_charge: $${carried.toFixed(4)} verified-savings deficit carries forward; fees resume only after it is recovered.`;
+    } else if (billableNetUsd > 0) {
+      reason = `do_not_charge: the ${invoice.feePercent}% fee on $${billableNetUsd.toFixed(4)} net verified savings${carriedIn > 0 ? ` (after $${carriedIn.toFixed(4)} deficit carried in)` : ""} is below one cent, so nothing is billed yet.`;
+    } else {
+      reason = "do_not_charge: the period's net verified savings were not positive, so nothing is billed.";
+    }
+    return { action: "do_not_bill", reason, chainUnverified: false };
+  }
+  const currency = (options.currency ?? DEFAULT_CURRENCY).toLowerCase();
+  const period = invoice.period ?? "all-recorded-periods";
+  const net = invoice.netVerifiedSavingsUsd;
+  const carryIn = invoice.carryForwardDeficitInUsd ?? 0;
+  const label = options.customerLabel ?? options.stripeCustomerId;
+  const description = `MESH fee \u2014 ${invoice.feePercent}% of $${(net - carryIn).toFixed(2)} net verified savings${carryIn > 0 ? ` (after $${carryIn.toFixed(2)} deficit carried in)` : ""}, period ${period}. ` + recomputeInstruction(invoice.period);
+  return {
+    action: "bill",
+    customerId: options.stripeCustomerId,
+    amountCents: invoice.amountDueCents,
+    currency,
+    description,
+    idempotencyKey: `mesh-${options.stripeCustomerId}-${period}-${invoice.amountDueCents}`,
+    finalize: options.mode === "finalize",
+    metadata: {
+      mesh_period: period,
+      mesh_fee_percent: String(invoice.feePercent),
+      mesh_net_verified_savings_usd: net.toFixed(4),
+      mesh_events_billed: String(invoice.eventsBilled),
+      mesh_customer_label: label
+    }
+  };
+}
+var DEFAULT_CURRENCY, VERIFY_PACKAGE_COMMAND;
 var init_stripe_billing = __esm({
   "packages/core/src/stripe-billing.ts"() {
     "use strict";
+    DEFAULT_CURRENCY = "usd";
+    VERIFY_PACKAGE_COMMAND = "npx -y -p @harrym1707/verify mesh-verify";
   }
 });
 
@@ -4362,9 +4561,11 @@ var init_security = __esm({
 });
 
 // packages/core/src/accounts.ts
+var DEFAULT_FEE_PERCENT;
 var init_accounts = __esm({
   "packages/core/src/accounts.ts"() {
     "use strict";
+    DEFAULT_FEE_PERCENT = 1;
   }
 });
 
@@ -4409,6 +4610,158 @@ var init_billing_worker = __esm({
   }
 });
 
+// packages/core/src/manual-billing-checks.ts
+import { createHash as createHash8, createPrivateKey, createPublicKey, generateKeyPairSync, sign, verify } from "node:crypto";
+function statementSeal(body) {
+  const { sha256: _sha256, sha256Of: _sha256Of, signature: _signature, ...content } = body;
+  return createHash8("sha256").update(canonicalJson(content)).digest("hex");
+}
+function checkStatementSeal(document) {
+  if (typeof document !== "object" || document === null || Array.isArray(document)) return false;
+  const record = document;
+  return typeof record.sha256 === "string" && record.sha256 === statementSeal(record);
+}
+function exactBase64(value, length) {
+  if (typeof value !== "string") return void 0;
+  const bytes = Buffer.from(value, "base64");
+  return bytes.length === length && bytes.toString("base64") === value ? bytes : void 0;
+}
+function publicKeyObject(raw) {
+  return createPublicKey({ key: Buffer.concat([ED25519_SPKI_PREFIX, raw]), format: "der", type: "spki" });
+}
+function privateKeyObject(rawSeed) {
+  return createPrivateKey({ key: Buffer.concat([ED25519_PKCS8_PREFIX, rawSeed]), format: "der", type: "pkcs8" });
+}
+function statementKeyFingerprint(publicKey) {
+  const raw = typeof publicKey === "string" ? exactBase64(publicKey, 32) : Buffer.from(publicKey);
+  if (raw === void 0 || raw.length !== 32) throw new Error("A statement public key is 32 bytes (base64).");
+  return createHash8("sha256").update(raw).digest("hex");
+}
+function statementKeyFromPrivate(privateKey) {
+  const seed = exactBase64(privateKey, 32);
+  if (seed === void 0) throw new Error("A statement private key is 32 bytes (base64).");
+  const spki = createPublicKey(privateKeyObject(seed)).export({ format: "der", type: "spki" });
+  const raw = Buffer.from(spki.subarray(spki.length - 32));
+  const publicKey = raw.toString("base64");
+  return { publicKey, privateKey, fingerprint: statementKeyFingerprint(raw) };
+}
+function generateStatementKey() {
+  const { privateKey } = generateKeyPairSync("ed25519");
+  const pkcs8 = privateKey.export({ format: "der", type: "pkcs8" });
+  return statementKeyFromPrivate(Buffer.from(pkcs8.subarray(pkcs8.length - 32)).toString("base64"));
+}
+function serializeStatementKeyFile(key, createdAt) {
+  return `${JSON.stringify({
+    schema: STATEMENT_KEY_SCHEMA,
+    note: STATEMENT_KEY_NOTE,
+    algorithm: STATEMENT_SIGNATURE_ALGORITHM,
+    createdAt,
+    fingerprint: key.fingerprint,
+    publicKey: key.publicKey,
+    privateKey: key.privateKey
+  }, null, 2)}
+`;
+}
+function parseStatementKeyFile(text) {
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error("it is not JSON");
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("it is not a statement key file");
+  const file = parsed;
+  if (file.schema !== STATEMENT_KEY_SCHEMA) throw new Error(`its schema is not ${STATEMENT_KEY_SCHEMA}`);
+  if (file.algorithm !== STATEMENT_SIGNATURE_ALGORITHM) throw new Error(`its algorithm is not ${STATEMENT_SIGNATURE_ALGORITHM}`);
+  if (exactBase64(file.privateKey, 32) === void 0) throw new Error("its private key is missing or is not 32 bytes of base64");
+  let key;
+  try {
+    key = statementKeyFromPrivate(file.privateKey);
+  } catch {
+    throw new Error("its private key is not a usable ed25519 key");
+  }
+  if (file.publicKey !== key.publicKey) throw new Error("its public key is not the one its private key produces");
+  if (file.fingerprint !== key.fingerprint) throw new Error("its fingerprint is not the fingerprint of its public key");
+  return key;
+}
+function signStatementSeal(seal, privateKey) {
+  if (!HEX_64.test(seal)) throw new Error("A statement seal is 64 lowercase hexadecimal characters.");
+  const key = statementKeyFromPrivate(privateKey);
+  const seed = exactBase64(privateKey, 32);
+  return {
+    algorithm: STATEMENT_SIGNATURE_ALGORITHM,
+    publicKey: key.publicKey,
+    fingerprint: key.fingerprint,
+    signs: STATEMENT_SIGNATURE_RULE,
+    value: sign(null, Buffer.from(seal, "utf8"), privateKeyObject(seed)).toString("base64")
+  };
+}
+function verifyStatementSignature(statement) {
+  const bad = (code, reason) => ({ ok: false, code, reason });
+  if (typeof statement !== "object" || statement === null || Array.isArray(statement)) {
+    return bad("seal", "it is not a statement (not a JSON object).");
+  }
+  const record = statement;
+  if (!checkStatementSeal(record)) return bad("seal", "its content does not match its sha256 seal.");
+  const signature = record.signature;
+  if (signature === void 0) return bad("unsigned", "it carries no signature.");
+  if (typeof signature !== "object" || signature === null || Array.isArray(signature)) {
+    return bad("malformed", "its signature field is not a signature object.");
+  }
+  const { algorithm, publicKey, fingerprint, signs, value } = signature;
+  if (algorithm !== STATEMENT_SIGNATURE_ALGORITHM) return bad("malformed", `its signature algorithm is not ${STATEMENT_SIGNATURE_ALGORITHM}.`);
+  if (signs !== STATEMENT_SIGNATURE_RULE) return bad("malformed", "its signature does not say it signs the statement's seal by the rule this build uses.");
+  const rawPublicKey = exactBase64(publicKey, 32);
+  if (rawPublicKey === void 0) return bad("malformed", "its signature's public key is not 32 bytes of base64.");
+  const rawValue = exactBase64(value, 64);
+  if (rawValue === void 0) return bad("malformed", "its signature value is not 64 bytes of base64.");
+  const actualFingerprint = statementKeyFingerprint(rawPublicKey);
+  if (fingerprint !== actualFingerprint) return bad("malformed", "its signature's fingerprint is not the fingerprint of its public key.");
+  let verified = false;
+  try {
+    verified = verify(null, Buffer.from(record.sha256, "utf8"), publicKeyObject(rawPublicKey), rawValue);
+  } catch {
+    verified = false;
+  }
+  if (!verified) return bad("invalid", "the signature does not verify against the public key in the file.");
+  return { ok: true, fingerprint: actualFingerprint };
+}
+function unsignedStatementOrigin(statement) {
+  const mesh = isRecord(statement) ? statement.mesh : void 0;
+  const text = isRecord(mesh) && typeof mesh.version === "string" ? mesh.version : "";
+  const parts = PLAIN_VERSION.exec(text);
+  const version = parts === null ? {} : { version: text };
+  if (isRecord(statement) && statement.sha256Of === STATEMENT_SEAL_RULE) return { ...version, predatesSigning: false };
+  if (parts === null) return { predatesSigning: true };
+  const since = PLAIN_VERSION.exec(STATEMENT_SIGNING_SINCE);
+  for (let index = 1; index <= 3; index += 1) {
+    const difference = Number(parts[index]) - Number(since[index]);
+    if (difference !== 0) return { ...version, predatesSigning: difference < 0 };
+  }
+  return { ...version, predatesSigning: false };
+}
+var STATEMENT_SCHEMA, STATEMENT_SEAL_RULE, STATEMENT_SIGNING_SINCE, STATEMENT_SIGNATURE_ALGORITHM, STATEMENT_SIGNATURE_RULE, STATEMENT_KEY_SCHEMA, STATEMENT_KEY_DIR, STATEMENT_KEY_FILE, STATEMENT_KEY_NOTE, HEX_64, ED25519_PKCS8_PREFIX, ED25519_SPKI_PREFIX, isRecord, PLAIN_VERSION;
+var init_manual_billing_checks = __esm({
+  "packages/core/src/manual-billing-checks.ts"() {
+    "use strict";
+    init_price_catalogue();
+    STATEMENT_SCHEMA = "mesh-statement/1";
+    STATEMENT_SEAL_RULE = "sha256 of this document as canonical JSON (keys sorted, no whitespace) without the sha256, sha256Of and signature fields";
+    STATEMENT_SIGNING_SINCE = "0.2.5";
+    STATEMENT_SIGNATURE_ALGORITHM = "ed25519";
+    STATEMENT_SIGNATURE_RULE = "ed25519 signature, by the statement key of the MESH install that wrote this file, over the value of this document's sha256 field (its 64 lowercase hexadecimal characters as UTF-8 bytes)";
+    STATEMENT_KEY_SCHEMA = "mesh-statement-key/1";
+    STATEMENT_KEY_DIR = "identity";
+    STATEMENT_KEY_FILE = "statement-key.json";
+    STATEMENT_KEY_NOTE = "PRIVATE. This is the statement key of this MESH install: it signs the statements `mesh statement` writes. Never share, send or commit this file. The only part to give MESH is the fingerprint, printed by `mesh statement --key`.";
+    HEX_64 = /^[0-9a-f]{64}$/;
+    ED25519_PKCS8_PREFIX = Buffer.from("302e020100300506032b657004220420", "hex");
+    ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
+    isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
+    PLAIN_VERSION = /^(\d{1,4})\.(\d{1,4})\.(\d{1,4})$/;
+  }
+});
+
 // packages/core/src/index.ts
 var init_src = __esm({
   "packages/core/src/index.ts"() {
@@ -4449,6 +4802,7 @@ var init_src = __esm({
     init_github_oauth();
     init_stripe_client();
     init_billing_worker();
+    init_manual_billing_checks();
   }
 });
 
@@ -5399,6 +5753,17 @@ var init_billing_worker2 = __esm({
   }
 });
 
+// packages/core/dist/src/manual-billing-checks.js
+var ED25519_PKCS8_PREFIX2, ED25519_SPKI_PREFIX2;
+var init_manual_billing_checks2 = __esm({
+  "packages/core/dist/src/manual-billing-checks.js"() {
+    "use strict";
+    init_price_catalogue2();
+    ED25519_PKCS8_PREFIX2 = Buffer.from("302e020100300506032b657004220420", "hex");
+    ED25519_SPKI_PREFIX2 = Buffer.from("302a300506032b6570032100", "hex");
+  }
+});
+
 // packages/core/dist/src/index.js
 var init_src2 = __esm({
   "packages/core/dist/src/index.js"() {
@@ -5439,6 +5804,7 @@ var init_src2 = __esm({
     init_github_oauth2();
     init_stripe_client2();
     init_billing_worker2();
+    init_manual_billing_checks2();
   }
 });
 
@@ -6398,13 +6764,36 @@ var init_cta = __esm({
   }
 });
 
+// packages/cli/src/bill-verdict.ts
+function recomputeBillInvoice(events) {
+  return recomputeInvoice(events, { feePercent: CONTRACTED_FEE_PERCENT });
+}
+function feeIsBelowOneCent(invoice) {
+  const billableNetUsd = invoice.netVerifiedSavingsUsd - (invoice.carryForwardDeficitInUsd ?? 0);
+  return invoice.verdict === "do_not_charge" && billableNetUsd > 0;
+}
+function verdictNote(invoice) {
+  if (feeIsBelowOneCent(invoice)) {
+    return `do_not_charge: the ${invoice.feePercent ?? CONTRACTED_FEE_PERCENT}% fee is below one cent`;
+  }
+  return invoice.verdict;
+}
+var CONTRACTED_FEE_PERCENT;
+var init_bill_verdict = __esm({
+  "packages/cli/src/bill-verdict.ts"() {
+    init_accounts();
+    init_savings_ledger();
+    CONTRACTED_FEE_PERCENT = DEFAULT_FEE_PERCENT;
+  }
+});
+
 // packages/cli/src/update.ts
 var update_exports = {};
 __export(update_exports, {
   pullNewerRuntime: () => pullNewerRuntime,
   runUpdate: () => runUpdate
 });
-import { createHash as createHash7 } from "node:crypto";
+import { createHash as createHash9 } from "node:crypto";
 import { copyFileSync, existsSync as existsSync5, mkdirSync as mkdirSync6, readFileSync as readFileSync5, writeFileSync as writeFileSync4 } from "node:fs";
 import { homedir as homedir2 } from "node:os";
 import { join as join4 } from "node:path";
@@ -6435,7 +6824,7 @@ async function pullNewerRuntime() {
   } catch {
     return null;
   }
-  if (createHash7("sha256").update(bytes).digest("hex") !== manifest.sha256) return null;
+  if (createHash9("sha256").update(bytes).digest("hex") !== manifest.sha256) return null;
   if (existsSync5(RUNTIME)) {
     copyFileSync(RUNTIME, BACKUP);
     if (have !== null) writeFileSync4(BACKUP_VERSION, have);
@@ -6488,7 +6877,7 @@ async function runUpdate(argv) {
     console.error(String(error));
     process.exit(1);
   }
-  if (createHash7("sha256").update(bytes).digest("hex") !== manifest.sha256) {
+  if (createHash9("sha256").update(bytes).digest("hex") !== manifest.sha256) {
     console.log("failed");
     console.error("The downloaded runtime failed its checksum \u2014 refusing to install it.");
     process.exit(1);
@@ -6667,12 +7056,16 @@ function readLedger(ledgerDir) {
 }
 function summariseLedger(ledgerDir) {
   const { records, chainOk, brokenAt } = readLedger(ledgerDir);
-  if (records.length === 0) return { events: 0, savedUsd: 0, verdict: "do_not_charge", chainOk, ...brokenAt === void 0 ? {} : { brokenAt } };
-  const invoice = recomputeInvoice(records.map((r) => r.event));
+  if (records.length === 0) {
+    return { events: 0, savedUsd: 0, verdict: "do_not_charge", verdictNote: "do_not_charge", hasVerifiedSavings: false, chainOk, ...brokenAt === void 0 ? {} : { brokenAt } };
+  }
+  const invoice = recomputeBillInvoice(records.map((r) => r.event));
   return {
     events: records.length,
     savedUsd: invoice.netVerifiedSavingsUsd,
     verdict: invoice.verdict,
+    verdictNote: verdictNote(invoice),
+    hasVerifiedSavings: invoice.netVerifiedSavingsCents > 0,
     chainOk,
     ...brokenAt === void 0 ? {} : { brokenAt }
   };
@@ -6781,7 +7174,7 @@ async function runServe(argv) {
     }
     if (s.events === lastEvents || s.events === 0) return;
     lastEvents = s.events;
-    console.log(`[${stamp()}] ${T} ${s.events} requests \xB7 $${s.savedUsd.toFixed(4)} verified saved (${s.verdict})`);
+    console.log(`[${stamp()}] ${T} ${s.events} requests \xB7 $${s.savedUsd.toFixed(4)} verified saved (${s.verdictNote})`);
   }, 1e4);
   const UPDATE_CHECK_MS = 6 * 60 * 60 * 1e3;
   const autoUpdate = process.env.MESH_NO_AUTO_UPDATE === void 0 && BUILD_COMMIT !== "dev";
@@ -6958,8 +7351,9 @@ var init_start = __esm({
     init_theo();
     init_claude_wiring();
     init_cta();
+    init_bill_verdict();
     init_update();
-    BUILD_COMMIT = true ? "65dcbec" : process.env.MESH_BUILD_COMMIT ?? "dev";
+    BUILD_COMMIT = true ? "59363e8" : process.env.MESH_BUILD_COMMIT ?? "dev";
     MESH_HOME = join5(homedir3(), ".mesh");
     CLAUDE_SETTINGS = join5(homedir3(), ".claude", "settings.json");
     WIRING_STATE = join5(MESH_HOME, "claude-wiring.json");
@@ -7162,12 +7556,14 @@ async function runStatus(_argv) {
   console.log(`  mesh status \u2014 build ${BUILD_COMMIT}`);
   console.log(`  service   ${loaded ? "installed (launchd)" : "not installed"}`);
   console.log(`  proxy     ${up ? `up on http://127.0.0.1:${port}` : "not responding"}`);
-  if (s.events > 0) {
-    console.log(`  \u2B22 theo    ${s.events} requests seen \xB7 $${s.savedUsd.toFixed(4)} verified saved (${s.verdict})`);
+  if (s.events > 0 && !s.chainOk) {
+    console.log(`  \u2B22 theo    ${s.events} requests seen \xB7 ledger did NOT verify, so no savings figure \xB7 run: mesh verify`);
+  } else if (s.events > 0) {
+    console.log(`  \u2B22 theo    ${s.events} requests seen \xB7 $${s.savedUsd.toFixed(4)} verified saved (${s.verdictNote})`);
   } else {
     console.log(`  \u2B22 theo    no traffic yet \u2014 use Claude Code and check back`);
   }
-  if (s.chainOk && s.verdict === "charge" && s.savedUsd > 0) {
+  if (s.chainOk && s.hasVerifiedSavings) {
     console.log(`  claim     keep these savings metered \u2192 ${MESH_SIGNUP_URL}`);
   }
   const cov = policyCoverage(readPolicy());
@@ -7197,9 +7593,11 @@ var init_daemon = __esm({
 // packages/cli/src/verify.ts
 var verify_exports = {};
 __export(verify_exports, {
+  formatCheck: () => formatCheck,
+  ledgerChecks: () => ledgerChecks,
   runVerify: () => runVerify
 });
-import { createHash as createHash8 } from "node:crypto";
+import { createHash as createHash10 } from "node:crypto";
 import { existsSync as existsSync8, readFileSync as readFileSync8, readdirSync as readdirSync3 } from "node:fs";
 import { homedir as homedir5 } from "node:os";
 import { join as join7 } from "node:path";
@@ -7221,13 +7619,74 @@ function sampleRequest() {
     ]
   };
 }
+function formatCheck(check) {
+  const mark = check.notChecked ? "\u2013" : check.ok ? "\u2713" : "\u2717";
+  return `  ${mark} ${check.name.padEnd(12)} ${check.detail}`;
+}
+function ledgerChecks(ledgerDir) {
+  const spools = existsSync8(ledgerDir) ? readdirSync3(ledgerDir).filter(isSpool).sort() : [];
+  if (spools.length === 0) {
+    return [
+      { name: "ledger", ok: true, detail: "no ledger yet \u2014 run `mesh start` and use Claude Code, then verify again" },
+      { name: "determinism", ok: true, detail: "nothing to recompute yet" }
+    ];
+  }
+  const all = [];
+  const failures = [];
+  let total = 0;
+  for (const spool of spools) {
+    let text;
+    try {
+      text = readFileSync8(join7(ledgerDir, spool), "utf8");
+    } catch (cause) {
+      failures.push(`${spool}: could not be read (${cause instanceof Error ? cause.message : String(cause)})`);
+      continue;
+    }
+    const records = [];
+    let unreadableLine;
+    text.split(/\r?\n/).forEach((line, index) => {
+      if (line.trim() === "" || unreadableLine !== void 0) return;
+      try {
+        records.push(JSON.parse(line));
+      } catch {
+        unreadableLine = index + 1;
+      }
+    });
+    if (unreadableLine !== void 0) {
+      failures.push(`${spool}: line ${unreadableLine} is not a readable ledger record`);
+      continue;
+    }
+    total += records.length;
+    const chain = verifyLedgerChain(records);
+    if (!chain.ok) failures.push(`${spool}: broken at seq ${chain.seq} (${chain.reason})`);
+    all.push(...records);
+  }
+  if (failures.length > 0) {
+    return [
+      { name: "ledger", ok: false, detail: failures.join("; ") },
+      { name: "determinism", ok: false, notChecked: true, detail: "not checked: the ledger did not verify" }
+    ];
+  }
+  const events = all.map((r) => r.event);
+  const once = JSON.stringify(recomputeBillInvoice(events));
+  const twice = JSON.stringify(recomputeBillInvoice(events));
+  const invoice = recomputeBillInvoice(events);
+  return [
+    { name: "ledger", ok: true, detail: `hash-chain verified across ${spools.length} spool(s), ${total} record(s)` },
+    {
+      name: "determinism",
+      ok: once === twice,
+      detail: once === twice ? `invoice recomputes identically: $${invoice.netVerifiedSavingsUsd.toFixed(4)} verified (${verdictNote(invoice)})` : "invoice is NON-deterministic \u2014 this should never happen; please report it"
+    }
+  ];
+}
 async function runVerify(_argv) {
   const checks = [];
   const runtimeDir = join7(homedir5(), ".mesh", "runtime");
   const runtimeFile = join7(runtimeDir, "mesh-runtime.mjs");
   const recordedSha = existsSync8(join7(runtimeDir, "sha256")) ? readFileSync8(join7(runtimeDir, "sha256"), "utf8").trim() : null;
   if (recordedSha !== null && existsSync8(runtimeFile)) {
-    const actual = createHash8("sha256").update(readFileSync8(runtimeFile)).digest("hex");
+    const actual = createHash10("sha256").update(readFileSync8(runtimeFile)).digest("hex");
     checks.push({
       name: "provenance",
       ok: actual === recordedSha,
@@ -7243,54 +7702,14 @@ async function runVerify(_argv) {
     ok: reducerOk,
     detail: reducerOk ? `lossless: ${summary.estimatedTokensBefore} \u2192 ${summary.estimatedTokensAfter} tokens (\u2212${summary.estimatedLosslessTokensSaved}), ${summary.changes.length} lever(s)` : `reducer did not fire (${summary.skippedReason ?? "no lossless saving"})`
   });
-  if (!existsSync8(LEDGER_DIR) || readdirSync3(LEDGER_DIR).filter((f) => f.endsWith(".jsonl") && !f.endsWith(".features.jsonl")).length === 0) {
-    checks.push({ name: "ledger", ok: true, detail: "no ledger yet \u2014 run `mesh start` and use Claude Code, then verify again" });
-    checks.push({ name: "determinism", ok: true, detail: "nothing to recompute yet" });
-  } else {
-    const spools = readdirSync3(LEDGER_DIR).filter((f) => f.endsWith(".jsonl") && !f.endsWith(".features.jsonl"));
-    const all = [];
-    let chainOk = true;
-    let chainDetail = "";
-    let total = 0;
-    for (const spool of spools) {
-      const records = [];
-      for (const line of readFileSync8(join7(LEDGER_DIR, spool), "utf8").trim().split(/\r?\n/)) {
-        if (line.trim() === "") continue;
-        try {
-          records.push(JSON.parse(line));
-        } catch {
-        }
-      }
-      total += records.length;
-      const chain = verifyLedgerChain(records);
-      if (!chain.ok) {
-        chainOk = false;
-        chainDetail = `${spool}: broken at seq ${chain.seq} (${chain.reason})`;
-      }
-      all.push(...records);
-    }
-    checks.push({
-      name: "ledger",
-      ok: chainOk,
-      detail: chainOk ? `hash-chain verified across ${spools.length} spool(s), ${total} record(s)` : chainDetail
-    });
-    const events = all.map((r) => r.event);
-    const once = JSON.stringify(recomputeInvoice(events));
-    const twice = JSON.stringify(recomputeInvoice(events));
-    const invoice = recomputeInvoice(events);
-    checks.push({
-      name: "determinism",
-      ok: once === twice,
-      detail: once === twice ? `invoice recomputes identically: $${invoice.netVerifiedSavingsUsd.toFixed(4)} verified (${invoice.verdict})` : "invoice is NON-deterministic \u2014 this should never happen; please report it"
-    });
-  }
+  checks.push(...ledgerChecks(LEDGER_DIR));
   console.log("");
   console.log(`  mesh verify \u2014 build ${BUILD_COMMIT}`);
   console.log("");
   let allOk = true;
   for (const c of checks) {
     allOk = allOk && c.ok;
-    console.log(`  ${c.ok ? "\u2713" : "\u2717"} ${c.name.padEnd(12)} ${c.detail}`);
+    console.log(formatCheck(c));
   }
   console.log("");
   console.log(`  Savings are measured from your provider's own reported usage, never MESH's estimate.`);
@@ -7299,19 +7718,22 @@ async function runVerify(_argv) {
   console.log(allOk ? `  All checks passed.` : `  SOME CHECKS FAILED \u2014 see above.`);
   if (!allOk) process.exit(1);
 }
-var LEDGER_DIR;
+var LEDGER_DIR, isSpool;
 var init_verify = __esm({
   "packages/cli/src/verify.ts"() {
     init_savings_ledger();
     init_reduce_request();
+    init_bill_verdict();
     init_start();
     LEDGER_DIR = join7(homedir5(), ".mesh", "ledger");
+    isSpool = (file) => file.endsWith(".jsonl") && !file.endsWith(".features.jsonl");
   }
 });
 
 // packages/cli/src/diag.ts
 var diag_exports = {};
 __export(diag_exports, {
+  VERSION: () => VERSION,
   runDoctor: () => runDoctor,
   runRestore: () => runRestore,
   runVersion: () => runVersion
@@ -7430,9 +7852,703 @@ var init_diag = __esm({
     init_start();
     init_claude_wiring();
     WIRING_PATHS = { settingsPath: CLAUDE_SETTINGS, statePath: WIRING_STATE };
-    VERSION = true ? "0.2.3" : process.env.MESH_VERSION ?? "0.0.0";
+    VERSION = true ? "0.2.5" : process.env.MESH_VERSION ?? "0.0.0";
     LAUNCHD_LABEL = "dev.meshtoken.mesh";
     nodeMajor = () => Number.parseInt(process.versions.node.split(".")[0] ?? "0", 10);
+  }
+});
+
+// packages/cli/src/statement-key.ts
+import {
+  chmodSync as chmodSync2,
+  closeSync,
+  copyFileSync as copyFileSync3,
+  constants,
+  existsSync as existsSync10,
+  fsyncSync,
+  linkSync,
+  mkdirSync as mkdirSync9,
+  openSync,
+  readFileSync as readFileSync10,
+  rmSync as rmSync3,
+  statSync as statSync4,
+  writeSync
+} from "node:fs";
+import { dirname as dirname7, join as join9 } from "node:path";
+function statementKeyPath(meshHome) {
+  return join9(meshHome, STATEMENT_KEY_DIR, STATEMENT_KEY_FILE);
+}
+function ownerOnly(path, mode) {
+  try {
+    if ((statSync4(path).mode & 511) !== mode) chmodSync2(path, mode);
+  } catch {
+  }
+}
+function readStatementKey(path) {
+  if (!existsSync10(path)) return void 0;
+  let text;
+  try {
+    text = readFileSync10(path, "utf8");
+  } catch (error) {
+    const code = error.code ?? "unreadable";
+    throw new Error(`The statement key file ${path} exists but could not be read (${code}). ${HOW_TO_REPLACE}`);
+  }
+  let key;
+  try {
+    key = parseStatementKeyFile(text);
+  } catch (error) {
+    throw new Error(
+      `The statement key file ${path} exists but is not a usable statement key: ${error.message}. ${HOW_TO_REPLACE}`
+    );
+  }
+  ownerOnly(dirname7(path), 448);
+  ownerOnly(path, 384);
+  return key;
+}
+function loadOrCreateStatementKey(path, now = /* @__PURE__ */ new Date()) {
+  const existing = readStatementKey(path);
+  if (existing !== void 0) return { key: existing, created: false };
+  const dir = dirname7(path);
+  const temporary = join9(dir, `.${STATEMENT_KEY_FILE}.${process.pid}.${Date.now()}.tmp`);
+  const fresh = generateStatementKey();
+  let created = true;
+  try {
+    try {
+      mkdirSync9(dir, { recursive: true, mode: 448 });
+      ownerOnly(dir, 448);
+      const handle = openSync(temporary, "wx", 384);
+      try {
+        writeSync(handle, serializeStatementKeyFile(fresh, now.toISOString()));
+        fsyncSync(handle);
+      } finally {
+        closeSync(handle);
+      }
+    } catch (error) {
+      throw new Error(
+        `This MESH install has no statement key yet, and one could not be created in ${dir} (${error.code ?? "error"}). A statement is signed with that key, so none was written. Make that folder writable by you and run the command again.`
+      );
+    }
+    ownerOnly(temporary, 384);
+    try {
+      linkSync(temporary, path);
+    } catch (error) {
+      const code = error.code;
+      if (code === "EEXIST") {
+        created = false;
+      } else {
+        try {
+          copyFileSync3(temporary, path, constants.COPYFILE_EXCL);
+        } catch (copyError) {
+          if (copyError.code !== "EEXIST") {
+            throw new Error(`The statement key could not be written to ${path} (${copyError.code ?? "error"}).`);
+          }
+          created = false;
+        }
+      }
+    }
+  } finally {
+    try {
+      rmSync3(temporary, { force: true });
+    } catch {
+    }
+  }
+  ownerOnly(path, 384);
+  const key = readStatementKey(path);
+  if (key === void 0) throw new Error(`The statement key could not be written to ${path}.`);
+  return { key, created: created && key.fingerprint === fresh.fingerprint };
+}
+var HOW_TO_REPLACE;
+var init_statement_key = __esm({
+  "packages/cli/src/statement-key.ts"() {
+    init_manual_billing_checks();
+    HOW_TO_REPLACE = "MESH will not replace it for you: a new key has a new fingerprint, and MESH bills only against the fingerprint you registered. If the file is damaged, restore it from a backup. To start a new key on purpose, move the file aside, run `mesh statement --key`, and register the new fingerprint with MESH through the channel agreed in writing.";
+  }
+});
+
+// packages/cli/src/statement.ts
+var statement_exports = {};
+__export(statement_exports, {
+  PERIOD_RULE: () => PERIOD_RULE,
+  SEAL_RULE: () => SEAL_RULE,
+  STATEMENT_NOTICE: () => STATEMENT_NOTICE,
+  STATEMENT_SCHEMA: () => STATEMENT_SCHEMA,
+  buildStatement: () => buildStatement,
+  checkStatementSeal: () => checkStatementSeal,
+  isPeriod: () => isPeriod,
+  listSpools: () => listSpools,
+  parseSpool: () => parseSpool,
+  renderInvalid: () => renderInvalid,
+  renderStatement: () => renderStatement,
+  runStatement: () => runStatement,
+  signStatement: () => signStatement,
+  statementSeal: () => statementSeal,
+  usd: () => usd
+});
+import { createHash as createHash11 } from "node:crypto";
+import { existsSync as existsSync11, mkdirSync as mkdirSync10, readFileSync as readFileSync11, readdirSync as readdirSync4, writeFileSync as writeFileSync7 } from "node:fs";
+import { basename, dirname as dirname8, join as join10, resolve as resolve3 } from "node:path";
+function parseSpool(name, text) {
+  const records = [];
+  const lines = text.split(/\r?\n/);
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (line.trim() === "") continue;
+    let parsed;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      return { name, records, unreadableLine: index + 1 };
+    }
+    const event = parsed?.event;
+    if (typeof event !== "object" || event === null || Array.isArray(event)) {
+      return { name, records, unreadableLine: index + 1 };
+    }
+    records.push(parsed);
+  }
+  return { name, records };
+}
+function listSpools(ledgerDir) {
+  if (!existsSync11(ledgerDir)) return [];
+  return readdirSync4(ledgerDir).filter((file) => file.endsWith(".jsonl") && !file.endsWith(".features.jsonl")).sort().map((file) => join10(ledgerDir, file));
+}
+function plainId(value) {
+  return typeof value === "string" && PLAIN_ID.test(value) ? value : WITHHELD;
+}
+function hash64(value) {
+  return typeof value === "string" && HEX_642.test(value) ? value : WITHHELD;
+}
+function isoTime(value) {
+  return typeof value === "string" && ISO_TIME.test(value) ? value : WITHHELD;
+}
+function isPeriod(value) {
+  return value !== void 0 && /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
+}
+function periodBounds(period) {
+  const year = Number(period.slice(0, 4));
+  const month = Number(period.slice(5, 7));
+  return {
+    startsAt: new Date(Date.UTC(year, month - 1, 1)).toISOString(),
+    endsBefore: new Date(Date.UTC(year, month, 1)).toISOString()
+  };
+}
+function ledgerSection(spools, period) {
+  const periodHashes = [];
+  let firstAt;
+  let lastAt;
+  const sections = spools.map((spool) => {
+    const chain = spool.unreadableLine === void 0 ? verifyLedgerChain(spool.records) : { ok: false, seq: spool.records.length, reason: `Line ${spool.unreadableLine} is not a readable ledger record.` };
+    const inPeriod = spool.records.filter((record) => record.event.invoicePeriod === period);
+    for (const record of inPeriod) {
+      periodHashes.push(hash64(record.eventHash));
+      const at = isoTime(record.event.timestamp);
+      if (at === WITHHELD) continue;
+      if (firstAt === void 0 || at < firstAt) firstAt = at;
+      if (lastAt === void 0 || at > lastAt) lastAt = at;
+    }
+    const head = spool.records.at(-1);
+    return {
+      records: spool.records.length,
+      recordsInPeriod: inPeriod.length,
+      chainVerified: chain.ok,
+      ...chain.ok ? {} : { brokenAtSeq: chain.seq, brokenReason: chain.reason },
+      ...head === void 0 ? {} : { headSeq: Number(head.seq), headHash: hash64(head.eventHash) },
+      ...inPeriod.length === 0 ? {} : {
+        firstPeriodEventHash: hash64(inPeriod[0].eventHash),
+        lastPeriodEventHash: hash64(inPeriod.at(-1).eventHash)
+      }
+    };
+  });
+  return {
+    chainVerified: sections.every((section) => section.chainVerified),
+    spools: sections,
+    records: sections.reduce((sum, section) => sum + section.records, 0),
+    recordsInPeriod: sections.reduce((sum, section) => sum + section.recordsInPeriod, 0),
+    periodEventsDigest: createHash11("sha256").update([...periodHashes].sort().join("\n")).digest("hex"),
+    ...firstAt === void 0 ? {} : { firstPeriodEventAt: firstAt },
+    ...lastAt === void 0 ? {} : { lastPeriodEventAt: lastAt }
+  };
+}
+function buildStatement(input) {
+  const { spools, period } = input;
+  if (!isPeriod(period)) throw new Error("--period must be a calendar month written YYYY-MM, for example 2026-11.");
+  const spoolNames = spools.map((spool) => spool.name);
+  const ledger = ledgerSection(spools, period);
+  if (!ledger.chainVerified) {
+    return {
+      valid: false,
+      period,
+      ledger,
+      spoolNames,
+      reason: "The ledger's hash chain does not verify, so this statement is not valid for billing."
+    };
+  }
+  const events = spools.flatMap((spool) => spool.records.map((record) => record.event));
+  const invoice = recomputeInvoice(events, { period, feePercent: DEFAULT_FEE_PERCENT });
+  const plan = buildStripeInvoicePlan(invoice, true, { stripeCustomerId: PLAN_PREVIEW_CUSTOMER });
+  const selection = selectBillableEvents(events, { period });
+  const unpriced = /* @__PURE__ */ new Map();
+  let withSavingsAlreadyYours = 0;
+  const repricing = { matched: 0, differentCatalogue: 0, mismatched: 0 };
+  for (const event of selection.billableEvents) {
+    if (event.pricingStatus === "unpriced") {
+      const provider = plainId(event.provider);
+      const model = plainId(event.model);
+      const key = `${provider}
+${model}`;
+      const row = unpriced.get(key) ?? { provider, model, requests: 0 };
+      row.requests += 1;
+      unpriced.set(key, row);
+    }
+    if ((event.excluded?.providerCacheAlreadyOwnedUsd ?? 0) !== 0 || (event.excluded?.gatewayCacheUsd ?? 0) !== 0) {
+      withSavingsAlreadyYours += 1;
+    }
+    const audit = auditEventPricing(event, publishedModelPrices2);
+    if (audit.status === "verified") repricing.matched += 1;
+    else if (audit.status === "catalogue_version_mismatch") repricing.differentCatalogue += 1;
+    else repricing.mismatched += 1;
+  }
+  const actualCostUsd = selection.consideredEvents.reduce(
+    (sum, event) => sum + (event.pricingStatus === "priced" && Number.isFinite(event.actualUsd) ? event.actualUsd : 0),
+    0
+  );
+  const now = input.now ?? /* @__PURE__ */ new Date();
+  const bounds = periodBounds(period);
+  const thisBuildVersion = catalogueVersion(publishedModelPrices2);
+  const ledgerVersions = invoice.catalogueVersions.map((version) => HEX_VERSION.test(version) ? version : WITHHELD);
+  const charge = plan.action === "bill";
+  const verdictReason = charge ? void 0 : plan.reason.replace(/^do_not_charge:\s*/, "");
+  const body = {
+    schema: STATEMENT_SCHEMA,
+    kind: "statement",
+    notice: STATEMENT_NOTICE,
+    generatedAt: now.toISOString(),
+    mesh: { version: input.version ?? VERSION, build: input.build ?? BUILD_COMMIT },
+    period: {
+      id: period,
+      timezone: "UTC",
+      startsAt: bounds.startsAt,
+      endsBefore: bounds.endsBefore,
+      closed: now.toISOString() >= bounds.endsBefore,
+      rule: PERIOD_RULE
+    },
+    currency: "USD",
+    validForBilling: true,
+    ledger,
+    requests: {
+      inPeriod: invoice.eventsConsidered,
+      duplicatesIgnored: selection.duplicatesIgnored,
+      excludedFailedTask: invoice.eventsExcludedForFailedTasks,
+      unpriced: invoice.unpricedEvents,
+      unpricedByModel: [...unpriced.values()].sort((left, right) => `${left.provider}/${left.model}` < `${right.provider}/${right.model}` ? -1 : 1),
+      withSavingsAlreadyYours,
+      withBilledSaving: invoice.eventsBilled
+    },
+    levers: invoice.lineItems.map((line) => ({
+      lever: plainId(line.leverId),
+      kind: line.kind,
+      requests: line.events,
+      savedUsd: line.savedUsd,
+      ...line.basis === void 0 ? {} : { basis: line.basis }
+    })),
+    recordedNotBilled: invoice.recordedUnbilled.map((item) => ({
+      lever: plainId(item.leverId),
+      kind: item.kind,
+      requests: item.events,
+      reason: item.reason
+    })),
+    alreadyYoursUsd: {
+      providerCache: invoice.excludedAlreadyOwned.providerCacheOnAppendedHistoryUsd,
+      gatewayCache: invoice.excludedAlreadyOwned.gatewayCacheUsd
+    },
+    totals: {
+      baselineCostUsd: actualCostUsd + invoice.netVerifiedSavingsUsd,
+      actualCostUsd,
+      netVerifiedSavingsUsd: invoice.netVerifiedSavingsUsd,
+      netVerifiedSavingsCents: invoice.netVerifiedSavingsCents
+    },
+    fee: {
+      ratePercent: invoice.feePercent ?? DEFAULT_FEE_PERCENT,
+      amountUsd: charge ? plan.amountCents / 100 : 0,
+      amountCents: charge ? plan.amountCents : 0,
+      unroundedUsd: invoice.amountDueUsd ?? 0
+    },
+    verdict: charge ? "charge" : "do_not_charge",
+    recomputeVerdict: invoice.verdict,
+    ...verdictReason === void 0 ? {} : { verdictReason },
+    deficitCarriedForwardUsd: invoice.carryForwardDeficitOutUsd ?? 0,
+    priceCatalogue: {
+      ledgerVersions,
+      thisBuildVersion,
+      thisBuildCapturedOn: publishedModelPrices2.entries.reduce(
+        (latest, entry3) => entry3.provenance.capturedOn > latest ? entry3.provenance.capturedOn : latest,
+        ""
+      ),
+      matchesThisBuild: ledgerVersions.every((version) => version === thisBuildVersion),
+      repricing
+    }
+  };
+  const sealed = { ...body, sha256Of: SEAL_RULE, sha256: statementSeal(body) };
+  return {
+    valid: true,
+    statement: input.signingKey === void 0 ? sealed : signStatement(sealed, input.signingKey),
+    spoolNames
+  };
+}
+function signStatement(statement, signingKey) {
+  const { signature: _previous, ...sealed } = statement;
+  return { ...sealed, signature: signStatementSeal(statement.sha256, signingKey) };
+}
+function usd(amount, places = 4) {
+  const text = Math.abs(amount).toFixed(places);
+  return `${amount < 0 && Number(text) !== 0 ? "-" : ""}US$${text}`;
+}
+function ledgerLines(ledger, spoolNames) {
+  const lines = [];
+  lines.push("  LEDGER");
+  lines.push(
+    ledger.chainVerified ? `    \u2713 hash chain verified: ${plural(ledger.spools.length, "spool")}, ${plural(ledger.records, "record")}, ${ledger.recordsInPeriod} in this period` : `    \u2717 HASH CHAIN BROKEN: ${plural(ledger.spools.length, "spool")}, ${plural(ledger.records, "record")}`
+  );
+  ledger.spools.forEach((spool, index) => {
+    lines.push(`    spool ${index + 1}  ${spoolNames[index] ?? ""}  (${plural(spool.records, "record")}, ${spool.recordsInPeriod} in this period)`);
+    if (!spool.chainVerified) {
+      lines.push(`      \u2717 broken at seq ${spool.brokenAtSeq}: ${spool.brokenReason}`);
+      return;
+    }
+    if (spool.headHash !== void 0) lines.push(`      head hash (seq ${spool.headSeq})`.padEnd(34) + spool.headHash);
+    if (spool.firstPeriodEventHash !== void 0) {
+      lines.push("      first event in period".padEnd(34) + spool.firstPeriodEventHash);
+      lines.push("      last event in period".padEnd(34) + spool.lastPeriodEventHash);
+    }
+  });
+  if (ledger.firstPeriodEventAt !== void 0) {
+    lines.push("    first and last request".padEnd(34) + `${ledger.firstPeriodEventAt} to ${ledger.lastPeriodEventAt}`);
+  }
+  lines.push("    digest of period events".padEnd(34) + ledger.periodEventsDigest);
+  return lines;
+}
+function renderStatement(statement, spoolNames = []) {
+  const s = statement;
+  const row = (label, value, note = "") => `    ${label.padEnd(42)}${value}${note === "" ? "" : `  ${note}`}`;
+  const lines = [];
+  lines.push("");
+  lines.push(`  mesh statement \u2014 period ${s.period.id}`);
+  lines.push(`  MESH ${s.mesh.version} (build ${s.mesh.build}) \xB7 generated ${s.generatedAt}`);
+  lines.push("");
+  lines.push("  This is a statement you can recompute from your own ledger. It is not an");
+  lines.push("  invoice: MESH issues the invoice separately, from this same ledger. If your");
+  lines.push("  recomputation disagrees with ours, yours wins.");
+  lines.push("");
+  lines.push(`  Period   ${s.period.id}: ${s.period.startsAt} up to, not including, ${s.period.endsBefore} (UTC).`);
+  lines.push("           A request counts in the UTC calendar month it started in.");
+  if (!s.period.closed) {
+    lines.push("           THIS PERIOD HAS NOT ENDED YET: these figures can still change.");
+  }
+  lines.push("  Amounts  US dollars (USD).");
+  lines.push("");
+  lines.push(...ledgerLines(s.ledger, spoolNames));
+  lines.push("");
+  lines.push("  REQUESTS");
+  lines.push(row("Requests in this period", String(s.requests.inPeriod)));
+  if (s.requests.duplicatesIgnored > 0) {
+    lines.push(row("Repeated records ignored", String(s.requests.duplicatesIgnored), "(the same request recorded twice counts once)"));
+  }
+  lines.push(row("Excluded: part of a failed task", String(s.requests.excludedFailedTask), "(savings on failed work are never billed)"));
+  lines.push(row("Excluded: model not in the price list", String(s.requests.unpriced), "(not priced, so no saving is claimed)"));
+  for (const item of s.requests.unpricedByModel) {
+    lines.push(`        ${item.provider}/${item.model}: ${plural(item.requests, "request")}`);
+  }
+  const alreadyYours = s.alreadyYoursUsd.providerCache + s.alreadyYoursUsd.gatewayCache;
+  lines.push(row(
+    "Savings you already had, not counted",
+    usd(alreadyYours),
+    `(your own caching, on ${plural(s.requests.withSavingsAlreadyYours, "request")})`
+  ));
+  lines.push(row("Requests with a billed saving", String(s.requests.withBilledSaving)));
+  lines.push("");
+  lines.push("  VERIFIED SAVINGS BY LEVER");
+  if (s.levers.length === 0) {
+    lines.push("    No lever produced a billable saving in this period.");
+  } else {
+    lines.push(`    ${"Lever".padEnd(30)}${"Kind".padEnd(16)}${"Requests".padStart(8)}  ${"Verified saving".padStart(16)}`);
+    for (const lever of s.levers) {
+      lines.push(
+        `    ${lever.lever.padEnd(30)}${lever.kind.padEnd(16)}${String(lever.requests).padStart(8)}  ${usd(lever.savedUsd).padStart(16)}${lever.basis === "estimated-baseline" ? "  (estimated baseline)" : ""}`
+      );
+    }
+    if (s.levers.some((lever) => lever.savedUsd < 0)) {
+      lines.push("    A negative row is a lever that cost more than it saved. It counts against MESH.");
+    }
+  }
+  if (s.recordedNotBilled.length > 0) {
+    lines.push("    Recorded but not billed:");
+    for (const item of s.recordedNotBilled) {
+      lines.push(`    ${item.lever.padEnd(30)}${item.kind.padEnd(16)}${String(item.requests).padStart(8)}  ${item.reason}`);
+    }
+  }
+  lines.push("");
+  lines.push("  TOTALS");
+  lines.push(row("Baseline cost (without these savings)", usd(s.totals.baselineCostUsd)));
+  lines.push(row("Actual cost", usd(s.totals.actualCostUsd), "(priced requests, from your provider's reported usage)"));
+  lines.push(row("Net verified savings", usd(s.totals.netVerifiedSavingsUsd)));
+  lines.push(row(
+    `Fee at ${s.fee.ratePercent}% of net verified savings`,
+    usd(s.fee.amountUsd, 2),
+    s.fee.unroundedUsd > 0 ? `(${plural(s.fee.amountCents, "cent")}; ${usd(s.fee.unroundedUsd, 6)} rounded down to the cent, so never more than ${s.fee.ratePercent}%)` : `(${plural(s.fee.amountCents, "cent")})`
+  ));
+  lines.push(row("Verdict", s.verdict));
+  if (s.verdictReason !== void 0) lines.push(`      ${s.verdictReason}`);
+  if (s.deficitCarriedForwardUsd > 0) {
+    lines.push(row("Deficit carried forward", usd(s.deficitCarriedForwardUsd), "(offsets fees in later periods)"));
+  }
+  lines.push("    Amounts are shown rounded; totals are worked out from the unrounded figures,");
+  lines.push("    which are in the statement file.");
+  lines.push("");
+  lines.push("  PRICE LIST");
+  lines.push(row(
+    "Catalogue the ledger was priced against",
+    s.priceCatalogue.ledgerVersions.length === 0 ? "none recorded" : s.priceCatalogue.ledgerVersions.join(", ")
+  ));
+  lines.push(row(
+    "Catalogue in this build",
+    s.priceCatalogue.thisBuildVersion,
+    `(prices captured up to ${s.priceCatalogue.thisBuildCapturedOn})`
+  ));
+  const r = s.priceCatalogue.repricing;
+  const repriceNotes = [
+    ...r.differentCatalogue > 0 ? [`${r.differentCatalogue} priced with a different catalogue version, not re-derived`] : [],
+    ...r.mismatched > 0 ? [`${r.mismatched} DO NOT MATCH`] : []
+  ];
+  lines.push(row(
+    "Costs re-derived from reported usage",
+    `${r.matched} matched`,
+    repriceNotes.length === 0 ? "" : `(${repriceNotes.join("; ")})`
+  ));
+  if (r.mismatched > 0) {
+    lines.push("    Some stored costs do not match their recorded usage. Tell MESH before any invoice is issued.");
+  }
+  lines.push("");
+  return lines.join("\n");
+}
+function renderInvalid(result) {
+  const lines = [];
+  lines.push("");
+  lines.push(`  mesh statement \u2014 period ${result.period}`);
+  lines.push("");
+  lines.push(...ledgerLines(result.ledger, result.spoolNames));
+  lines.push("");
+  lines.push("  NOT VALID FOR BILLING");
+  lines.push(`  ${result.reason}`);
+  lines.push("  No figures are shown and no statement file was written. MESH does not bill");
+  lines.push("  from a ledger whose chain is broken. Keep the ledger files as they are and");
+  lines.push("  contact MESH.");
+  lines.push("");
+  return lines.join("\n");
+}
+function parse2(argv) {
+  const args = { ledgerDir: join10(MESH_HOME, "ledger"), json: false, key: false, spools: [] };
+  for (let index = 0; index < argv.length; index += 1) {
+    const key = argv[index];
+    if (key === "--help" || key === "-h") {
+      console.log(USAGE2);
+      process.exit(0);
+    }
+    if (key === "--json") {
+      args.json = true;
+      continue;
+    }
+    if (key === "--key") {
+      args.key = true;
+      continue;
+    }
+    if (!key.startsWith("--")) {
+      args.spools.push(resolve3(key));
+      continue;
+    }
+    const value = argv[index + 1];
+    if (value === void 0 || value.startsWith("--")) throw new Error(`${key} needs a value.`);
+    index += 1;
+    switch (key) {
+      case "--period":
+        args.period = value;
+        break;
+      case "--ledger":
+        args.ledgerDir = resolve3(value);
+        break;
+      case "--out":
+        args.out = resolve3(value);
+        break;
+      case "--check":
+        args.check = resolve3(value);
+        break;
+      default:
+        throw new Error(`Unknown option: ${key}`);
+    }
+  }
+  return args;
+}
+function runCheck(file) {
+  let document;
+  try {
+    document = JSON.parse(readFileSync11(file, "utf8"));
+  } catch {
+    throw new Error(`${file} could not be read as a statement file.`);
+  }
+  if (!checkStatementSeal(document)) {
+    console.log(`  \u2717 ${file} does NOT match its sha256 seal: it was edited or damaged after it was written.`);
+    process.exit(1);
+  }
+  const statement = document;
+  console.log(`  \u2713 ${file} matches its sha256 seal (${statement.sha256}).`);
+  console.log("    The seal shows the file was not altered by accident. The proof of the figures is");
+  console.log("    recomputing them from the ledger itself.");
+  const signature = verifyStatementSignature(document);
+  if (signature.ok) {
+    console.log("  \u2713 Its signature verifies against the statement key named in the file.");
+    console.log(`    Signed by statement key: ${signature.fingerprint}`);
+    console.log("    This shows the file is consistent with itself: whoever holds that key signed it.");
+    console.log("    It does not show whose key it is. MESH compares the fingerprint with the one the");
+    console.log("    customer registered; your own is printed by: mesh statement --key");
+    return;
+  }
+  const period = isPeriod(statement.period?.id) ? statement.period.id : "YYYY-MM";
+  if (signature.code === "unsigned") {
+    const { version, predatesSigning } = unsignedStatementOrigin(document);
+    if (predatesSigning) {
+      console.log("  \u2717 It is NOT signed: it was written by a MESH release that does not sign statements");
+      console.log(`    (${version === void 0 ? "it does not say which" : `it says MESH ${version}`}; signing starts with ${STATEMENT_SIGNING_SINCE}). MESH does not bill from an unsigned`);
+      console.log(`    statement. Update MESH to ${STATEMENT_SIGNING_SINCE} or later and write it again with:`);
+    } else {
+      console.log("  \u2717 It is NOT signed, although it was written by a MESH build that signs every statement");
+      console.log(`    ${version === void 0 ? "" : `(it says MESH ${version}): `}its signature was removed, or it was not written by this command.`);
+      console.log("    MESH does not bill from an unsigned statement. Write it again with:");
+    }
+    console.log(`    mesh statement --period ${period}`);
+    process.exit(1);
+  }
+  console.log(`  \u2717 Its signature does NOT verify: ${signature.reason}`);
+  console.log("    The signature or the key in the file was changed after it was signed. Write the");
+  console.log(`    statement again with: mesh statement --period ${period}`);
+  process.exit(1);
+}
+function runKey(keyFile) {
+  const { key, created } = loadOrCreateStatementKey(keyFile);
+  console.log("");
+  console.log(`  Statement key fingerprint for this MESH install${created ? " (key created just now)" : ""}:`);
+  console.log(`  ${key.fingerprint}`);
+  console.log("");
+  console.log("  Send it to MESH once, when billing is agreed, through the channel agreed in writing. It is public");
+  console.log("  and safe to share; the private half never leaves this machine. If you reinstall or move machine");
+  console.log("  the fingerprint changes, and you must register the new one the same way before your next statement.");
+  console.log("");
+  console.log(`  Key file (private, do not share): ${keyFile}`);
+  console.log("");
+}
+async function runStatement(argv, options = {}) {
+  const args = parse2(argv);
+  const keyFile = statementKeyPath(options.meshHome ?? MESH_HOME);
+  if (args.check !== void 0) {
+    runCheck(args.check);
+    return;
+  }
+  if (args.key) {
+    runKey(keyFile);
+    return;
+  }
+  if (args.period === void 0) throw new Error(`--period YYYY-MM is required.
+
+${USAGE2}`);
+  if (!isPeriod(args.period)) throw new Error("--period must be a calendar month written YYYY-MM, for example 2026-11.");
+  const paths = args.spools.length > 0 ? args.spools : listSpools(args.ledgerDir);
+  if (paths.length === 0) {
+    throw new Error(
+      `No ledger found in ${args.ledgerDir}. Run MESH on some traffic first, or pass --ledger <dir> or the spool files.`
+    );
+  }
+  const spools = paths.map((path) => parseSpool(basename(path), readFileSync11(path, "utf8")));
+  const result = buildStatement({ spools, period: args.period });
+  if (!result.valid) {
+    if (args.json) {
+      console.log(JSON.stringify({
+        schema: STATEMENT_SCHEMA,
+        kind: "statement",
+        period: { id: result.period },
+        validForBilling: false,
+        reason: result.reason,
+        ledger: result.ledger
+      }, null, 2));
+    } else {
+      console.log(renderInvalid(result));
+    }
+    process.exit(1);
+  }
+  const statement = signStatement(result.statement, loadOrCreateStatementKey(keyFile).key.privateKey);
+  const out = args.out ?? resolve3(`mesh-statement-${args.period}.json`);
+  const file = `${JSON.stringify(statement, null, 2)}
+`;
+  mkdirSync10(dirname8(out), { recursive: true });
+  writeFileSync7(out, file);
+  if (args.json) {
+    process.stdout.write(file);
+    return;
+  }
+  console.log(renderStatement(statement, result.spoolNames));
+  console.log(`  Statement file  ${out}`);
+  console.log(`  sha256 seal     ${statement.sha256}`);
+  console.log(`  Signed by this install's statement key: ${statement.signature.fingerprint}`);
+  console.log("  It holds numbers, lever names, model ids and hashes only. Send it to MESH with");
+  console.log("  your ledger files; check it later with: mesh statement --check <file>");
+  console.log("");
+}
+var STATEMENT_NOTICE, PERIOD_RULE, PLAN_PREVIEW_CUSTOMER, USAGE2, HEX_642, HEX_VERSION, PLAIN_ID, ISO_TIME, WITHHELD, SEAL_RULE, plural;
+var init_statement = __esm({
+  "packages/cli/src/statement.ts"() {
+    init_accounts();
+    init_model_prices2();
+    init_manual_billing_checks();
+    init_price_catalogue();
+    init_savings_ledger();
+    init_stripe_billing();
+    init_diag();
+    init_start();
+    init_statement_key();
+    STATEMENT_NOTICE = "This is a statement of verified savings that you can recompute from your own ledger. It is not an invoice: MESH issues the invoice separately, from this same ledger. If your recomputation disagrees with ours, yours wins.";
+    PERIOD_RULE = "A request belongs to the period stamped on its ledger event (invoicePeriod), which is the UTC calendar month of the time the request started. The bill selects events by the same stamp.";
+    PLAN_PREVIEW_CUSTOMER = "cus_statement_preview";
+    USAGE2 = `Usage: mesh statement --period YYYY-MM [options] [spool.jsonl ...]
+
+Print your statement for one billing period, recomputed from your own ledger,
+and write it to a file you can share with MESH. It is a statement you can
+recompute, not an invoice: the invoice is issued separately, and if your
+recomputation disagrees with ours, yours wins.
+
+  --period YYYY-MM   The billing period: a calendar month in UTC. Required.
+  --ledger <dir>     Ledger directory to read. Default ~/.mesh/ledger.
+  --out <file>       Where to write the statement file.
+                     Default ./mesh-statement-YYYY-MM.json.
+  --json             Print the statement as JSON instead of text.
+  --check <file>     Check that a statement file has not been edited since it
+                     was written (its sha256 seal) and that its signature
+                     verifies against the key the file names, then exit.
+  --key              Print the fingerprint of this install's statement key
+                     (creating the key if there is none yet), then exit. Give
+                     the fingerprint to MESH once, when billing is agreed.
+  --help             Show this message.
+
+Pass spool files to read exactly those instead of a ledger directory.
+Amounts are US dollars. The file holds numbers, lever names, model ids and
+hashes only: no prompts, no request content, no keys. No network calls.
+
+The statement is signed with this install's statement key, kept in
+~/.mesh/identity/statement-key.json. The private half never leaves this
+machine and is never printed; MESH bills only from a statement signed by the
+key whose fingerprint you registered.`;
+    HEX_642 = /^[0-9a-f]{64}$/;
+    HEX_VERSION = /^[0-9a-f]{8,64}$/;
+    PLAIN_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}$/;
+    ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?Z$/;
+    WITHHELD = "(withheld)";
+    SEAL_RULE = STATEMENT_SEAL_RULE;
+    plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
   }
 });
 
@@ -7446,9 +8562,9 @@ import { spawn } from "node:child_process";
 import { createServer as createServer2 } from "node:http";
 import { connect as connect3 } from "node:net";
 import { platform as platform3 } from "node:os";
-import { join as join9 } from "node:path";
+import { join as join11 } from "node:path";
 function parseArgs(argv) {
-  const args = { port: 8799, proxyPort: DEFAULT_PORT, ledgerDir: join9(MESH_HOME, "ledger"), open: true };
+  const args = { port: 8799, proxyPort: DEFAULT_PORT, ledgerDir: join11(MESH_HOME, "ledger"), open: true };
   for (let i = 0; i < argv.length; i += 1) {
     const key = argv[i];
     if (key === "--help" || key === "-h") {
@@ -7478,16 +8594,16 @@ function parseArgs(argv) {
   return args;
 }
 function proxyUp(port) {
-  return new Promise((resolve4) => {
+  return new Promise((resolve5) => {
     const sock = connect3({ host: "127.0.0.1", port }, () => {
       sock.destroy();
-      resolve4(true);
+      resolve5(true);
     });
     sock.setTimeout(400, () => {
       sock.destroy();
-      resolve4(false);
+      resolve5(false);
     });
-    sock.on("error", () => resolve4(false));
+    sock.on("error", () => resolve5(false));
   });
 }
 function computeHealth(events, policy, memory) {
@@ -7529,7 +8645,7 @@ function computeHealth(events, policy, memory) {
 }
 async function buildData(args) {
   const { records, chainOk, brokenAt } = readLedger(args.ledgerDir);
-  const invoice = records.length ? recomputeInvoice(records.map((r) => r.event)) : null;
+  const invoice = records.length ? recomputeBillInvoice(records.map((r) => r.event)) : null;
   const bundle = readPolicyBundle();
   const policy = bundle.default;
   const active = (policy.levers ?? []).map((l) => ({ lever: l.lever, class: l.class }));
@@ -7548,10 +8664,13 @@ async function buildData(args) {
     savings: invoice ? {
       netUsd: invoice.netVerifiedSavingsUsd,
       verdict: invoice.verdict,
+      feePercent: CONTRACTED_FEE_PERCENT,
+      feeCents: invoice.amountDueCents ?? 0,
+      feeBelowOneCent: feeIsBelowOneCent(invoice),
       eventsConsidered: invoice.eventsConsidered,
       eventsBilled: invoice.eventsBilled,
       unpricedEvents: invoice.unpricedEvents
-    } : { netUsd: 0, verdict: "do_not_charge", eventsConsidered: 0, eventsBilled: 0, unpricedEvents: 0 },
+    } : { netUsd: 0, verdict: "do_not_charge", feePercent: CONTRACTED_FEE_PERCENT, feeCents: 0, feeBelowOneCent: false, eventsConsidered: 0, eventsBilled: 0, unpricedEvents: 0 },
     lineItems: invoice?.lineItems ?? [],
     recordedUnbilled: invoice?.recordedUnbilled ?? [],
     health,
@@ -7590,7 +8709,7 @@ async function runDashboard(argv) {
       res.end(String(error));
     }
   });
-  await new Promise((resolve4) => server.listen(args.port, "127.0.0.1", resolve4));
+  await new Promise((resolve5) => server.listen(args.port, "127.0.0.1", resolve5));
   const url = `http://127.0.0.1:${server.address().port}`;
   console.log(`
   MESH dashboard  \xB7  ${url}`);
@@ -7616,7 +8735,7 @@ function openBrowser(url) {
 var SQUIGGLE, DOTS, DOTS_GLOW, PAGE;
 var init_dashboard = __esm({
   "packages/cli/src/dashboard.ts"() {
-    init_savings_ledger();
+    init_bill_verdict();
     init_workflow_sessions();
     init_theo_policy();
     init_theo_agent_store();
@@ -7792,7 +8911,7 @@ async function tick(){
     const d=await (await fetch('/data',{cache:'no-store'})).json();
     $('build').textContent='build '+d.build;
     $('saved').innerHTML='<span class="cur">$</span>'+usd(d.savings.netUsd);
-    const v=$('verdict'); v.textContent=d.savings.verdict==='charge'?'billing':'do not charge'; v.className='verdict '+d.savings.verdict;
+    const v=$('verdict'); v.textContent=d.savings.verdict==='charge'?'billing':(d.savings.feeBelowOneCent?('do not charge \xB7 the '+d.savings.feePercent+'% fee is below one cent'):'do not charge'); v.className='verdict '+d.savings.verdict;
     $('events').textContent=d.savings.eventsConsidered+' requests'+(d.savings.unpricedEvents?(' \xB7 '+d.savings.unpricedEvents+' unpriced (recorded, not billed)'):'');
     const h=d.health;
     const hlabel=h.status==='protected'?'Quality protected':h.status==='watch'?'Watching drift':'No traffic yet';
@@ -7839,11 +8958,11 @@ __export(compaction_exports, {
   estimateLedger: () => estimateLedger,
   runCompaction: () => runCompaction
 });
-import { writeFileSync as writeFileSync7 } from "node:fs";
-import { join as join10, resolve as resolve3 } from "node:path";
-function parse2(argv) {
+import { writeFileSync as writeFileSync8 } from "node:fs";
+import { join as join12, resolve as resolve4 } from "node:path";
+function parse3(argv) {
   const args = {
-    ledgerDir: join10(MESH_HOME, "ledger"),
+    ledgerDir: join12(MESH_HOME, "ledger"),
     atTokens: 6e4,
     summaryTokens: 2e3,
     minTurns: 3,
@@ -7852,7 +8971,7 @@ function parse2(argv) {
   for (let index = 0; index < argv.length; index += 1) {
     const key = argv[index];
     if (key === "--help" || key === "-h") {
-      console.log(USAGE2);
+      console.log(USAGE3);
       process.exit(0);
     }
     const value = argv[index + 1];
@@ -7860,7 +8979,7 @@ function parse2(argv) {
     index += 1;
     switch (key) {
       case "--ledger":
-        args.ledgerDir = resolve3(value);
+        args.ledgerDir = resolve4(value);
         break;
       case "--at-tokens":
         args.atTokens = Number(value);
@@ -7878,7 +8997,7 @@ function parse2(argv) {
         args.date = value;
         break;
       case "--json":
-        args.json = resolve3(value);
+        args.json = resolve4(value);
         break;
       default:
         throw new Error(`Unknown option: ${key}`);
@@ -7941,11 +9060,11 @@ function estimateLedger(events, args) {
   return { estimates, skipped };
 }
 function money(value) {
-  const sign = value < 0 ? "-" : "";
-  return `${sign}$${Math.abs(value).toFixed(4)}`;
+  const sign2 = value < 0 ? "-" : "";
+  return `${sign2}$${Math.abs(value).toFixed(4)}`;
 }
 async function runCompaction(argv) {
-  const args = parse2(argv);
+  const args = parse3(argv);
   const { records, chainOk, brokenAt } = readLedger(args.ledgerDir);
   if (records.length === 0) {
     console.log(`No ledger events found in ${args.ledgerDir}.`);
@@ -7957,7 +9076,7 @@ async function runCompaction(argv) {
   }
   const { estimates, skipped } = estimateLedger(records.map((record) => record.event), args);
   if (args.json !== void 0) {
-    writeFileSync7(args.json, `${JSON.stringify(estimates, null, 2)}
+    writeFileSync8(args.json, `${JSON.stringify(estimates, null, 2)}
 `);
   }
   if (estimates.length === 0) {
@@ -7987,14 +9106,14 @@ async function runCompaction(argv) {
   Advisory only: counterfactual savings, valued at the rate the ledger shows you paid.`);
   console.log(`  Not the identical-byte savings the invoice bills on \u2014 nothing here changes your ledger.`);
 }
-var USAGE2;
+var USAGE3;
 var init_compaction = __esm({
   "packages/cli/src/compaction.ts"() {
     init_cache_simulator();
     init_price_catalogue();
     init_model_prices2();
     init_start();
-    USAGE2 = `Usage: mesh compaction [options]
+    USAGE3 = `Usage: mesh compaction [options]
 
 Read your recorded ledger and estimate what context compaction would save,
 per multi-turn task. Advisory only \u2014 counterfactual, never billed.
@@ -8032,6 +9151,9 @@ Usage: mesh <command> [options]
   update     Update the runtime now (--rollback to revert to the previous one).
   verify     Re-prove MESH's claims on this machine: the build's provenance,
              your ledger's hash-chain, and a deterministic invoice recompute.
+  statement  Your statement for one billing period (--period YYYY-MM): verified
+             savings per lever and the 1% fee, recomputed from your own
+             ledger, with a file to share. A statement, not an invoice.
   doctor     Diagnose this machine: Node, the proxy, Claude Code wiring, the
              service, and the ledger \u2014 each with a one-line fix.
   restore    Put Claude Code's settings back if a MESH session was killed and
@@ -8061,6 +9183,8 @@ async function main() {
     await (await Promise.resolve().then(() => (init_update(), update_exports))).runUpdate(process.argv.slice(3));
   } else if (sub === "verify") {
     await (await Promise.resolve().then(() => (init_verify(), verify_exports))).runVerify(process.argv.slice(3));
+  } else if (sub === "statement") {
+    await (await Promise.resolve().then(() => (init_statement(), statement_exports))).runStatement(process.argv.slice(3));
   } else if (sub === "doctor") {
     await (await Promise.resolve().then(() => (init_diag(), diag_exports))).runDoctor(process.argv.slice(3));
   } else if (sub === "restore") {

@@ -100,6 +100,7 @@ function context(withStripe = true, adminToken: string | null = "admin-secret"):
     dataDir: dir,
     directDebitPaymentMethods: ["us_bank_account"],
     defaultFeePercent: 1,
+    maxChargeCents: 50_000,
     ...(withStripe ? { stripe: fakeStripe() } : {}),
     ...(adminToken ? { adminToken } : {}),
   };
@@ -162,6 +163,15 @@ describe("admin API", () => {
     const body = out.body as { stripeMode: string; outcomes: Array<{ outcome: { status: string; rail?: string } }> };
     expect(body.stripeMode).toBe("test");
     expect(body.outcomes[0]!.outcome).toMatchObject({ status: "billed", rail: "bank_transfer" });
+  });
+
+  it("refuses a billing run with no explicit period (400), and bills nothing", async () => {
+    const { ctx, accountId } = context();
+    const out = await call(ctx, "POST", "/v1/admin/billing/run", {}, "admin-secret");
+    expect(out.status).toBe(400);
+    expect((out.body as { error: string }).error).toBe("period_required");
+    // No durable billed-record was written: nothing was settled.
+    expect(ctx.accounts.get(accountId)!.billedPeriods ?? []).toHaveLength(0);
   });
 
   it("issues a refund", async () => {

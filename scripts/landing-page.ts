@@ -57,19 +57,20 @@ export function renderLanding(origin: string, repoUrl: string): string {
     { chip: "fresh result capped before it bills", tokens: approxTokens(TOOLRES_RAW) - approxTokens(TOOLRES_AFTER) },
   ];
 
-  // --- The receipt: the FIRST LIVE EXPORT, verbatim. Rows must truly sum.
-  // 30 requests, claude-sonnet-5-5, 2026-10-19; spools audited in-session.
-  // Second live export, 2026-10-19: all five agents billing, cache lever
-  // earning live, the coding agent's gate-approved cap billing. Verbatim.
+  // --- The receipt: the live export of 2026-10-26, the headline LIVE number
+  // in docs/NUMBERS.md (18.2%). 30 requests, claude-sonnet-5-5, our own test
+  // agents; spools in evals/live-exports-2026-10-26/. Rows recomputed
+  // 2026-11-19 with `mesh statement --period 2026-10` per agent spool and
+  // match NUMBERS.md's per-agent figures. Rows must truly sum.
   const SPEND = [
-    ["coding-agent", 0.06914], ["rag-docqa", 0.04057], ["batch-classifier", 0.03551],
-    ["support-chat", 0.05225], ["already-lean", 0.00570],
+    ["coding-agent", 0.05920], ["rag-docqa", 0.03913], ["batch-classifier", 0.04517],
+    ["support-chat", 0.05225], ["already-lean", 0.00529],
   ] as const;
   const SAVED = [
-    ["coding-agent — cap + schemas, net of cache", 0.02060],
-    ["batch-classifier — cache stamp, earning", 0.01015],
+    ["coding-agent — cap + schemas + cache", 0.02254],
     ["rag-docqa — duplicate excerpt removed", 0.00861],
     ["support-chat — tool-schema compaction", 0.00537],
+    ["batch-classifier — cache stamp withheld, nothing billed", 0.0],
     ["already-lean — nothing to remove", 0.0],
   ] as const;
   const spendTotal = SPEND.reduce((s, [, v]) => s + v, 0);
@@ -453,6 +454,8 @@ h2.rise{opacity:1;transform:none;transition:none}
 .field-ocean .overlap circle{fill:#F1F7FB}
 .field-ocean .btn{background:#F1F7FB;color:var(--ocean)}
 .field-ocean .btn:hover{background:#fff}
+.field-ocean .price-more{margin:var(--s3) 0 0;font-size:14px}
+.field-ocean .price-more a{color:#eaf4fb}
 
 /* ---------- sections ---------- */
 section{padding:var(--s7) var(--s4);position:relative;z-index:1}
@@ -645,7 +648,7 @@ section h2::after{content:"";position:absolute;left:50%;transform:translateX(-50
     <p class="cta-note rise">One command &middot; no signup &middot; keep your own key &middot; <b>verify every number yourself</b></p>
   </div>
   <aside class="hero-proof rise">
-    <p class="lbl"><span class="pct">${savedPct.toFixed(1)}<span>%</span></span> net savings on our last live export &mdash; verified on the provider&rsquo;s own usage, recomputable from a ledger you hold.</p>
+    <p class="lbl"><span class="pct">${savedPct.toFixed(1)}<span>%</span></span> net savings on our last live export: our own test agents, 30 real API requests, recomputable from a ledger you hold.</p>
   </aside>
 </header>
 </div>
@@ -782,11 +785,11 @@ The ledger is yours; this command recomputes the invoice from it with no network
       <h2>Proven, line by line.</h2>
       <p class="note">Most savings claims are projections. Ours come with the receipt: we ran real requests, published every line, and the rows add up to the total &mdash; check them.</p>
       <div class="figure">37.9%</div>
-      <p class="cap">saved by a single lever &mdash; switching Claude&rsquo;s cache on &mdash; measured both ways on identical prompts, answers unchanged. The receipt beside is our latest small live run: ${savedPct.toFixed(1)}% of real spend saved and billing on every active agent, the cache lever earning live. The full measured range is 26&ndash;73% by traffic type &rarr; <a href="evidence.html">evidence</a>.</p>
+      <p class="cap">saved by a single lever &mdash; switching Claude&rsquo;s cache on &mdash; measured both ways on identical prompts, answers unchanged. The receipt beside is our latest small live run on our own test agents: ${savedPct.toFixed(1)}% of real spend saved, the cache lever earning live, and nothing billed where there was nothing to save. The full measured range is 26&ndash;73% by traffic type &rarr; <a href="evidence.html">evidence</a>.</p>
     </div>
     <div class="slip rise in-self" aria-label="The export, row by row">
       <h3>MESH &mdash; LIVE EXPORT</h3>
-      <p class="meta">Second export &middot; 2026-10-19 &middot; claude-sonnet-5-5 &middot; 30 requests &middot; 5 hash chains verified</p>
+      <p class="meta">Live export &middot; 2026-10-26 &middot; claude-sonnet-5-5 &middot; 30 requests &middot; 5 hash chains verified</p>
       <p class="grp">SPEND, BY AGENT</p>
       ${spendRows}
       <p class="grp">VERIFIED SAVINGS, BY LEVER</p>
@@ -821,7 +824,8 @@ The ledger is yours; this command recomputes the invoice from it with no network
         <li>If a move loses money, that loss is ours, not yours</li>
         <li>Already efficient? Our quote will say: <strong>do not pay us</strong></li>
       </ul>
-      <a class="btn" href="start.html">Run the quote on your own export</a>
+      <a class="btn" href="pricing.html">How billing works</a>
+      <p class="price-more"><a href="start.html">Or run the quote on your own export first</a></p>
     </div>
   </div>
 </section>
@@ -859,7 +863,7 @@ The ledger is yours; this command recomputes the invoice from it with no network
 
 <footer class="quiet-foot">
   <span>mesh &mdash; verified LLM cost reduction</span>
-  <span class="links"><a href="overview.html">Overview</a><a href="segments.html">Savings</a><a href="methodology.html">Methodology</a><a href="evidence.html">Evidence</a><a href="comparison.html">Comparison</a><a href="start.html">Get started</a><a href="faq.html">FAQ</a><a href="${repoUrl}/issues/new">Contact</a><a href="${repoUrl}">GitHub</a><a href="llms.txt">llms.txt</a><a href="terms.html">Terms</a><a href="privacy.html">Privacy</a></span>
+  <span class="links"><a href="overview.html">Overview</a><a href="segments.html">Savings</a><a href="methodology.html">Methodology</a><a href="evidence.html">Evidence</a><a href="comparison.html">Comparison</a><a href="start.html">Get started</a><a href="pricing.html">Pricing</a><a href="faq.html">FAQ</a><a href="${repoUrl}/issues/new">Contact</a><a href="${repoUrl}">GitHub</a><a href="llms.txt">llms.txt</a><a href="terms.html">Terms</a><a href="privacy.html">Privacy</a></span>
   <span class="right">2026 &middot; BUSL-1.1</span>
 </footer>
 

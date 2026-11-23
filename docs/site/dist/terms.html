@@ -4,12 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Terms of use</title>
-<meta name="description" content="These terms cover the Mesh website, the Mesh software you install from it or from npm, and any paid arrangement with us. Last updated 12 November 2026.">
+<meta name="description" content="These terms cover the Mesh website, the Mesh software you install from it or from npm, and any paid arrangement with us. Last updated 18 November 2026.">
 <link rel="canonical" href="https://www.mesh-technology.com/terms.html">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="mesh">
 <meta property="og:title" content="Terms of use">
-<meta property="og:description" content="These terms cover the Mesh website, the Mesh software you install from it or from npm, and any paid arrangement with us. Last updated 12 November 2026.">
+<meta property="og:description" content="These terms cover the Mesh website, the Mesh software you install from it or from npm, and any paid arrangement with us. Last updated 18 November 2026.">
 <meta property="og:url" content="https://www.mesh-technology.com/terms.html">
 <meta property="og:image" content="https://www.mesh-technology.com/og.png">
 <meta property="og:image:width" content="1200">
@@ -70,10 +70,10 @@ li{margin:.3rem 0}
 footer{border-top:2px solid var(--signal);margin-top:3rem;padding-top:1rem;font-size:.85rem;color:var(--muted)}</style>
 </head>
 <body>
-<nav><a class="brand" href="index.html">mesh</a><span class="tagline">Less in. More out.</span><a href="index.html">Home</a><a href="start.html">Get started</a><a href="overview.html">Overview</a><a href="segments.html">Savings by segment</a><a href="methodology.html">Methodology</a><a href="evidence.html">Evidence</a><a href="comparison.html">Honest comparison</a><a href="faq.html">FAQ</a></nav>
+<nav><a class="brand" href="index.html">mesh</a><span class="tagline">Less in. More out.</span><a href="index.html">Home</a><a href="start.html">Get started</a><a href="pricing.html">Pricing</a><a href="overview.html">Overview</a><a href="segments.html">Savings</a><a href="methodology.html">Methodology</a><a href="evidence.html">Evidence</a><a href="comparison.html">Honest comparison</a><a href="faq.html">FAQ</a></nav>
 <main>
 <h1>Terms of use</h1>
-<p>These terms cover the Mesh website, the Mesh software you install from it or from npm, and any paid arrangement with us. Last updated 12 November 2026.</p>
+<p>These terms cover the Mesh website, the Mesh software you install from it or from npm, and any paid arrangement with us. Last updated 18 November 2026.</p>
 <h2>Who we are</h2>
 <p>Mesh is a trading name of <strong>Flux AI Technologies Limited</strong>, a company registered in England and Wales with company number 17543982, whose registered office is at 26 Bennett Drive, Orrell, Wigan, England, WN5 7AR. &quot;We&quot; and &quot;us&quot; mean that company.</p>
 <h2>The short version</h2>
@@ -97,8 +97,8 @@ footer{border-top:2px solid var(--signal);margin-top:3rem;padding-top:1rem;font-
 <h2>Fees</h2>
 <ul>
 <li>No fee is due unless we have agreed billing with you in writing. Email is enough.</li>
-<li>Where we have, the fee is 1% of verified savings for the month, and nothing else.</li>
-<li>Verified savings are computed from the ledger on your machine. You can recompute them yourself with <code>mesh verify</code> or the separate <code>@harrym1707/verify</code> package. If your recomputation of the same ledger differs from our statement, yours prevails.</li>
+<li>Where we have, the fee is 1% of verified savings for the month, rounded down to the cent, and nothing else. The month is the calendar month in UTC.</li>
+<li>Verified savings are computed from the ledger on your machine. You can recompute a month yourself with <code>mesh statement --period YYYY-MM</code> (<code>mesh verify</code> re-checks the whole ledger and gives the total since install), or with the separate <code>@harrym1707/verify</code> package. If your recomputation of the same ledger differs from our statement, yours prevails.</li>
 <li>If the verdict for a month is <code>do_not_charge</code>, you owe nothing for that month.</li>
 <li>We do not take payment automatically. We send a statement and an invoice.</li>
 <li>Fees exclude VAT and similar taxes, which are added where they apply.</li>

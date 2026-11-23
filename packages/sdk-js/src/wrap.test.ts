@@ -1,7 +1,8 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { chainLedgerRecord, type BillableEvent } from "../../core/dist/src/index.js";
 import { wrapMesh } from "./wrap.js";
 
 /** A minimal OpenAI-SDK-shaped client that records the request MESH actually sent. */
@@ -85,6 +86,37 @@ describe("wrapMesh (one-import drop-in)", () => {
     expect(Number.isFinite(savings.savedUsd)).toBe(true);
     expect(savings.savedUsd).toBeGreaterThanOrEqual(0);
     expect(savings.ledgerPath).toBe(join(dir, "t.jsonl"));
+  });
+
+  it("reports the fee as billed (rounded down to the cent) and a verdict that agrees with it", () => {
+    const spool = (name: string, savedUsd: number): string => {
+      const path = join(dir, name);
+      const record = chainLedgerRecord({
+        schemaVersion: 1,
+        requestId: "r1",
+        applicationId: "t",
+        invoicePeriod: "2026-11",
+        timestamp: "2026-11-10T10:00:00.000Z",
+        provider: "openai",
+        model: "gpt-5",
+        executionMode: "standard",
+        pricingStatus: "priced",
+        levers: [{ leverId: "duplicate-context-removal", kind: "lossless", savedUsd }],
+        status: "succeeded",
+      } satisfies BillableEvent, undefined);
+      writeFileSync(path, `${JSON.stringify(record)}\n`);
+      return path;
+    };
+    const savingsOf = (name: string, savedUsd: number) =>
+      wrapMesh(mockOpenAI(), { app: "t", ledgerPath: spool(name, savedUsd) }).mesh.savings();
+
+    // 1% of $21.63 is 21.63 cents: billed 21, never 22.
+    expect(savingsOf("a.jsonl", 21.63)).toMatchObject({ savedUsd: 21.63, feeUsd: 0.21, verdict: "charge" });
+    expect(savingsOf("b.jsonl", 9.5947)).toMatchObject({ feeUsd: 0.09, verdict: "charge" });
+    // Real savings whose fee is below one cent: nothing owed, and the verdict says so.
+    expect(savingsOf("c.jsonl", 0.3609)).toMatchObject({ savedUsd: 0.3609, feeUsd: 0, verdict: "do_not_charge" });
+    expect(savingsOf("d.jsonl", 0.99)).toMatchObject({ feeUsd: 0, verdict: "do_not_charge" });
+    expect(savingsOf("e.jsonl", 1)).toMatchObject({ feeUsd: 0.01, verdict: "charge" });
   });
 
   it("reports zero before any request is made", () => {

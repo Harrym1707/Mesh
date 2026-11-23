@@ -1,9 +1,9 @@
 # MESH tester guide
 
-For the first people using MESH on their own traffic. Written 2026-11-16 for
-MESH 0.2.1. It takes about five minutes to set up.
-
-**Draft.** This has not been sent to anyone. Sending it is the founder's act.
+For anyone running MESH on their own traffic. MESH is open to everyone: no
+signup, no account, no waiting list, and nobody to ask before you start.
+Written 2026-11-16 and checked again on 2026-11-19 against MESH 0.2.4, the
+current release. It takes about five minutes to set up.
 
 ## What you are testing
 
@@ -21,8 +21,10 @@ saving can be checked by you and not only by us.
 ## Before you start
 
 - Node.js 22 or newer (`node --version`). Claude Code already uses it.
-- macOS or Linux. On Windows, tell us first; the installer below is a shell
-  script and we have not walked the Windows path with a tester yet.
+- macOS or Linux. On Windows, run the installer below inside WSL: MESH
+  installs as a Linux program, and native PowerShell is not supported yet.
+  Nobody has walked the Windows path yet, so expect rough edges and say what
+  you find.
 
 ## 1. Install
 
@@ -36,7 +38,7 @@ Then check it:
 mesh version
 ```
 
-It should print `mesh 0.2.1` or later. If the command is not found, open a new
+It should print `mesh 0.2.4` or later. If the command is not found, open a new
 terminal window and try again, or run it by its full path:
 `~/.mesh/bin/mesh version`. `mesh doctor` checks the rest of the setup.
 
@@ -106,30 +108,37 @@ the base URL setting has not reached it. `mesh doctor` checks the rest.
   default (`recommend`). Do not switch on `--autonomy optimise` during this
   test: automatic adoption is not ready for real traffic yet.
 - **No automatic charge.** This tool cannot take a payment. MESH's fee is 1% of
-  verified savings, and during this test any invoice is agreed with you by
-  hand before it exists.
+  verified savings for the month, rounded down to the cent, and no fee is due
+  unless billing has been agreed with you in writing first
+  ([Pricing and billing](../site/pricing.md)).
 
 ## Seeing what it did
 
 | Command | What it shows |
 |---|---|
-| `mesh status` | Requests seen and savings so far |
+| `mesh status` | Requests seen and savings since install |
 | `mesh dashboard` | A live page on your own machine |
-| `mesh verify` | Re-checks the ledger and recomputes the figure, with no network calls |
+| `mesh verify` | Re-checks the whole ledger and recomputes the total since install, with no network calls |
+| `mesh statement --period YYYY-MM` | One calendar month (UTC): savings by lever, the fee and the verdict, and a statement file you can share. Needs 0.2.4 or later |
 
 The ledger is in `~/.mesh/ledger/`. It is yours.
 
 ## What we would like back
 
-After a few days of normal use:
+After a few days of normal use, open an
+[issue on GitHub](https://github.com/Harrym1707/Mesh/issues/new) and say:
 
-1. What `mesh status` prints.
-2. What `mesh verify` prints.
-3. Anything that broke, slowed down or surprised you, with the time it happened.
-4. If you are willing: the files in `~/.mesh/ledger/`. They contain no prompts
-   or answers; open one and look before you send it.
+1. what you ran and what you saw;
+2. anything that broke, slowed down or surprised you, with the time it
+   happened;
+3. what `mesh doctor` and `mesh version` print.
 
-Send them to whoever gave you this guide.
+An issue is public. Please do not post your figures or your ledger files in
+it. If you have a result you are willing to share (what `mesh status`,
+`mesh verify` or `mesh statement` print, or the files in `~/.mesh/ledger/`),
+say so in the issue and we reply with a private way to continue. The ledger
+and statement files contain no prompts or answers; open one and look before
+you share it.
 
 ## Stopping and removing
 
@@ -151,7 +160,7 @@ Send them to whoever gave you this guide.
 | Your app gets `Upstream unreachable` | MESH could not reach your provider | Check your network; the provider may be down |
 | An error from your provider (rate limit, bad key) | The provider's own answer, passed through unchanged | Handle it as you would without MESH |
 | Claude Code cannot connect after a crash | It still points at a MESH that is gone | `mesh restore` |
-| Anything else | | `mesh doctor`, and send us the output |
+| Anything else | | `mesh doctor`, and [open an issue](https://github.com/Harrym1707/Mesh/issues/new) with the output |
 
 To take MESH out of the picture while you investigate, stop it and remove the
 base URL setting. Your app then talks to the provider directly, as before.
