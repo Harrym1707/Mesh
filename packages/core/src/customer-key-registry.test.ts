@@ -3,6 +3,7 @@ import {
   CUSTOMER_KEY_GENESIS_HASH,
   CUSTOMER_KEY_SCHEMA,
   buildNextCustomerKeyEntry,
+  checkCustomerKeyRegistered,
   checkRegisteredKeyForStatement,
   currentCustomerKey,
   customerKeyEntryHash,
@@ -475,6 +476,17 @@ describe("checkRegisteredKeyForStatement", () => {
     expect(empty).toEqual({ ok: false, code: "no-key", reason: expected });
     const others = add([], { action: "register", customer: OTHER, fingerprint: CUSTOMER.fingerprint });
     expect(checkRegisteredKeyForStatement({ entries: others, customer: ACME, statement })).toEqual({ ok: false, code: "no-key", reason: expected });
+  });
+
+  it("the part that needs no statement gives the same two refusals, and the registration when there is one", () => {
+    const entries = registry();
+    expect(checkCustomerKeyRegistered({ entries, customer: ACME })).toEqual({ ok: true, registration: currentCustomerKey(entries, ACME) });
+    const none = checkCustomerKeyRegistered({ entries, customer: "cus_NOBODY" });
+    expect(none).toEqual(checkRegisteredKeyForStatement({ entries, customer: "cus_NOBODY", statement: statementOf(ledger(), WRITTEN_AT) }));
+    expect(none).toMatchObject({ ok: false, code: "no-key" });
+    const broken = [entries[0]!, entries[2]!];
+    expect(checkCustomerKeyRegistered({ entries: broken, customer: ACME })).toMatchObject({ ok: false, code: "registry" });
+    expect(reasonOf(checkCustomerKeyRegistered({ entries: broken, customer: ACME }))).toContain("failed its chain check at seq 2");
   });
 
   it("refuses when the customer's key was revoked, and says when", () => {

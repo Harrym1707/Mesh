@@ -478,6 +478,50 @@ export function buildNextCustomerKeyEntry(input: NextCustomerKeyEntryInput): Nex
 // Is the customer's key one a statement may be billed against?
 // ---------------------------------------------------------------------------
 
+export type CustomerKeyRegisteredCheck =
+  | { ok: true; /** The customer's current key and the entry that made it current. */ registration: CustomerKeyRegistration }
+  | {
+      ok: false;
+      /** registry: the registry does not verify. no-key: the customer has no current key. */
+      code: "registry" | "no-key";
+      /** Printed after "DO NOT BILL — ". */
+      reason: string;
+    };
+
+/**
+ * Does the registry verify, and does this customer have a current key in it?
+ * The part of the bill's check that needs no statement, so it can be made
+ * before one is read.
+ */
+export function checkCustomerKeyRegistered(input: { entries: readonly CustomerKeyEntry[]; customer: string }): CustomerKeyRegisteredCheck {
+  const { entries, customer } = input;
+  const chain = verifyCustomerKeyRegistry(entries);
+  if (!chain.ok) {
+    return {
+      ok: false,
+      code: "registry",
+      reason:
+        `the customer key registry failed its chain check at seq ${chain.seq}: ${chain.reason} ` +
+        "It was edited by hand or damaged, so no key in it is trusted. Restore it from its backup; do not repair it by hand.",
+    };
+  }
+  const registration = currentCustomerKey(entries, customer);
+  if (registration === undefined) {
+    const last = customerKeyHistory(entries, customer).at(-1);
+    return {
+      ok: false,
+      code: "no-key",
+      reason:
+        `${customer} has no current statement key in the customer key registry` +
+        (last === undefined ? "" : ` (its key was revoked at ${last.at}, registry entry seq ${last.seq})`) +
+        ". Register the fingerprint the customer sent through the channel agreed in writing " +
+        "(scripts/mesh-customer-key.ts register), never one read off a statement, " +
+        "then ask the customer to write the statement again: a statement written before its key was registered is refused.",
+    };
+  }
+  return { ok: true, registration };
+}
+
 export type RegisteredKeyCheckInput = {
   /** The registry's entries, as parsed. The chain is verified here. */
   entries: readonly CustomerKeyEntry[];
@@ -536,29 +580,10 @@ export function checkRegisteredKeyForStatement(input: RegisteredKeyCheckInput): 
   const { entries, customer, statement } = input;
   const fail = (code: "registry" | "no-key" | "statement" | "order", reason: string): RegisteredKeyCheck => ({ ok: false, code, reason });
 
-  // 1. The registry.
-  const chain = verifyCustomerKeyRegistry(entries);
-  if (!chain.ok) {
-    return fail(
-      "registry",
-      `the customer key registry failed its chain check at seq ${chain.seq}: ${chain.reason} ` +
-      "It was edited by hand or damaged, so no key in it is trusted. Restore it from its backup; do not repair it by hand.",
-    );
-  }
-
-  // 2. The customer's key.
-  const registration = currentCustomerKey(entries, customer);
-  if (registration === undefined) {
-    const last = customerKeyHistory(entries, customer).at(-1);
-    return fail(
-      "no-key",
-      `${customer} has no current statement key in the customer key registry` +
-      (last === undefined ? "" : ` (its key was revoked at ${last.at}, registry entry seq ${last.seq})`) +
-      ". Register the fingerprint the customer sent through the channel agreed in writing " +
-      "(scripts/mesh-customer-key.ts register), never one read off a statement, " +
-      "then ask the customer to write the statement again: a statement written before its key was registered is refused.",
-    );
-  }
+  // 1 and 2. The registry, and the customer's key in it.
+  const registered = checkCustomerKeyRegistered({ entries, customer });
+  if (!registered.ok) return fail(registered.code, registered.reason);
+  const { registration } = registered;
 
   // 3. When the statement was written. Only a sealed statement's time is read.
   if (!isRecord(statement)) return fail("statement", "the statement file is not a statement (it is not a JSON object).");
