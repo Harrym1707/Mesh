@@ -151,10 +151,18 @@ if (!statementHelp.includes("Usage: mesh statement") || !statementHelp.includes(
   process.exit(1);
 }
 
-// The download must expose what an agent reads: `status`, `verify` and
-// `connect` each print exactly one JSON object with their schema. A command
+// The download must expose the weekly report: it is how a user sees what
+// MESH did for them. In the empty smoke HOME it says "no requests" in words.
+const reportText = execSync(`node ${JSON.stringify(runtimeFile)} report`, { cwd: root, env: smokeEnv }).toString();
+if (!reportText.includes("Mesh saw no requests") || !reportText.includes("Fix: mesh setup")) {
+  console.error("Smoke test FAILED — runtime has no working `report` command:\n" + reportText);
+  process.exit(1);
+}
+
+// The download must expose what an agent reads: `status`, `verify`, `connect`
+// and `report` each print exactly one JSON object with their schema. A command
 // that went missing from the runtime prints the usage text instead and fails here.
-for (const [command, schema] of [["status", "mesh-status/1"], ["verify", "mesh-verify/1"], ["connect", "mesh-connect/1"]] as const) {
+for (const [command, schema] of [["status", "mesh-status/1"], ["verify", "mesh-verify/1"], ["connect", "mesh-connect/1"], ["report", "mesh-report/1"]] as const) {
   const out = execSync(`node ${JSON.stringify(runtimeFile)} ${command} --json`, { cwd: root, env: smokeEnv }).toString();
   let parsed: { schema?: unknown; mesh?: { build?: unknown } } = {};
   try { parsed = JSON.parse(out) as typeof parsed; } catch { /* reported below */ }
@@ -172,5 +180,6 @@ console.log(`  mesh-version.json  update manifest`);
 console.log(`  smoke test: mesh-runtime verify — All checks passed`);
 console.log(`  smoke test: mesh-runtime theo --help — command present`);
 console.log(`  smoke test: mesh-runtime statement --help — command present`);
-console.log(`  smoke test: mesh-runtime status|verify|connect --json — one JSON object each`);
+console.log(`  smoke test: mesh-runtime report — the weekly report in words`);
+console.log(`  smoke test: mesh-runtime status|verify|connect|report --json — one JSON object each`);
 console.log(`  publish npm with:  (cd ${path.relative(root, outDir)} && npm publish --access public)`);
