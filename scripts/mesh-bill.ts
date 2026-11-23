@@ -292,6 +292,8 @@ async function main(): Promise<void> {
   // statement or any spool is read and long before a Stripe client exists.
   const registryFile = readCustomerKeyRegistryFile(registryPath);
   let registryEntries: CustomerKeyEntry[] = [];
+  /** Hash of the registry's last entry: printed with the match, for the operator log. */
+  let registryHead = "";
   /** The customer's registered key. Always set on a real run that gets past this block. */
   let registration: CustomerKeyRegistration | undefined;
   if (registryFile.state === "missing") {
@@ -318,6 +320,7 @@ async function main(): Promise<void> {
     );
   } else {
     registryEntries = registryFile.entries;
+    registryHead = registryFile.headHash;
     const registered = checkCustomerKeyRegistered({ entries: registryEntries, customer: args.customer });
     if (registered.ok) {
       registration = registered.registration;
@@ -502,6 +505,13 @@ async function main(): Promise<void> {
       (registration === undefined ? "" : `, registered ${registration.at} (registry entry seq ${registration.seq})`) +
       ".",
     );
+    if (registration !== undefined) {
+      // For the operator log. Lines cut off the end of the registry leave a chain
+      // that still verifies; a count or head that went backwards since the last
+      // bill is how that shows.
+      const n = registryEntries.length;
+      console.log(`Customer key registry: ${registryPath} · ${n} ${n === 1 ? "entry" : "entries"} · head ${registryHead}`);
+    }
   }
 
   if (plan.action === "do_not_bill") {
