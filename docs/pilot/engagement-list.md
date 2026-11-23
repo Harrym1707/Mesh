@@ -37,11 +37,14 @@ the proof-of-pain and the audience list.
 - Reporter reconciled 40 requests against OpenAI billing: 65,304 cached tokens
   billed by OpenAI vs 49,563 recorded by LiteLLM; ~8.5% spend overstatement.
 - Relevance: this reporter did, by hand, exactly what `mesh-quote`'s
-  reconciliation section automates. The most qualified design-partner profile
-  on this list.
+  reconciliation section automates. Of the profiles on this list, the one a
+  hands-on pilot would suit best.
 
 ## Engagement rules (all three threads are closed)
 
+- MESH is open to everyone, so nothing here invites anyone into something
+  closed: a reporter can install it without hearing from us. What outreach
+  offers is the quote tool and, for a team that wants one, a hands-on pilot.
 - **Do not necropost a pitch into a closed issue.** The honest, useful moves:
   1. Reach the reporters directly (GitHub profile → listed contact) with the
      LiteLLM letter ([outreach-litellm.md](./outreach-litellm.md)), referencing
@@ -50,10 +53,18 @@ the proof-of-pain and the audience list.
      third-party evidence — they are public, numbered, and quotable.
   3. If a comment is ever warranted (e.g. a new related issue opens), it must
      be diagnostic-first: offer the reconciliation method, not the product.
-- Standing constraints from the honesty rules: 34.1% never appears in
-  engagement (simulator-measured); 64.3% only with the latency-tolerant +
-  OpenAI-priced caveat; the provider cache's own savings are always credited
-  to the operator; no mention of competitor incidents.
+- Standing constraints from the honesty rules, with figures from
+  [docs/NUMBERS.md](../NUMBERS.md) (last reconciled 2026-10-27; refreshed here
+  2026-11-16):
+  - Lead with the one LIVE figure, 18.2% (mixed 30-request basket of MESH's
+    own test agents, run 2026-10-26). Every other MESH savings figure is
+    SIMULATOR and is said to be.
+  - 34.3% (SIMULATOR, sparse interactive, 1h TTL) never appears in
+    engagement.
+  - The async figure is 57.7% net (SIMULATOR), only with the latency-tolerant
+    and OpenAI-priced caveats; the 64.3% ceiling is never quoted on its own.
+  - The provider cache's own savings are always credited to the operator.
+  - No mention of competitor incidents.
 
 ## Draft comment (held, unposted — only for a future OPEN reconciliation thread)
 
@@ -64,6 +75,17 @@ the proof-of-pain and the audience list.
 > table can't price as "unpriced" instead of zero. We open-sourced the shape of
 > that reconciliation if useful: [link]. (Happy to share the method regardless
 > of tooling.)
+
+## Which letter for whom
+
+- A LiteLLM proxy operator, such as the reporters above:
+  [outreach-litellm.md](./outreach-litellm.md).
+- A team with Helicone request exports:
+  [outreach-helicone.md](./outreach-helicone.md).
+- A team that has published its own LLM cost or caching work, where neither
+  gateway is known to be in use:
+  [outreach-cost-aware-team.md](./outreach-cost-aware-team.md). No such team
+  is named in this repository.
 
 ## Secondary audience (no named threads yet — research task, not outreach)
 
