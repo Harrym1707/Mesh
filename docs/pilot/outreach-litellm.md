@@ -77,4 +77,5 @@ run is free and local either way.
 | "hands-on pilots: measuring window, help with setup, an invoice you can check" | plan | [PILOT_PLAN.md](./PILOT_PLAN.md). Optional; no number of places is stated in the letter |
 | "no network calls, nothing uploaded" | code-enforced | quote-report.ts pure function; packaged bin makes no fetch |
 | 1% of verified savings, do_not_charge | implemented | savings-ledger.ts recomputeInvoice |
+| Not said in the letter, and not needed at first contact | site | A customer who agrees billing registers their install's statement key (`mesh statement --key`, MESH 0.2.5 or later) and is billed only from statements it signed: `docs/site/pricing.md`, [order-form.md](./order-form.md). Nobody needs a key to install, test or get a quote |
 | 34.3% sparse interactive, 1h TTL | **omitted deliberately** | SIMULATOR (docs/NUMBERS.md, arm L, `6f08b72`). Left out of outreach on 2026-10-13 because per-model cacheable minimums were not enforced; that reason was not re-checked on 2026-11-16 |

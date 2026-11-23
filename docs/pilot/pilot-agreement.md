@@ -4,7 +4,7 @@
 > founder's act, not an agent's. This is a deliberately minimal,
 > plain-language understanding for a **pilot** — see "Still needed before
 > general availability" at the end. Have a lawyer review it before relying on
-> it. Updated 2026-11-19; the current release is MESH 0.2.4.
+> it. Updated 2026-11-23; the current release is MESH 0.2.5.
 >
 > **Nobody needs this document to use MESH.** MESH is open to everyone: no
 > signup, no account, no waiting list ([Get started](../site/start.md)). A
@@ -110,11 +110,19 @@ prompt or completion content.**
   recompute that does not use the installed program at all, the MIT-licensed
   `@harrym1707/verify` package does the same on one ledger file at a time:
   `npx -y -p @harrym1707/verify mesh-verify ~/.mesh/ledger/proxy-anthropic.jsonl`.
+- **Your statement key.** Your MESH install signs each statement with a key
+  that never leaves your machine (MESH 0.2.5 or later). When the pilot is
+  agreed you run `mesh statement --key` once and send us the fingerprint it
+  prints, through [the written channel agreed for it]. It is public and safe
+  to share; you never send the key file. We bill only from statements signed
+  by that key, so nobody else, including us, can produce a statement in your
+  name. If you reinstall MESH or move machine, the fingerprint changes and
+  you register the new one the same way before your next statement.
 - **One month at a time.** Billing runs by calendar month in UTC.
-  `mesh statement --period YYYY-MM` (MESH 0.2.4 or later) recomputes one
+  `mesh statement --period YYYY-MM` recomputes one
   month from your ledger, prints the saving by lever, the fee and the
-  verdict, and writes a statement file; you send us that file and the ledger
-  files it was made from. `mesh verify` and `mesh-verify` give the total
+  verdict, and writes a signed statement file; you send us that file and the
+  ledger files it was made from. `mesh verify` and `mesh-verify` give the total
   since install, not a month. An invoice is drafted only after its month has
   ended. [How a pilot window that is shorter than a month, or crosses a
   month end, is invoiced: founder to decide before this is sent.]

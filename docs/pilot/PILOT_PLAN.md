@@ -1,6 +1,6 @@
 # MESH pilot — plan
 
-> **Draft, updated 2026-11-19. Current release: MESH 0.2.4.** No partner has
+> **Draft, updated 2026-11-23. Current release: MESH 0.2.5.** No partner has
 > been approached or signed. Setup follows the one path in
 > [onboarding.md](./onboarding.md).
 >
@@ -74,7 +74,7 @@ over the pilot window.
 | Net verified savings ($ and %) | the partner's `mesh statement --period YYYY-MM` for the month; `mesh-bill` on the statement and ledger files they send. `mesh verify` and `mesh-verify` give the total since install, not a month |
 | Savings by lever (cache stamp, schema compaction, dup removal, tier arbitrage) | invoice line items |
 | `do_not_charge` events and why | invoice verdict + reasons |
-| Did the partner recompute and agree? | their `mesh statement` for the month, which `mesh-bill` compares with its own recompute |
+| Did the partner recompute and agree? | their signed `mesh statement` for the month, which `mesh-bill` compares with its own recompute and with the key they registered |
 | Time to onboard; any request-path incident | kickoff notes (target: minutes; incidents: zero) |
 | Objections raised (esp. data / security) | engagement notes → feeds the real DPA |
 
@@ -87,8 +87,10 @@ it make a pilot about four weeks end to end.
 - **Week 0 — kickoff.** Send the [pilot agreement](./pilot-agreement.md) and
   get a "yes". The yes is for the measuring window and any invoice; the team
   does not need it to install or use MESH and may already be running it. Set
-  up or confirm onboarding ([onboarding.md](./onboarding.md)); optional day-0
-  quote from a gateway export.
+  up or confirm onboarding ([onboarding.md](./onboarding.md)), including
+  the partner registering their statement key fingerprint
+  (`mesh statement --key`, 0.2.5 or later); optional day-0 quote from a
+  gateway export.
 - **Weeks 1–2 — measure (14 days).** Normal traffic through the proxy, ledger
   in `~/.mesh/ledger/` on the partner's machine. Lossless levers on. Theo
   stays on his default autonomy, `recommend`, and is never set to `optimise`
@@ -132,6 +134,11 @@ net verified savings**, by calendar month, rounded down to the cent;
   agreement in outline; it is unreviewed and leaves the contact address,
   smallest invoice, currency, VAT wording and payment route blank. There are
   no accounts, no self-serve signup and no automatic billing.
+- **The statement key rests on its channel.** From 0.2.5 a statement is
+  signed and we bill only from one signed by the partner's registered key.
+  That shows which install wrote the statement; it is only as good as the
+  channel the fingerprint came through, and that channel is not yet fixed
+  (there is still no contact email address).
 - **Months and small invoices.** Release 0.2.4 settled two things: the fee
   is rounded down to the cent, and `mesh statement --period YYYY-MM` gives a
   partner one month's figure. Still open: the smallest invoice worth sending

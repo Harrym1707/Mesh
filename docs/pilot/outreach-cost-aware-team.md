@@ -71,7 +71,7 @@ me what `mesh status` prints?
 | A proxy on your own machine, between your agents and Anthropic or OpenAI | code | The proxy binds `127.0.0.1` (`packages/sdk-js/src/proxy.ts`); [data-handling.md](./data-handling.md) |
 | By default only changes designed not to alter the provider's answer; the three named | code and site | The default policy is `tool-schema-compaction`, `duplicate-context-removal`, `cache-prefix-repair`, all classed lossless (`packages/sdk-js/src/theo-policy.ts`); the wording is `docs/site/terms.md`, "What the software does" |
 | A hash-chained ledger on your disk of what each request cost and what was saved | code | `packages/core/src/savings-ledger.ts`; `~/.mesh/ledger/` |
-| You can recompute the figure with `mesh verify` | code | `packages/cli/src/verify.ts`. It totals the whole ledger; a single month is `mesh statement --period YYYY-MM` on 0.2.4 or later |
+| You can recompute the figure with `mesh verify` | code | `packages/cli/src/verify.ts`. It totals the whole ledger; a single month is `mesh statement --period YYYY-MM` (0.2.4 or later; signed from 0.2.5) |
 | An estimated saving is labelled as one | code | Ledger lines carry `basis: "estimated-baseline"` for token-reduction levers |
 | Key passes through and is not stored; prompts not in the ledger and not sent to us | code and site | [data-handling.md](./data-handling.md); `docs/site/privacy.md`. Request capture, off by default, is the one way prompt text is written to disk, and it stays on their machine |
 | 18.2% on a mixed 30-request basket | LIVE, run 2026-10-26 | docs/NUMBERS.md, LIVE table: `MESH_LIVE_KEEP=1 evals/run-live-agents.ts`, claude-sonnet-5-5, spools in `evals/live-exports-2026-10-26/`. MESH's own test basket, not a customer's traffic |
@@ -81,3 +81,4 @@ me what `mesh status` prints?
 | Open to everyone, no signup; the start page link | site | `docs/site/start.md` and `docs/site/faq.md`; the link answered 200 on 2026-11-19 |
 | Free to install and run; a fee only if billing is agreed in writing first; 1% of the month's verified saving | site | `docs/site/terms.md`, Fees (last updated 18 November 2026); `docs/site/pricing.md`. The letter does not say "exactly" 1% |
 | "I will not promise you a big number" | by design | docs/NUMBERS.md has a "do not pay us" reference row for already-optimised stacks. It is context, not a MESH saving, and no figure from it is quoted here |
+| Not said in the letter, and not needed at first contact | site | A customer who agrees billing registers their install's statement key (`mesh statement --key`, MESH 0.2.5 or later) and is billed only from statements it signed: `docs/site/pricing.md`, [order-form.md](./order-form.md). Nobody needs a key to install, test or get a quote |

@@ -83,4 +83,5 @@ free and stays on your machine regardless.
 | "no upload, your machine" | code-enforced | quote-report.ts + packaged local bin, no network path |
 | Helicone export parsing works | implemented, fixture-tested | packages/core/src/helicone.ts; gateway-triage gate 9/9 |
 | 1% of verified savings / $0 verdict | implemented | savings-ledger.ts recomputeInvoice, do_not_charge verdict |
+| Not said in the letter, and not needed at first contact | site | A customer who agrees billing registers their install's statement key (`mesh statement --key`, MESH 0.2.5 or later) and is billed only from statements it signed: `docs/site/pricing.md`, [order-form.md](./order-form.md). Nobody needs a key to install, test or get a quote |
 | 34.3% sparse interactive, 1h TTL | omitted deliberately | SIMULATOR (docs/NUMBERS.md, arm L, `6f08b72`) |

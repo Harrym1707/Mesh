@@ -3,8 +3,8 @@
 Since release 0.2.1 (2026-11-16) there is one way to set MESH up: install it
 from the website, then run `mesh start` (Claude Code) or `mesh proxy` (any
 other app or agent). Everyone sets it up this way, in a pilot or not, so every
-ledger lands in the same place. The current release is 0.2.4 (read
-2026-11-19, on the website and on npm); it does not change the path.
+ledger lands in the same place. The current release is 0.2.5 (read
+2026-11-23, on the website and on npm); it does not change the path.
 
 **MESH is open to everyone:** no signup, no account, no waiting list. Nobody
 needs to ask before installing or using it ([Get started](../site/start.md)).
@@ -39,10 +39,10 @@ curl -fsSL https://www.mesh-technology.com/install.sh | sh
 
 Prefer npm? `npm install -g @harrym1707/mesh` gives the same `mesh` command.
 
-`mesh version` should print `mesh 0.2.4` or later on a fresh install by
-either route (read 2026-11-19). An older website install moves to it on its
-own, or at once with `mesh update`. A pilot needs 0.2.4 or later, because the
-monthly statement command does not exist before it. `mesh doctor` checks Node,
+`mesh version` should print `mesh 0.2.5` or later on a fresh install by
+either route (read 2026-11-23). An older website install moves to it on its
+own, or at once with `mesh update`. A pilot needs 0.2.5 or later, because the
+monthly statement must be signed and earlier releases do not sign it. `mesh doctor` checks Node,
 the proxy, the Claude Code wiring, the background service and the ledger.
 
 ### 2. Connect — one of two commands
@@ -95,10 +95,38 @@ mesh statement --period YYYY-MM
 
 It re-checks the chain, recomputes that month, prints the saving by lever,
 the fee and the verdict, and writes `mesh-statement-YYYY-MM.json` in the
-folder it was run from (`--out <file>` to put it elsewhere). It needs 0.2.4
-or later. For a month that has not ended it says so, and the figures can
-still change. `mesh statement --check <file>` tells whether a statement file
-has been altered since it was written.
+folder it was run from (`--out <file>` to put it elsewhere). From 0.2.5 the
+file is signed with the install's statement key, and the command prints
+`Signed by this install's statement key:` and the fingerprint. For a month
+that has not ended it says so, and the figures can still change.
+`mesh statement --check <file>` tells whether a statement file has been
+altered since it was written, whether its signature verifies, and which key
+signed it.
+
+### 6. Register the statement key (a pilot or a paying customer only)
+
+A pilot ends in an invoice, and we bill only from a statement signed by a key
+the partner has registered. So, once, when the pilot is agreed:
+
+```bash
+mesh statement --key
+```
+
+It prints the fingerprint of this install's statement key, creating the key
+the first time: 64 hexadecimal characters. The partner sends us the
+fingerprint through the channel agreed in writing. It is public and safe to
+share.
+
+- The key itself is in `~/.mesh/identity/statement-key.json`, readable only
+  by the user. It never leaves the machine and is never sent to anyone.
+- The monthly statement is then run on that same machine.
+- After a reinstall or a move to a new machine the fingerprint is different,
+  and the new one is registered the same way before the next statement.
+- If the key file is damaged, `mesh statement` stops and says so. It does not
+  make a new key on its own.
+
+Someone who is only trying MESH, with no billing agreed, does not need to
+register anything.
 
 For a second opinion that shares no code path with the installed `mesh`, the
 MIT-licensed `@harrym1707/verify` package (0.1.0) does the same recompute on
@@ -156,11 +184,14 @@ in the [engagement list](./engagement-list.md):
    [configure guide](../guide/configure.md#optional-compact-json-tool-results)
    says how, and when not to. It needs 0.2.3 or later: 0.2.2 dropped a lever
    added by hand at Theo's next background cycle.
-5. **What reaches us, and when.** Billing runs by calendar month, so after
-   the month has ended the partner runs `mesh statement --period YYYY-MM` and
-   sends the statement file and the ledger files from `~/.mesh/ledger/` (not
-   the `.features.jsonl` files), after looking at them. How a window that
-   crosses a month end is invoiced is not decided.
+5. **What reaches us, and when.** At kickoff, the statement key fingerprint
+   (step 6 above), through a channel agreed in writing that is not the one
+   the monthly files will use. Then, billing runs by calendar month: after
+   the month has ended the partner runs `mesh statement --period YYYY-MM` on
+   the machine whose key they registered and sends the statement file and
+   the ledger files from `~/.mesh/ledger/` (not the `.features.jsonl`
+   files), after looking at them. How a window that crosses a month end is
+   invoiced is not decided.
 6. **The build can change during the window.** A `mesh` installed from the
    website keeps itself up to date from it (each runtime is checked against
    its published checksum before it runs). How an npm install is updated was
@@ -231,8 +262,11 @@ itself as `mesh 0.0.0 (build dev)` and does not update itself.
 The commands on this page were checked against the code on `main` on
 2026-11-16, and the `mesh proxy` path was run from source that day against a
 stand-in provider, with no real provider key. On 2026-11-18 the same steps
-were run on 0.2.3 as installed from the website, and on 2026-11-19
-`mesh statement` was run on 0.2.4. The details are in the dated
+were run on 0.2.3 as installed from the website, on 2026-11-19
+`mesh statement` was run on 0.2.4, and on 2026-11-23 the statement key and a
+signed statement were run on 0.2.5. The details are in the dated
 sections at the end of [VERIFICATION.md](./VERIFICATION.md). The release's own
-checks on the installed builds, 0.2.1 to 0.2.4, are in
-[the release runbook](../ops/release-0.2.0-runbook.md).
+checks on the installed builds, 0.2.1 to 0.2.3, are in
+[the release runbook](../ops/release-0.2.0-runbook.md); the billing and
+statement-key procedure is in
+[the first-invoice runbook](../ops/first-invoice-runbook.md).
