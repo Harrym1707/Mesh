@@ -41,25 +41,39 @@
  *     mismatch is DO NOT BILL, exit 1, nothing sent. A dry run without it
  *     still works and warns that a real run will need it.
  *   - The statement must be the CUSTOMER'S OWN, and the script checks that it
- *     is: a real run REQUIRES --customer-key <fingerprint>, the statement key
- *     fingerprint the customer registered when billing was agreed (they print
- *     it with `mesh statement --key`). The statement's signature must verify
- *     and must be by exactly that key. A statement with no signature (release
- *     0.2.4 wrote those), one whose signature does not verify, and one signed
- *     by any other key are each DO NOT BILL. So is a statement signed by THIS
- *     machine's own Mesh install (~/.mesh/identity/statement-key.json, when
- *     there is one), in a dry run too: that statement was written here, from
- *     whatever files arrived, and matches them trivially. A dry run without
- *     --customer-key warns, and still says which key signed the statement.
+ *     is. The statement's signature must verify and must be by exactly the
+ *     statement key REGISTERED for the customer. A statement with no signature
+ *     (release 0.2.4 wrote those), one whose signature does not verify, and
+ *     one signed by any other key are each DO NOT BILL. So is a statement
+ *     signed by THIS machine's own Mesh install (~/.mesh/identity/
+ *     statement-key.json, when there is one), in a dry run too: that statement
+ *     was written here, from whatever files arrived, and matches them
+ *     trivially.
+ *   - The registered key comes from the operator's REGISTRY and from nowhere
+ *     else: ~/.config/mesh/customer-keys.jsonl (or --registry <file>, or
+ *     $MESH_CUSTOMER_KEYS), looked up by --customer. Only
+ *     scripts/mesh-customer-key.ts writes that file; this script only reads
+ *     it. A real run REFUSES --customer-key: a fingerprint typed at billing
+ *     time can be copied from the statement that just arrived, and then the
+ *     check passes for whoever wrote that statement. Each of these is DO NOT
+ *     BILL, before any Stripe client exists: the registry is missing or cannot
+ *     be read; its hash chain is broken; the customer has no current key in
+ *     it; the key was registered AFTER the statement was written (the
+ *     registry entry's time against the statement's own sealed generatedAt:
+ *     a fingerprint read off a statement is, by construction, registered
+ *     after it). A dry run makes the same refusals when the customer is
+ *     registered. When they are not, it warns that a real run will refuse,
+ *     and may take --customer-key for a comparison only, saying so.
  *     What this does not do: it does not show the customer's ledger was
  *     complete on their machine, it is only as good as the channel the
  *     fingerprint was registered through, and it does not stop an operator
- *     who bypasses this script.
+ *     who rewrites the registry file in full or bypasses this script.
  *   - A real run refuses a period that has not ended yet in UTC; a dry run
  *     prints the same sentence as a warning and carries on. There is
  *     deliberately no flag or environment variable to override the clock.
  *   - The checks themselves are pure and unit-tested in
- *     packages/core/src/manual-billing-checks.ts; this script only calls them.
+ *     packages/core/src/manual-billing-checks.ts and
+ *     packages/core/src/customer-key-registry.ts; this script only calls them.
  *   - No prompt content is read or sent — only the usage-derived invoice totals.
  *
  * Usage:
@@ -67,12 +81,16 @@
  *     --customer cus_XXX --period 2026-10 --fee 1 spool1.jsonl [spool2.jsonl ...]
  *   STRIPE_TEST_SECRET_KEY=... node --import tsx scripts/mesh-bill.ts \
  *     --customer cus_XXX --period 2026-10 --fee 1 \
- *     --statement mesh-statement-2026-10.json --customer-key <fingerprint> \
+ *     --statement mesh-statement-2026-10.json \
  *     spool1.jsonl [spool2.jsonl ...]
- *   Required: --customer cus_…, --period YYYY-MM, at least one spool, and
- *             --statement <file> with --customer-key <fingerprint> unless
- *             --dry-run.
+ *   Required: --customer cus_…, --period YYYY-MM, at least one spool, and,
+ *             unless --dry-run, --statement <file> and the customer's key in
+ *             the registry (scripts/mesh-customer-key.ts register …).
  *   Optional: --dry-run (no key needed, nothing sent to Stripe),
+ *             --registry <file> (the customer key registry; default
+ *             $MESH_CUSTOMER_KEYS, else ~/.config/mesh/customer-keys.jsonl),
+ *             --customer-key <fingerprint> (DRY RUN ONLY, and only for a
+ *             customer not in the registry: a comparison, not the check),
  *             --days-until-due <n> (payment terms on the invoice, default 14),
  *             --finalize (finalize instead of leaving a draft),
  *             --label "acme-anthropic",
@@ -85,8 +103,10 @@ import {
   STATEMENT_KEY_DIR,
   STATEMENT_KEY_FILE,
   buildStripeInvoicePlan,
+  checkCustomerKeyRegistered,
   checkLiveChargeConfirmation,
   checkPeriodEnded,
+  checkRegisteredKeyForStatement,
   checkStatementForBilling,
   createStripeClient,
   describeBillSpool,
@@ -97,16 +117,24 @@ import {
   verifyLedgerChain,
   type BillSpool,
   type BillableEvent,
+  type CustomerKeyEntry,
+  type CustomerKeyRegistration,
   type LedgerRecord,
 } from "../packages/core/dist/src/index.js";
+import { customerKeyRegistryFilePath, readCustomerKeyRegistryFile } from "./customer-key-registry-file.js";
 
 type Args = {
   customer?: string;
   period?: string;
   /** The customer's own `mesh statement` file for the period. Required unless --dry-run. */
   statement?: string;
-  /** The statement key fingerprint the customer registered. Required with --statement unless --dry-run. */
+  /**
+   * DRY RUN ONLY: a fingerprint to compare the statement's signing key with,
+   * for a customer who is not in the registry. A real run refuses the flag.
+   */
   customerKey?: string;
+  /** The customer key registry file, when not the default. */
+  registry?: string;
   fee: number;
   label?: string;
   finalize: boolean;
@@ -135,6 +163,7 @@ function parseArgs(argv: string[]): Args {
     else if (a === "--period") args.period = argv[++i];
     else if (a === "--statement") args.statement = argv[++i];
     else if (a === "--customer-key") args.customerKey = argv[++i];
+    else if (a === "--registry") args.registry = argv[++i];
     else if (a === "--fee") args.fee = Number(argv[++i]);
     else if (a === "--label") args.label = argv[++i];
     else if (a === "--finalize") args.finalize = true;
@@ -236,29 +265,79 @@ async function main(): Promise<void> {
     );
   }
 
-  // The statement must be the customer's own: signed by the statement key whose
-  // fingerprint they registered when billing was agreed. A fingerprint is public
-  // (neither it nor the key it names is a secret), so it is safe on a command line.
+  // The statement must be the customer's own: signed by the statement key
+  // registered for them. That key is read from the operator's registry, by
+  // customer id, and from nowhere else: a fingerprint typed here at billing
+  // time could be copied from the statement that has just arrived.
+  const registryPath = customerKeyRegistryFilePath(args.registry);
+  const registerHint =
+    `node --import tsx scripts/mesh-customer-key.ts register --customer ${args.customer} ` +
+    '--fingerprint <the fingerprint the customer sent through the agreed channel> --channel "<how it was received and confirmed>"';
+  if (!args.dryRun && args.customerKey !== undefined) {
+    throw new Error(
+      "DO NOT BILL — --customer-key is not accepted on a real run. A real run reads the customer's statement key from the " +
+      `registry (${registryPath}) and from nowhere else, so that a fingerprint cannot be typed in, or copied from the ` +
+      `statement, at billing time. Register the customer's key once, when billing is agreed: ${registerHint}`,
+    );
+  }
   const customerKey = args.customerKey?.trim().toLowerCase();
   if (args.customerKey !== undefined && !isStatementKeyFingerprint(customerKey)) {
     throw new Error(
       "DO NOT BILL — --customer-key is not a statement key fingerprint. It is the 64 hexadecimal characters the " +
-      "customer's `mesh statement --key` prints, as recorded when billing was agreed.",
+      "customer's `mesh statement --key` prints.",
     );
   }
-  if (!args.dryRun && customerKey === undefined) {
-    throw new Error(
-      "DO NOT BILL — a real run needs --customer-key <fingerprint>: the statement key fingerprint the customer " +
-      "registered when billing was agreed (their `mesh statement --key` prints it). The statement's signature is " +
-      "checked against it before anything is sent, so a statement written by anyone else is refused. " +
-      "(--dry-run works without one.)",
-    );
-  }
-  if (args.dryRun && args.statement !== undefined && customerKey === undefined) {
+
+  // The registry, and this customer's key in it. Refused here, before the
+  // statement or any spool is read and long before a Stripe client exists.
+  const registryFile = readCustomerKeyRegistryFile(registryPath);
+  let registryEntries: CustomerKeyEntry[] = [];
+  /** Hash of the registry's last entry: printed with the match, for the operator log. */
+  let registryHead = "";
+  /** The customer's registered key. Always set on a real run that gets past this block. */
+  let registration: CustomerKeyRegistration | undefined;
+  if (registryFile.state === "missing") {
+    const missing = `the customer key registry was not found at ${registryPath}`;
+    if (!args.dryRun) {
+      throw new Error(
+        `DO NOT BILL — ${missing}. A real run reads the customer's statement key from it and from nowhere else. ` +
+        "If there was a registry on this machine, restore it from its backup; do not start a new one in its place. " +
+        `If no key was ever registered: ${registerHint}`,
+      );
+    }
     console.log(
-      "WARNING — no --customer-key was given. A real run will refuse to bill without the statement key fingerprint " +
-      "the customer registered. This run checks that the statement's signature verifies and says which key signed " +
-      "it, but not whose key that is.",
+      `WARNING — ${missing}, so ${args.customer} has no registered statement key. A real run will refuse to bill ` +
+      "until the key is registered (scripts/mesh-customer-key.ts register) and a statement is written after that.",
+    );
+  } else if (registryFile.state === "unreadable") {
+    throw new Error(`DO NOT BILL — the customer key registry ${registryPath} could not be read (${registryFile.reason}).`);
+  } else if (registryFile.state === "broken") {
+    // A registry that does not verify is a hard stop in a dry run too: no key in it can be trusted.
+    throw new Error(
+      `DO NOT BILL — the customer key registry ${registryPath} does not verify: ${registryFile.reason} ` +
+      "It was edited by hand or damaged, so no key in it is trusted. Restore it from its backup; do not repair it by hand " +
+      "(check it with: node --import tsx scripts/mesh-customer-key.ts verify).",
+    );
+  } else {
+    registryEntries = registryFile.entries;
+    registryHead = registryFile.headHash;
+    const registered = checkCustomerKeyRegistered({ entries: registryEntries, customer: args.customer });
+    if (registered.ok) {
+      registration = registered.registration;
+    } else if (!args.dryRun || registered.code !== "no-key") {
+      throw new Error(`DO NOT BILL — ${registered.reason} (Registry: ${registryPath})`);
+    } else {
+      console.log(`WARNING — ${registered.reason} A real run will refuse to bill ${args.customer} until then. (Registry: ${registryPath})`);
+    }
+  }
+  if (customerKey !== undefined) {
+    // Only reachable in a dry run: a real run refused the flag above.
+    console.log(
+      registration === undefined
+        ? "WARNING — --customer-key is used in this dry run for a comparison only: it is not a registered key. " +
+          "A real run refuses that flag and reads the customer's key from the registry."
+        : `WARNING — --customer-key is ignored: ${args.customer} has a registered statement key, and the statement is ` +
+          "checked against that. A real run refuses the flag.",
     );
   }
 
@@ -281,6 +360,14 @@ async function main(): Promise<void> {
       throw new Error(`DO NOT BILL — ${args.statement} could not be read as a statement file.`);
     }
     localKey = operatorKeyFingerprint();
+    // The customer's key must have been registered BEFORE this statement was
+    // written: the registry entry's time against the statement's own sealed
+    // generatedAt. A fingerprint read off a statement that has already arrived
+    // is registered after it, and is refused here. Same in a dry run.
+    if (registration !== undefined) {
+      const order = checkRegisteredKeyForStatement({ entries: registryEntries, customer: args.customer, statement: statementDocument });
+      if (!order.ok) throw new Error(`DO NOT BILL — ${order.reason} (Registry: ${registryPath})`);
+    }
   }
 
   // sk_live_… and restricted rk_live_… keys both create real invoices.
@@ -386,9 +473,11 @@ async function main(): Promise<void> {
       },
       // Only a rehearsal may look at a statement written during the month.
       periodMustBeClosed: !args.dryRun,
-      // Who wrote it: the customer's registered key, and never this machine's own.
-      ...(customerKey === undefined ? {} : { expectedKeyFingerprint: customerKey }),
-      keyMustBeRegistered: !args.dryRun,
+      // Who wrote it: the key the registry holds for this customer, and never
+      // this machine's own. Only a dry run for a customer who is not in the
+      // registry goes on without one, and it says so.
+      ...(registration === undefined ? {} : { expectedKeyFingerprint: registration.fingerprint }),
+      keyMustBeRegistered: !args.dryRun || registration !== undefined,
       ...(localKey === undefined ? {} : { operatorKeyFingerprint: localKey }),
     });
     if (!statementCheck.ok) {
@@ -396,8 +485,33 @@ async function main(): Promise<void> {
       process.exitCode = 1;
       return;
     }
+    if (registration === undefined && customerKey !== undefined && statementCheck.signedBy !== customerKey) {
+      console.log(
+        `\nDO NOT BILL — the statement is signed by statement key ${statementCheck.signedBy}, which is not the --customer-key ` +
+        `given (${customerKey}). Neither is a registered key: ${args.customer} has none in the registry.`,
+      );
+      process.exitCode = 1;
+      return;
+    }
     for (const warning of statementCheck.warnings) console.log(`WARNING — ${warning}`);
-    console.log(`Statement: ${statementCheck.summary}.`);
+    if (registration === undefined && customerKey !== undefined) {
+      console.log(
+        "WARNING — the statement is signed by the key given as --customer-key. That compares it with a value typed on the " +
+        "command line, not with a registered key; a real run does not accept it.",
+      );
+    }
+    console.log(
+      `Statement: ${statementCheck.summary}` +
+      (registration === undefined ? "" : `, registered ${registration.at} (registry entry seq ${registration.seq})`) +
+      ".",
+    );
+    if (registration !== undefined) {
+      // For the operator log. Lines cut off the end of the registry leave a chain
+      // that still verifies; a count or head that went backwards since the last
+      // bill is how that shows.
+      const n = registryEntries.length;
+      console.log(`Customer key registry: ${registryPath} · ${n} ${n === 1 ? "entry" : "entries"} · head ${registryHead}`);
+    }
   }
 
   if (plan.action === "do_not_bill") {
@@ -468,8 +582,9 @@ async function main(): Promise<void> {
 
   if (args.dryRun) {
     console.log(
-      "\nDRY RUN — nothing was sent to Stripe. To create it, re-run without --dry-run, with a Stripe key, " +
-      "--statement <the customer's statement file> and --customer-key <their registered fingerprint>, once the period has ended.",
+      "\nDRY RUN — nothing was sent to Stripe. To create it, re-run without --dry-run, with a Stripe key and " +
+      "--statement <the customer's statement file>, once the period has ended. The customer's statement key is read " +
+      "from the registry, not from the command line.",
     );
     return;
   }
