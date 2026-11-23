@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, existsSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, existsSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,10 +7,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   STATEMENT_SCHEMA,
   STATEMENT_SEAL_RULE,
+  STATEMENT_SIGNATURE_RULE,
   checkStatementForBilling,
   describeBillSpool,
+  statementKeyFromPrivate,
   statementSeal,
+  verifyStatementSignature,
   type BillSpool,
+  type StatementKey,
 } from "../../core/src/manual-billing-checks.js";
 import { publishedModelPrices } from "../../core/src/model-prices.js";
 import { catalogueVersion } from "../../core/src/price-catalogue.js";
@@ -30,12 +34,33 @@ import {
   parseSpool,
   renderStatement,
   runStatement,
+  signStatement,
   type SpoolInput,
   type Statement,
 } from "./statement.js";
+import { statementKeyPath } from "./statement-key.js";
 
 const CATALOGUE = catalogueVersion(publishedModelPrices);
 const NOW = new Date("2026-12-03T09:00:00.000Z");
+
+// Fixed test keys: the secret keys of RFC 8032 section 7.1, tests 1 and 2.
+// Published test vectors, not anyone's key.
+const testKey = (hex: string): StatementKey => statementKeyFromPrivate(Buffer.from(hex, "hex").toString("base64"));
+const CUSTOMER_KEY = testKey("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60");
+const OPERATOR_KEY = testKey("4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb");
+
+/** Every spelling a private key could leak in: the raw seed and its PKCS#8 wrapping, as base64, base64url and hex. */
+function privateKeyForms(key: StatementKey): string[] {
+  const seed = Buffer.from(key.privateKey, "base64");
+  const pkcs8 = Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), seed]);
+  return [seed, pkcs8].flatMap((bytes) => [
+    bytes.toString("base64"),
+    bytes.toString("base64").replace(/=+$/, ""),
+    bytes.toString("base64url"),
+    bytes.toString("hex"),
+    bytes.toString("hex").toUpperCase(),
+  ]);
+}
 
 let counter = 0;
 
@@ -155,8 +180,11 @@ function billRecomputePath(texts: Record<string, string>, period: string) {
   return { invoice, plan, chainVerified };
 }
 
+/** A statement as the customer's command writes it: sealed, and signed with the customer's key. */
 function validStatement(spools: SpoolInput[], period: string): Statement {
-  const result = buildStatement({ spools, period, now: NOW, version: "9.9.9", build: "testbuild" });
+  const result = buildStatement({
+    spools, period, now: NOW, version: "9.9.9", build: "testbuild", signingKey: CUSTOMER_KEY.privateKey,
+  });
   if (!result.valid) throw new Error(`expected a valid statement: ${result.reason}`);
   return result.statement;
 }
@@ -500,9 +528,27 @@ describe("mesh statement — what the shareable file may contain", () => {
       spools: [{ name: "LEAK-spool-file-name.jsonl", records }],
       period: "2026-11",
       now: NOW,
+      signingKey: CUSTOMER_KEY.privateKey,
     });
     if (!result.valid) throw new Error(`expected a valid statement: ${result.reason}`);
     const file = JSON.stringify(result.statement);
+
+    // The signature object is the one part of the file not derived from the
+    // ledger at all. It is allowed exactly five fields, each of a fixed format
+    // that cannot carry free text: two constants, a hex digest, and two
+    // base64 values of fixed length.
+    const signature = result.statement.signature as unknown as Record<string, unknown>;
+    expect(Object.keys(signature).sort()).toEqual(["algorithm", "fingerprint", "publicKey", "signs", "value"]);
+    expect(signature.algorithm).toBe("ed25519");
+    expect(signature.signs).toBe(STATEMENT_SIGNATURE_RULE);
+    expect(signature.fingerprint).toMatch(/^[0-9a-f]{64}$/);
+    expect(signature.publicKey).toMatch(/^[A-Za-z0-9+/]{43}=$/);
+    expect(signature.value).toMatch(/^[A-Za-z0-9+/]{86}==$/);
+    // It is what the key produces over the seal, and nothing else: no event content can reach it.
+    expect(signature).toEqual(signStatement(result.statement, CUSTOMER_KEY.privateKey).signature);
+    expect(signature.fingerprint).toBe(CUSTOMER_KEY.fingerprint);
+    // The private key is not in the file in any spelling.
+    for (const form of privateKeyForms(CUSTOMER_KEY)) expect(file).not.toContain(form);
 
     const found = new Set([...file.matchAll(/LEAK-[A-Za-z0-9-]+/g)].map((match) => match[0]));
     const allowed = new Set([...ALLOWED].map((path) => `LEAK-${path.replaceAll(".", "-")}`));
@@ -517,6 +563,7 @@ describe("mesh statement — what the shareable file may contain", () => {
       for (const secret of ["secret.txt", "sk-ant", "Acme", "someone@example.com", "task-7", "req-", "run-17", "free text"]) {
         expect(text).not.toContain(secret);
       }
+      for (const form of privateKeyForms(CUSTOMER_KEY)) expect(text).not.toContain(form);
     }
     // The spool file name is shown on screen and kept out of the file.
     expect(file).not.toContain("spool-file-name");
@@ -545,8 +592,12 @@ describe("mesh statement — what the shareable file may contain", () => {
     expect(Object.keys(validStatement(spools, "2026-11")).sort()).toEqual([
       "alreadyYoursUsd", "currency", "deficitCarriedForwardUsd", "fee", "generatedAt", "kind", "ledger", "levers",
       "mesh", "notice", "period", "priceCatalogue", "recomputeVerdict", "recordedNotBilled", "requests", "schema",
-      "sha256", "sha256Of", "totals", "validForBilling", "verdict",
+      "sha256", "sha256Of", "signature", "totals", "validForBilling", "verdict",
     ]);
+    // Without a key there is no signature field at all, as before statements were signed.
+    const unsigned = buildStatement({ spools, period: "2026-11", now: NOW });
+    if (!unsigned.valid) throw new Error("expected a valid statement");
+    expect(Object.keys(unsigned.statement)).not.toContain("signature");
   });
 });
 
@@ -563,6 +614,51 @@ describe("mesh statement — the seal and the wording", () => {
     expect(checkStatementSeal(edited)).toBe(false);
     expect(checkStatementSeal({ ...reread, sha256: undefined })).toBe(false);
     expect(checkStatementSeal(null)).toBe(false);
+  });
+
+  it("is signed after it is sealed: the signature is outside the seal, and any edit to the body still breaks the seal", () => {
+    const { spools } = twoMonthLedger();
+    const signed = validStatement(spools, "2026-11");
+    const unsigned = buildStatement({ spools, period: "2026-11", now: NOW, version: "9.9.9", build: "testbuild" });
+    if (!unsigned.valid) throw new Error("expected a valid statement");
+    // The same content has the same seal, signed or not.
+    expect(signed.sha256).toBe(unsigned.statement.sha256);
+    expect(signed.sha256Of).toContain("without the sha256, sha256Of and signature fields");
+    expect(signed.signature!.signs).toBe(STATEMENT_SIGNATURE_RULE);
+    expect(signStatement(unsigned.statement, CUSTOMER_KEY.privateKey)).toEqual(signed);
+
+    const reread = JSON.parse(JSON.stringify(signed, null, 2)) as Statement;
+    expect(checkStatementSeal(reread)).toBe(true);
+    expect(verifyStatementSignature(reread)).toEqual({ ok: true, fingerprint: CUSTOMER_KEY.fingerprint });
+
+    // Every kind of edit to the body breaks the seal on the signed file.
+    const edits: ((statement: Statement) => void)[] = [
+      (statement) => { statement.fee.amountCents = 1; },
+      (statement) => { statement.totals.netVerifiedSavingsUsd += 0.01; },
+      (statement) => { statement.period.closed = false; },
+      (statement) => { statement.ledger.spools[0]!.records += 1; },
+      (statement) => { statement.ledger.spools.pop(); },
+      (statement) => { statement.generatedAt = "2026-12-04T09:00:00.000Z"; },
+      (statement) => { statement.mesh.version = "9.9.8"; },
+    ];
+    for (const edit of edits) {
+      const edited = structuredClone(reread);
+      edit(edited);
+      expect(checkStatementSeal(edited)).toBe(false);
+      expect(verifyStatementSignature(edited)).toMatchObject({ ok: false, code: "seal" });
+    }
+    // An edited signature, or another key's public half, leaves the seal alone and fails verification.
+    const value = reread.signature!.value;
+    const otherValue = `${value.startsWith("A") ? "B" : "A"}${value.slice(1)}`;
+    const editedSignature = { ...reread, signature: { ...reread.signature!, value: otherValue } };
+    expect(checkStatementSeal(editedSignature)).toBe(true);
+    expect(verifyStatementSignature(editedSignature)).toMatchObject({ ok: false, code: "invalid" });
+    const swappedKey = {
+      ...reread,
+      signature: { ...reread.signature!, publicKey: OPERATOR_KEY.publicKey, fingerprint: OPERATOR_KEY.fingerprint },
+    };
+    expect(checkStatementSeal(swappedKey)).toBe(true);
+    expect(verifyStatementSignature(swappedKey)).toMatchObject({ ok: false, code: "invalid" });
   });
 
   it("says it is a statement, not an invoice, and that the customer's recomputation wins", () => {
@@ -587,25 +683,52 @@ describe("mesh statement — the seal and the wording", () => {
 describe("runStatement (reads real spool files)", () => {
   let dir: string;
   let ledger: string;
+  /** A MESH home inside the temporary folder: these tests never read or write the real ~/.mesh. */
+  let meshHome: string;
+  let keyFile: string;
+  /** Everything the command prints, by any route: console.log, console.error, and raw writes to stdout and stderr. */
   const logs: string[] = [];
-  let logSpy: ReturnType<typeof vi.spyOn>;
-  let exitSpy: ReturnType<typeof vi.spyOn>;
+  let spies: { mockRestore: () => void }[] = [];
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "mesh-statement-"));
     ledger = join(dir, "ledger");
+    meshHome = join(dir, "home", ".mesh");
+    keyFile = statementKeyPath(meshHome);
     mkdirSync(ledger, { recursive: true });
     logs.length = 0;
-    logSpy = vi.spyOn(console, "log").mockImplementation((...parts: unknown[]) => { logs.push(parts.join(" ")); });
-    exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
-      throw new Error(`exit ${code}`);
-    }) as never);
+    const capture = (...parts: unknown[]): void => { logs.push(parts.join(" ")); };
+    const captureWrite = ((chunk: unknown): boolean => { logs.push(String(chunk)); return true; }) as never;
+    spies = [
+      vi.spyOn(console, "log").mockImplementation(capture),
+      vi.spyOn(console, "error").mockImplementation(capture),
+      vi.spyOn(console, "warn").mockImplementation(capture),
+      vi.spyOn(process.stdout, "write").mockImplementation(captureWrite),
+      vi.spyOn(process.stderr, "write").mockImplementation(captureWrite),
+      vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+        throw new Error(`exit ${code}`);
+      }) as never),
+    ];
   });
   afterEach(() => {
-    logSpy.mockRestore();
-    exitSpy.mockRestore();
+    for (const spy of spies) spy.mockRestore();
     rmSync(dir, { recursive: true, force: true });
   });
+
+  const run = (argv: string[]): Promise<void> => runStatement(argv, { meshHome });
+  /** The key the command made for this test's install, read back from its file. */
+  const installKey = (): StatementKey => {
+    const file = JSON.parse(readFileSync(keyFile, "utf8")) as { privateKey: string };
+    return statementKeyFromPrivate(file.privateKey);
+  };
+  /** Every file under the temporary folder except the key file itself, with its text. */
+  function everyOtherFile(root: string = dir): { path: string; text: string }[] {
+    return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
+      const path = join(root, entry.name);
+      if (entry.isDirectory()) return everyOtherFile(path);
+      return path === keyFile ? [] : [{ path, text: readFileSync(path, "latin1") }];
+    });
+  }
 
   function writeLedger(): Record<string, string> {
     const { texts } = twoMonthLedger();
@@ -618,7 +741,7 @@ describe("runStatement (reads real spool files)", () => {
   it("prints the statement and writes a sealed file that agrees with the bill", async () => {
     const texts = writeLedger();
     const out = join(dir, "share", "statement.json");
-    await runStatement(["--period", "2026-11", "--ledger", ledger, "--out", out]);
+    await run(["--period", "2026-11", "--ledger", ledger, "--out", out]);
 
     const printed = logs.join("\n");
     expect(printed).toContain("mesh statement — period 2026-11");
@@ -631,18 +754,220 @@ describe("runStatement (reads real spool files)", () => {
     expect(file.fee.amountCents).toBe(bill.invoice.amountDueCents);
     expect(file.totals.netVerifiedSavingsUsd).toBe(bill.invoice.netVerifiedSavingsUsd);
 
+    // Signed by the key this install made, and the screen says which.
+    const key = installKey();
+    expect(file.signature).toMatchObject({ algorithm: "ed25519", fingerprint: key.fingerprint, publicKey: key.publicKey });
+    expect(verifyStatementSignature(file)).toEqual({ ok: true, fingerprint: key.fingerprint });
+    expect(printed).toContain(`Signed by this install's statement key: ${key.fingerprint}`);
+
     logs.length = 0;
-    await runStatement(["--check", out]);
+    await run(["--check", out]);
     expect(logs.join("\n")).toContain("matches its sha256 seal");
 
     writeFileSync(out, readFileSync(out, "utf8").replace("\"amountCents\": 328", "\"amountCents\": 3"));
-    await expect(runStatement(["--check", out])).rejects.toThrow("exit 1");
+    await expect(run(["--check", out])).rejects.toThrow("exit 1");
+  });
+
+  it("creates the install's key once, owner-only, and signs every later statement with the same key", async () => {
+    writeLedger();
+    expect(existsSync(keyFile)).toBe(false);
+    await run(["--period", "2026-11", "--ledger", ledger, "--out", join(dir, "nov.json")]);
+    expect(existsSync(keyFile)).toBe(true);
+    if (process.platform !== "win32") {
+      expect(statSync(keyFile).mode & 0o777).toBe(0o600);
+      expect(statSync(join(meshHome, "identity")).mode & 0o777).toBe(0o700);
+    }
+    const keyText = readFileSync(keyFile, "utf8");
+    const key = installKey();
+
+    await run(["--period", "2026-10", "--ledger", ledger, "--out", join(dir, "oct.json")]);
+    await run(["--key"]);
+    // Never rewritten: byte for byte the file the first run made.
+    expect(readFileSync(keyFile, "utf8")).toBe(keyText);
+    expect(readdirSync(join(meshHome, "identity"))).toEqual(["statement-key.json"]);
+    for (const name of ["nov.json", "oct.json"]) {
+      const statement = JSON.parse(readFileSync(join(dir, name), "utf8")) as Statement;
+      expect(verifyStatementSignature(statement)).toEqual({ ok: true, fingerprint: key.fingerprint });
+    }
+  });
+
+  it("--key prints the fingerprint and what to do with it, creating the key if there is none", async () => {
+    await run(["--key"]);
+    const key = installKey();
+    const printed = logs.join("\n");
+    expect(printed).toContain("Statement key fingerprint for this MESH install (key created just now):");
+    expect(printed).toContain(`\n  ${key.fingerprint}\n`);
+    expect(printed.replace(/\s+/g, " ")).toContain(
+      "Send it to MESH once, when billing is agreed, through the channel agreed in writing. It is public and safe " +
+      "to share; the private half never leaves this machine. If you reinstall or move machine the fingerprint " +
+      "changes, and you must register the new one the same way before your next statement.",
+    );
+    expect(printed).toContain(keyFile);
+    // No ledger and no period are needed, and nothing but the key file is written.
+    expect(everyOtherFile()).toEqual([]);
+
+    logs.length = 0;
+    await run(["--key"]);
+    expect(logs.join("\n")).toContain("Statement key fingerprint for this MESH install:");
+    expect(logs.join("\n")).toContain(key.fingerprint);
+    expect(installKey()).toEqual(key);
+  });
+
+  it("stops on a key file that is there but unusable: no new key, no statement, the file left as it was", async () => {
+    writeLedger();
+    const out = join(dir, "statement.json");
+    mkdirSync(join(meshHome, "identity"), { recursive: true });
+    for (const damaged of ["", "{ \"schema\": \"mesh-statement-key/1\", ", "{\"schema\":\"mesh-statement-key/1\",\"algorithm\":\"ed25519\"}", "[]"]) {
+      writeFileSync(keyFile, damaged);
+      await expect(run(["--period", "2026-11", "--ledger", ledger, "--out", out])).rejects.toThrow(
+        /exists but is not a usable statement key: .*MESH will not replace it for you/s,
+      );
+      await expect(run(["--key"])).rejects.toThrow("exists but is not a usable statement key");
+      expect(readFileSync(keyFile, "utf8")).toBe(damaged);
+      expect(existsSync(out)).toBe(false);
+    }
+    // The error says how to start a new key on purpose.
+    await expect(run(["--key"])).rejects.toThrow("move the file aside, run `mesh statement --key`, and register the new fingerprint");
+    // A key file whose halves do not belong together is refused too, without quoting it.
+    const mixed = JSON.stringify({
+      schema: "mesh-statement-key/1", algorithm: "ed25519", createdAt: NOW.toISOString(),
+      fingerprint: OPERATOR_KEY.fingerprint, publicKey: OPERATOR_KEY.publicKey, privateKey: CUSTOMER_KEY.privateKey,
+    });
+    writeFileSync(keyFile, mixed);
+    const error = await run(["--key"]).then(() => undefined, (caught: unknown) => caught as Error);
+    expect(error?.message).toContain("its public key is not the one its private key produces");
+    for (const form of privateKeyForms(CUSTOMER_KEY)) expect(error?.message).not.toContain(form);
+    expect(logs.join("\n")).toBe("");
+
+    // Rotating on purpose: move the old file aside, and the next run makes a new key.
+    rmSync(keyFile);
+    await run(["--key"]);
+    expect(installKey().fingerprint).not.toBe(CUSTOMER_KEY.fingerprint);
+  });
+
+  it("a broken chain makes no key: nothing is signed, so nothing is created", async () => {
+    const texts = writeLedger();
+    writeFileSync(join(ledger, "app-a-anthropic.jsonl"), texts["app-a-anthropic.jsonl"]!.replace("210.1", "910.1"));
+    await expect(run(["--period", "2026-11", "--ledger", ledger, "--out", join(dir, "broken.json")])).rejects.toThrow("exit 1");
+    expect(existsSync(keyFile)).toBe(false);
+  });
+
+  it("--check says whether the signature verifies, for a signed, an unsigned and a tampered file", async () => {
+    writeLedger();
+    const out = join(dir, "statement.json");
+    await run(["--period", "2026-11", "--ledger", ledger, "--out", out]);
+    const key = installKey();
+    const signed = JSON.parse(readFileSync(out, "utf8")) as Statement;
+    const check = async (document: unknown): Promise<{ printed: string; exit: string }> => {
+      const file = join(dir, "to-check.json");
+      writeFileSync(file, JSON.stringify(document, null, 2));
+      logs.length = 0;
+      const exit = await run(["--check", file]).then(() => "0", (error: unknown) => (error as Error).message);
+      return { printed: logs.join("\n").replace(/\s+/g, " "), exit };
+    };
+
+    // Signed, untouched.
+    const good = await check(signed);
+    expect(good.exit).toBe("0");
+    expect(good.printed).toContain("matches its sha256 seal");
+    expect(good.printed).toContain("✓ Its signature verifies against the statement key named in the file.");
+    expect(good.printed).toContain(`Signed by statement key: ${key.fingerprint}`);
+    expect(good.printed).toContain(
+      "This shows the file is consistent with itself: whoever holds that key signed it. It does not show whose key it is.",
+    );
+
+    // Unsigned, as release 0.2.4 wrote it: the seal still matches, and the check says what to do.
+    const { signature: _signature, ...withoutSignature } = signed;
+    const old = {
+      ...withoutSignature,
+      mesh: { version: "0.2.4", build: "5316e36" },
+      sha256Of: "sha256 of this document as canonical JSON (keys sorted, no whitespace) without the sha256 and sha256Of fields",
+    };
+    const unsigned = await check({ ...old, sha256: statementSeal(old) });
+    expect(unsigned.exit).toBe("exit 1");
+    expect(unsigned.printed).toContain("matches its sha256 seal");
+    expect(unsigned.printed).toContain(
+      "✗ It is NOT signed: it was written by a MESH release that does not sign statements (it says MESH 0.2.4; " +
+      "signing starts with 0.2.5). MESH does not bill from an unsigned statement. Update MESH to 0.2.5 or later " +
+      "and write it again with: mesh statement --period 2026-11",
+    );
+    // The signature simply cut out of a file this build wrote: unsigned, and the build that wrote it signs.
+    const cut = await check(withoutSignature);
+    expect(cut.exit).toBe("exit 1");
+    expect(cut.printed).toContain("matches its sha256 seal");
+    expect(cut.printed).toContain(
+      `✗ It is NOT signed, although it was written by a MESH build that signs every statement (it says MESH ${signed.mesh.version}): ` +
+      "its signature was removed, or it was not written by this command. MESH does not bill from an unsigned statement.",
+    );
+    expect(cut.printed).toContain("mesh statement --period 2026-11");
+
+    // Tampered: a figure edited (the seal catches it), the signature edited, the key swapped.
+    const editedBody = await check({ ...signed, fee: { ...signed.fee, amountCents: 3 } });
+    expect(editedBody.exit).toBe("exit 1");
+    expect(editedBody.printed).toContain("does NOT match its sha256 seal");
+    expect(editedBody.printed).not.toContain("signature verifies");
+
+    const value = signed.signature!.value;
+    const editedSignature = await check({
+      ...signed, signature: { ...signed.signature!, value: `${value.startsWith("A") ? "B" : "A"}${value.slice(1)}` },
+    });
+    expect(editedSignature.exit).toBe("exit 1");
+    expect(editedSignature.printed).toContain("matches its sha256 seal");
+    expect(editedSignature.printed).toContain(
+      "✗ Its signature does NOT verify: the signature does not verify against the public key in the file.",
+    );
+
+    const swappedKey = await check({
+      ...signed, signature: { ...signed.signature!, publicKey: OPERATOR_KEY.publicKey, fingerprint: OPERATOR_KEY.fingerprint },
+    });
+    expect(swappedKey.exit).toBe("exit 1");
+    expect(swappedKey.printed).toContain("✗ Its signature does NOT verify");
+
+    // Re-signed by someone else's key: self-consistent, so it verifies, and the fingerprint shown is theirs.
+    const resigned = await check(signStatement(signed, OPERATOR_KEY.privateKey));
+    expect(resigned.exit).toBe("0");
+    expect(resigned.printed).toContain(`Signed by statement key: ${OPERATOR_KEY.fingerprint}`);
+    expect(resigned.printed).not.toContain(key.fingerprint);
+  });
+
+  it("the private key is in the key file and nowhere else: no other file written, nothing printed", async () => {
+    writeLedger();
+    const out = join(dir, "share", "statement.json");
+    await run(["--key"]);
+    await run(["--period", "2026-11", "--ledger", ledger, "--out", out]);
+    await run(["--period", "2026-10", "--ledger", ledger, "--out", join(dir, "share", "oct.json"), "--json"]);
+    await run(["--check", out]);
+    await run(["--key"]);
+    writeFileSync(join(dir, "share", "edited.json"), readFileSync(out, "utf8").replace("\"amountCents\": 328", "\"amountCents\": 3"));
+    await expect(run(["--check", join(dir, "share", "edited.json")])).rejects.toThrow("exit 1");
+
+    const forms = privateKeyForms(installKey());
+    // The search can find it: every spelling's source is in the key file.
+    expect(readFileSync(keyFile, "utf8")).toContain(forms[0]!);
+    // Everything the customer is asked to send (the statement, the ledger
+    // spools) and everything else on disk: the features files, the JSON output.
+    const files = everyOtherFile();
+    expect(files.map((file) => file.path).sort()).toEqual([
+      join(ledger, "app-a-anthropic.features.jsonl"),
+      join(ledger, "app-a-anthropic.jsonl"),
+      join(ledger, "app-b-anthropic.jsonl"),
+      join(dir, "share", "edited.json"),
+      join(dir, "share", "oct.json"),
+      join(dir, "share", "statement.json"),
+    ].sort());
+    const printed = logs.join("\n");
+    expect(printed).toContain("mesh statement — period 2026-11");
+    expect(printed).toContain("\"signature\"");
+    for (const form of forms) {
+      for (const file of files) expect(file.text.includes(form), `${file.path} holds the private key`).toBe(false);
+      expect(printed.includes(form), "the private key was printed").toBe(false);
+    }
   });
 
   it("reads exactly the spool files it is given", async () => {
     writeLedger();
     const out = join(dir, "one.json");
-    await runStatement(["--period", "2026-11", "--out", out, join(ledger, "app-b-anthropic.jsonl")]);
+    await run(["--period", "2026-11", "--out", out, join(ledger, "app-b-anthropic.jsonl")]);
     const file = JSON.parse(readFileSync(out, "utf8")) as Statement;
     expect(file.ledger.spools).toHaveLength(1);
     expect(file.requests.inPeriod).toBe(4);
@@ -652,7 +977,7 @@ describe("runStatement (reads real spool files)", () => {
     const texts = writeLedger();
     writeFileSync(join(ledger, "app-a-anthropic.jsonl"), texts["app-a-anthropic.jsonl"]!.replace("210.1", "910.1"));
     const out = join(dir, "broken.json");
-    await expect(runStatement(["--period", "2026-11", "--ledger", ledger, "--out", out])).rejects.toThrow("exit 1");
+    await expect(run(["--period", "2026-11", "--ledger", ledger, "--out", out])).rejects.toThrow("exit 1");
     const printed = logs.join("\n");
     expect(printed).toContain("HASH CHAIN BROKEN");
     expect(printed).toContain("NOT VALID FOR BILLING");
@@ -661,10 +986,10 @@ describe("runStatement (reads real spool files)", () => {
   });
 
   it("refuses to run without a valid period or without a ledger", async () => {
-    await expect(runStatement(["--ledger", ledger])).rejects.toThrow("--period YYYY-MM is required");
-    await expect(runStatement(["--period", "2026-13", "--ledger", ledger])).rejects.toThrow("YYYY-MM");
-    await expect(runStatement(["--period", "November", "--ledger", ledger])).rejects.toThrow("YYYY-MM");
-    await expect(runStatement(["--period", "2026-11", "--ledger", ledger])).rejects.toThrow("No ledger found");
+    await expect(run(["--ledger", ledger])).rejects.toThrow("--period YYYY-MM is required");
+    await expect(run(["--period", "2026-13", "--ledger", ledger])).rejects.toThrow("YYYY-MM");
+    await expect(run(["--period", "November", "--ledger", ledger])).rejects.toThrow("YYYY-MM");
+    await expect(run(["--period", "2026-11", "--ledger", ledger])).rejects.toThrow("No ledger found");
   });
 });
 
@@ -684,6 +1009,8 @@ describe("mesh statement — what the bill's own check (mesh-bill --statement) m
         feeCents: plan.action === "bill" ? plan.amountCents : 0,
         feePercent: 1,
       },
+      // The fingerprint the customer registered when billing was agreed.
+      expectedKeyFingerprint: CUSTOMER_KEY.fingerprint,
     };
   }
   const reasonOf = (result: ReturnType<typeof checkStatementForBilling>): string => {
@@ -702,6 +1029,8 @@ describe("mesh statement — what the bill's own check (mesh-bill --statement) m
     expect(result.records).toBe(statement.ledger.records);
     expect(result.recordsInPeriod).toBe(statement.ledger.recordsInPeriod);
     expect(result.warnings).toEqual([]);
+    expect(result.signedBy).toBe(CUSTOMER_KEY.fingerprint);
+    expect(result.signerIsRegisteredKey).toBe(true);
     // The seal the file carries is the one the bill checks: one definition, in core.
     expect(statement.sha256).toBe(statementSeal(statement));
     expect(statement.sha256Of).toBe(STATEMENT_SEAL_RULE);
@@ -752,7 +1081,9 @@ describe("mesh statement — what the bill's own check (mesh-bill --statement) m
       "does not match its sha256 seal",
     );
 
-    const early = buildStatement({ spools, period: "2026-11", now: new Date("2026-11-30T23:59:59.999Z") });
+    const early = buildStatement({
+      spools, period: "2026-11", now: new Date("2026-11-30T23:59:59.999Z"), signingKey: CUSTOMER_KEY.privateKey,
+    });
     if (!early.valid) throw new Error("expected a valid statement");
     expect(early.statement.period.closed).toBe(false);
     const side = billSide(texts, "2026-11");
@@ -770,9 +1101,52 @@ describe("mesh statement — what the bill's own check (mesh-bill --statement) m
     const statement = validStatement(spools, "2026-11");
     const side = billSide(texts, "2026-11");
     const reason = reasonOf(checkStatementForBilling({
-      statement, period: "2026-11", spools: side.spools, bill: { ...side.bill, feeCents: side.bill.feeCents + 1 },
+      ...side, statement, period: "2026-11", bill: { ...side.bill, feeCents: side.bill.feeCents + 1 },
     }));
     expect(reason).toBe("the fee differs: the statement says 328 cents, the bill's own recompute says 329 cents.");
+  });
+
+  it("the gap this closes: a statement the operator writes from the files that arrived is refused", () => {
+    const { spools, texts } = twoMonthLedger();
+    // One spool never arrived. The operator runs `mesh statement` on what did, on their own machine.
+    const { "app-b-anthropic.jsonl": _neverArrived, ...arrived } = texts;
+    const arrivedSpools = spools.filter((spool) => spool.name !== "app-b-anthropic.jsonl");
+    const operatorsOwn = buildStatement({ spools: arrivedSpools, period: "2026-11", now: NOW, signingKey: OPERATOR_KEY.privateKey });
+    if (!operatorsOwn.valid) throw new Error("expected a valid statement");
+    const side = billSide(arrived, "2026-11");
+    // It is sealed, validly signed, and matches the files in hand exactly: every other check passes.
+    expect(verifyStatementSignature(operatorsOwn.statement).ok).toBe(true);
+    expect(checkStatementForBilling({
+      ...side, statement: operatorsOwn.statement, period: "2026-11", expectedKeyFingerprint: OPERATOR_KEY.fingerprint,
+    }).ok).toBe(true);
+    // Against the customer's registered key it is refused, with both fingerprints.
+    expect(reasonOf(checkStatementForBilling({ ...side, statement: operatorsOwn.statement, period: "2026-11" }))).toContain(
+      `the statement is signed by statement key ${OPERATOR_KEY.fingerprint}, which is not the customer's registered key ${CUSTOMER_KEY.fingerprint}.`,
+    );
+    // And as written on this machine, when the bill is run where it was written.
+    expect(reasonOf(checkStatementForBilling({
+      ...side, statement: operatorsOwn.statement, period: "2026-11", operatorKeyFingerprint: OPERATOR_KEY.fingerprint,
+    }))).toContain("this statement was written on this machine, not by the customer");
+    // Unsigned, as a build before signing wrote it, it is refused too.
+    const unsigned = buildStatement({ spools: arrivedSpools, period: "2026-11", now: NOW, version: "0.2.4" });
+    if (!unsigned.valid) throw new Error("expected a valid statement");
+    expect(reasonOf(checkStatementForBilling({ ...side, statement: unsigned.statement, period: "2026-11" }))).toContain(
+      "the statement is not signed, although it was written by a Mesh build that signs every statement (it says Mesh 0.2.4)",
+    );
+    // The same, as release 0.2.4 itself wrote it (its seal rule did not mention a signature).
+    const by024 = {
+      ...unsigned.statement,
+      sha256Of: "sha256 of this document as canonical JSON (keys sorted, no whitespace) without the sha256 and sha256Of fields",
+    };
+    expect(checkStatementSeal(by024)).toBe(true);
+    expect(reasonOf(checkStatementForBilling({ ...side, statement: by024, period: "2026-11" }))).toContain(
+      "the statement is not signed: it was written by a Mesh release that does not sign statements (it says Mesh 0.2.4; signing starts with 0.2.5)",
+    );
+    // The customer's own statement, over their whole ledger, is what the files in hand are then held to.
+    const customers = validStatement(spools, "2026-11");
+    expect(reasonOf(checkStatementForBilling({ ...side, statement: customers, period: "2026-11" }))).toContain(
+      "the statement lists a spool that was not passed",
+    );
   });
 });
 

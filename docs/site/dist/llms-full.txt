@@ -317,17 +317,27 @@ The fee is rounded down to the cent, so it is never more than 1%.
   issue; we reply with a private way to continue.
 - **Agree it in writing.** We settle who the customer is, the billing month,
   the currency, and where invoices go. Until that exists, no fee is due.
+- **Register your statement key.** On the machine where MESH runs, run
+  `mesh statement --key` and send us the fingerprint it prints, once, in the
+  same written channel. It is public and safe to share; the private half never
+  leaves your machine. We only bill from statements signed by that key, so
+  nobody else, including us, can produce a statement in your name. If you
+  reinstall MESH or move machine, the fingerprint changes: register the new
+  one the same way before your next statement.
 
 ## What happens each month
 
-After the month ends, you run one command on the machine where MESH runs:
+After the month ends, you run one command on the machine whose key you
+registered (MESH 0.2.5 or later):
 
 ```bash
 mesh statement --period 2026-11
 ```
 
 It re-checks your ledger's hash chain, recomputes the month, prints the
-savings by lever and the fee, and writes a statement file. Then:
+savings by lever and the fee, and writes a statement file signed by your
+install's key. If you run MESH on several machines, bring all their ledger
+files to the registered machine and run it there over all of them. Then:
 
 - **You send us the statement file and the ledger files it was made from.**
   They hold usage numbers, lever names, model names and hashes. They never
@@ -367,7 +377,8 @@ taxes, which are added where they apply.
 ## If you disagree with an invoice
 
 Recompute it. `mesh statement --check <file>` tells you whether a statement
-file has been altered since it was written, and `mesh statement --period`
+file has been altered since it was written and whether its signature verifies,
+and `mesh statement --period`
 rebuilds the month from your ledger. If the figures do not match ours, send us
 yours and we use it. The contract terms are in the [Terms](terms.md).
 
