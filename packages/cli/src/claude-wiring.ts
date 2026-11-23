@@ -198,6 +198,21 @@ export function loopbackPort(url: string): number | undefined {
   }
 }
 
+/**
+ * A base URL as it may be shown or printed. A URL can carry a credential
+ * (`https://user:token@host`) or a key in its query string; those parts are
+ * never repeated. An ordinary URL comes back unchanged.
+ */
+export function displayUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.username === "" && parsed.password === "" && parsed.search === "" && parsed.hash === "") return url;
+    return `${parsed.protocol}//${parsed.host}${parsed.pathname} (credentials or query not shown)`;
+  } catch {
+    return "(a value that is not a URL)";
+  }
+}
+
 /** Is Claude Code pointed somewhere that works? Reads only; changes nothing. */
 export async function checkWiring(
   paths: WiringPaths,
@@ -220,14 +235,14 @@ export async function checkWiring(
     return {
       status: "stranded",
       state,
-      detail: `ANTHROPIC_BASE_URL → ${baseUrl}, left by a MESH session that is no longer running`,
+      detail: `ANTHROPIC_BASE_URL → ${displayUrl(baseUrl)}, left by a MESH session that is no longer running`,
     };
   }
   const port = loopbackPort(baseUrl);
   if (port !== undefined && !(await probe.portUp(port))) {
-    return { status: "dead-local", baseUrl, detail: `ANTHROPIC_BASE_URL → ${baseUrl}, but nothing is listening there` };
+    return { status: "dead-local", baseUrl, detail: `ANTHROPIC_BASE_URL → ${displayUrl(baseUrl)}, but nothing is listening there` };
   }
-  return { status: "ok", detail: `ANTHROPIC_BASE_URL → ${baseUrl}` };
+  return { status: "ok", detail: `ANTHROPIC_BASE_URL → ${displayUrl(baseUrl)}` };
 }
 
 /**
@@ -251,12 +266,12 @@ export async function repairWiring(
       changed: true,
       message: state.priorBaseUrl === null
         ? "Claude Code restored: removed the address of a MESH session that had ended."
-        : `Claude Code restored: ANTHROPIC_BASE_URL is back to ${state.priorBaseUrl}.`,
+        : `Claude Code restored: ANTHROPIC_BASE_URL is back to ${displayUrl(state.priorBaseUrl)}.`,
     };
   }
   if (health.status === "dead-local") {
     undoWiring(paths.settingsPath, health.baseUrl, null, true);
-    return { changed: true, message: `Claude Code restored: removed ${health.baseUrl}, where nothing was listening.` };
+    return { changed: true, message: `Claude Code restored: removed ${displayUrl(health.baseUrl)}, where nothing was listening.` };
   }
   // A leftover record whose settings no longer point at it is just litter.
   const state = readWiringState(paths.statePath);

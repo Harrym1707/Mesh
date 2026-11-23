@@ -9,18 +9,31 @@
  *
  * macOS (launchd) for now; on other platforms it tells you to use `mesh start`.
  */
-import { connect } from "node:net";
 import { execFileSync } from "node:child_process";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, platform } from "node:os";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { platform } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
-import { BUILD_COMMIT, CLAUDE_SETTINGS, DEFAULT_PORT, MESH_HOME, readPolicy, summariseLedger } from "./start.js";
-import { policyCoverage } from "../../sdk-js/src/theo-policy.js";
+import { BUILD_COMMIT, CLAUDE_SETTINGS, DEFAULT_PORT, MESH_HOME, WIRING_STATE, readPolicy, summariseLedger, type LedgerSummary } from "./start.js";
+import { policyCoverage, type LeverStandState, type PolicyCoverage, type TheoLeverClass } from "../../sdk-js/src/theo-policy.js";
+import { defaultTheoMemoryPath, loadTheoMemory } from "../../sdk-js/src/theo-agent-store.js";
+import type { TheoAutonomyLevel } from "../../sdk-js/src/theo-agent.js";
 import { MESH_SIGNUP_URL } from "../../sdk-js/src/cta.js";
+import type { VerdictReasonCode } from "./bill-verdict.js";
+import { checkWiring, loopbackPort } from "./claude-wiring.js";
+import { meshIdentity, parseFlags, parsePortFlag, writeJson, type MeshIdentity } from "./json-output.js";
+import {
+  LAUNCHD_LABEL as LABEL,
+  LAUNCHD_PLIST as PLIST,
+  portOpen as portUp,
+  probeProxy,
+  proxyUrls,
+  resolvePort,
+  serviceLoaded,
+  type PortSource,
+  type ProxyProbe,
+} from "./machine.js";
 
-const LABEL = "dev.meshtoken.mesh";
-const PLIST = join(homedir(), "Library", "LaunchAgents", `${LABEL}.plist`);
 const DAEMON_LOG = join(MESH_HOME, "daemon.log");
 const STABLE_BIN = join(MESH_HOME, "bin", "mesh");
 const DEFAULT_LEDGER = join(MESH_HOME, "ledger");
@@ -49,18 +62,6 @@ function launchctl(...args: string[]): void {
 
 function isLoaded(): boolean {
   try { execFileSync("launchctl", ["list", LABEL], { stdio: "pipe" }); return true; } catch { return false; }
-}
-
-/** Resolve whether the local proxy is actually accepting connections. */
-function portUp(port: number, timeoutMs = 800): Promise<boolean> {
-  return new Promise((res) => {
-    const sock = connect({ host: "127.0.0.1", port });
-    const done = (ok: boolean): void => { sock.destroy(); res(ok); };
-    sock.setTimeout(timeoutMs);
-    sock.once("connect", () => done(true));
-    sock.once("timeout", () => done(false));
-    sock.once("error", () => done(false));
-  });
 }
 
 function setClaudeBaseUrl(url: string): void {
@@ -203,15 +204,330 @@ export function runStop(_argv: string[]): void {
   console.log("");
 }
 
-export async function runStatus(_argv: string[]): Promise<void> {
-  const loaded = platform() === "darwin" ? isLoaded() : false;
-  const port = DEFAULT_PORT;
-  const up = await portUp(port);
-  const s = summariseLedger(DEFAULT_LEDGER);
+// ---------------------------------------------------------------------------
+// mesh status
+// ---------------------------------------------------------------------------
+
+/**
+ * Where Claude Code's own settings point, as far as files and one local
+ * health request can tell:
+ *
+ *   pointed_at_mesh           ANTHROPIC_BASE_URL is a local address and MESH answers there
+ *   pointed_at_stopped_proxy  it is a local address nothing answers on (a MESH session that
+ *                             ended without restoring, or a service that is down): Claude Code
+ *                             cannot reach its API until `mesh restore` or the proxy is back
+ *   pointed_elsewhere         it is set to something that is not a MESH proxy
+ *   not_pointed               no ~/.claude/settings.json, or no ANTHROPIC_BASE_URL in it
+ *   settings_invalid          the file is not valid JSON, so nothing can be said
+ */
+export type ClaudeCodeState =
+  | "pointed_at_mesh"
+  | "pointed_at_stopped_proxy"
+  | "pointed_elsewhere"
+  | "not_pointed"
+  | "settings_invalid";
+
+export type StatusResult = {
+  schema: "mesh-status/1";
+  /** True whenever status could be read. A stopped proxy or an empty ledger is a state, not a failure. */
+  ok: true;
+  mesh: MeshIdentity;
+  /** What is on disk under ~/.mesh from the website install (absent on an npm install). */
+  runtime: {
+    /** A downloaded, checksum-verified runtime is cached in ~/.mesh/runtime. */
+    cached: boolean;
+    cachedVersion: string | null;
+    /** The launcher the installer puts at ~/.mesh/bin/mesh exists. */
+    launcherInstalled: boolean;
+    /** This process is that cached runtime (false for npm, npx or a run from source). */
+    runningFromCache: boolean;
+  };
+  service: {
+    /** The always-on service exists only on macOS (launchd). */
+    supported: boolean;
+    installed: boolean;
+    manager: "launchd" | null;
+  };
+  proxy: {
+    /** MESH answered its health check on `port` just now. */
+    reachable: boolean;
+    /** Something accepts connections on `port` (MESH or another program). */
+    portOpen: boolean;
+    port: number;
+    /** Where `port` came from: a --port flag, the installed service, a running `mesh start`, or the default. */
+    portSource: PortSource;
+    baseUrls: { anthropic: string; openai: string };
+    health: string;
+  };
+  claudeCode: {
+    state: ClaudeCodeState;
+    pointedAtMesh: boolean | "unknown";
+    /** The local port its ANTHROPIC_BASE_URL names, when it names one. The URL itself is never repeated. */
+    port: number | null;
+    /** A `mesh start` session that is still running recorded that it pointed Claude Code at itself. */
+    startSessionRunning: boolean;
+    /** How the state was worked out. Fixed wording. */
+    detectedBy: string;
+  };
+  /** The base-URL variables in the environment this command was run from. Values are never repeated. */
+  callerEnvironment: {
+    anthropicBaseUrlPointsAtMesh: boolean;
+    openaiBaseUrlPointsAtMesh: boolean;
+  };
+  ledger: {
+    path: string;
+    empty: boolean;
+    /** Requests recorded, every period. */
+    requests: number;
+    /** When the earliest and latest recorded requests started (ISO 8601, UTC); null when there are none. */
+    firstRequestAt: string | null;
+    lastRequestAt: string | null;
+    chainVerified: boolean;
+    /** Where the chain stops verifying: the spool's number in name order, and the sequence number. */
+    brokenAt?: { spool: number; seq?: number };
+  };
+  currency: "USD";
+  /** Null when the ledger does not verify: a ledger that fails its check has no verified figure. */
+  savings: null | {
+    netVerifiedUsd: number;
+    netVerifiedCents: number;
+    /** Net verified savings round to at least one cent. */
+    hasVerifiedSavings: boolean;
+  };
+  /**
+   * The bill's verdict at the contracted fee over EVERY request in the ledger,
+   * all periods together. The figure for one billing period is `mesh statement`.
+   * Null when the ledger does not verify.
+   */
+  bill: null | {
+    scope: "all_periods";
+    feePercent: number;
+    verdict: "charge" | "do_not_charge";
+    reasonCode?: VerdictReasonCode;
+    reason?: string;
+    feeCents: number;
+    feeUsd: number;
+  };
+  coverage: {
+    enforceableLevers: number;
+    active: number;
+    held: number;
+    available: number;
+    activePercent: number;
+    levers: { lever: string; state: LeverStandState; class?: TheoLeverClass }[];
+  };
+  theo: {
+    /** Theo has run at least one cycle over this ledger (his memory file exists). */
+    hasRun: boolean;
+    /** The autonomy level of his last cycle; "unknown" before the first one. */
+    mode: TheoAutonomyLevel | "unknown";
+    /** Proposals waiting for the user's yes or no (`mesh theo --proposals`). */
+    pendingProposals: number;
+  };
+};
+
+/** What `collectStatus` reads. Every default is this user's own ~/.mesh and ~/.claude. */
+export type StatusOptions = {
+  /** Look for the proxy on this port instead of the configured one. */
+  port?: number;
+  ledgerDir?: string;
+  meshHome?: string;
+  claudeSettingsPath?: string;
+  wiringStatePath?: string;
+  plistPath?: string;
+  env?: Record<string, string | undefined>;
+};
+
+type StatusParts = {
+  result: StatusResult;
+  summary: LedgerSummary;
+  coverage: PolicyCoverage;
+};
+
+const CLAUDE_DETECTED_BY =
+  "env.ANTHROPIC_BASE_URL in ~/.claude/settings.json, the session record ~/.mesh/claude-wiring.json, " +
+  "and a health request to the local address it names";
+
+async function claudeCodeStatus(
+  paths: { settingsPath: string; statePath: string },
+  proxy: { port: number; probe: ProxyProbe },
+): Promise<StatusResult["claudeCode"]> {
+  const report = (
+    state: ClaudeCodeState,
+    pointedAtMesh: boolean | "unknown",
+    port: number | null = null,
+    startSessionRunning = false,
+  ): StatusResult["claudeCode"] => ({ state, pointedAtMesh, port, startSessionRunning, detectedBy: CLAUDE_DETECTED_BY });
+  const health = await checkWiring(paths, { portUp });
+  if (health.status === "invalid") return report("settings_invalid", "unknown");
+
+  let baseUrl: unknown;
+  try {
+    baseUrl = existsSync(paths.settingsPath)
+      ? (JSON.parse(readFileSync(paths.settingsPath, "utf8")) as { env?: Record<string, unknown> }).env?.ANTHROPIC_BASE_URL
+      : undefined;
+  } catch {
+    return report("settings_invalid", "unknown");
+  }
+  if (typeof baseUrl !== "string") return report("not_pointed", false);
+
+  const port = loopbackPort(baseUrl) ?? null;
+  if (health.status === "stranded" || health.status === "dead-local") return report("pointed_at_stopped_proxy", false, port);
+  if (port === null) return report("pointed_elsewhere", false);
+  // A local address something answers on: ask it whether it is MESH.
+  const probe = port === proxy.port ? proxy.probe : await probeProxy(port);
+  // checkWiring found no dead session behind this address, so a record that
+  // names it belongs to a `mesh start` that is still running.
+  const record = resolvePort(undefined, { plistPath: "", wiringStatePath: paths.statePath });
+  return report(
+    probe.isMesh ? "pointed_at_mesh" : "pointed_elsewhere",
+    probe.isMesh,
+    port,
+    record.source === "start-session" && record.port === port,
+  );
+}
+
+async function gatherStatus(options: StatusOptions = {}): Promise<StatusParts> {
+  const meshHome = options.meshHome ?? MESH_HOME;
+  const ledgerDir = options.ledgerDir ?? (options.meshHome === undefined ? DEFAULT_LEDGER : join(meshHome, "ledger"));
+  const statePath = options.wiringStatePath ?? (options.meshHome === undefined ? WIRING_STATE : join(meshHome, "claude-wiring.json"));
+  const settingsPath = options.claudeSettingsPath ?? CLAUDE_SETTINGS;
+  const env = options.env ?? process.env;
+
+  const { port, source } = resolvePort(options.port, {
+    ...(options.plistPath === undefined ? {} : { plistPath: options.plistPath }),
+    wiringStatePath: statePath,
+  });
+  const probe = await probeProxy(port);
+  const urls = proxyUrls(port);
+  const summary = summariseLedger(ledgerDir);
+  const coverage = policyCoverage(readPolicy(join(meshHome, "theo-policy.json")));
+  const memory = loadTheoMemory(defaultTheoMemoryPath(ledgerDir, "local"));
+
+  const runtimeDir = join(meshHome, "runtime");
+  const runtimeFile = join(runtimeDir, "mesh-runtime.mjs");
+  const cached = existsSync(runtimeFile);
+  let cachedVersion: string | null = null;
+  try { cachedVersion = cached ? readFileSync(join(runtimeDir, "version"), "utf8").trim() || null : null; } catch { cachedVersion = null; }
+  let runningFromCache = false;
+  try { runningFromCache = cached && realpathSync(process.argv[1] ?? "") === realpathSync(runtimeFile); } catch { runningFromCache = false; }
+
+  const pointsAtMesh = (value: string | undefined): boolean =>
+    value !== undefined && probe.isMesh && loopbackPort(value) === port;
+  const supported = platform() === "darwin";
+
+  const result: StatusResult = {
+    schema: "mesh-status/1",
+    ok: true,
+    mesh: meshIdentity(),
+    runtime: {
+      cached,
+      cachedVersion,
+      launcherInstalled: existsSync(join(meshHome, "bin", "mesh")),
+      runningFromCache,
+    },
+    service: { supported, installed: supported ? serviceLoaded() : false, manager: supported ? "launchd" : null },
+    proxy: {
+      reachable: probe.isMesh,
+      portOpen: probe.portOpen,
+      port,
+      portSource: source,
+      baseUrls: { anthropic: urls.anthropic, openai: urls.openai },
+      health: urls.health,
+    },
+    claudeCode: await claudeCodeStatus({ settingsPath, statePath }, { port, probe }),
+    callerEnvironment: {
+      anthropicBaseUrlPointsAtMesh: pointsAtMesh(env.ANTHROPIC_BASE_URL),
+      openaiBaseUrlPointsAtMesh: pointsAtMesh(env.OPENAI_BASE_URL),
+    },
+    ledger: {
+      path: ledgerDir,
+      empty: summary.events === 0,
+      requests: summary.events,
+      firstRequestAt: summary.firstEventAt ?? null,
+      lastRequestAt: summary.lastEventAt ?? null,
+      chainVerified: summary.chainOk,
+      ...(summary.chainOk || summary.brokenSpool === undefined
+        ? {}
+        : { brokenAt: { spool: summary.brokenSpool, ...(summary.brokenSeq === undefined ? {} : { seq: summary.brokenSeq }) } }),
+    },
+    currency: "USD",
+    // A ledger that does not verify has no verified total: no figure, exactly as the text output.
+    savings: summary.chainOk
+      ? { netVerifiedUsd: summary.savedUsd, netVerifiedCents: summary.savedCents, hasVerifiedSavings: summary.hasVerifiedSavings }
+      : null,
+    bill: summary.chainOk
+      ? {
+          scope: "all_periods",
+          feePercent: summary.bill.feePercent,
+          verdict: summary.bill.verdict,
+          ...(summary.bill.reasonCode === undefined ? {} : { reasonCode: summary.bill.reasonCode, reason: summary.bill.reason }),
+          feeCents: summary.bill.feeCents,
+          feeUsd: summary.bill.feeUsd,
+        }
+      : null,
+    coverage: {
+      enforceableLevers: coverage.enforceableCount,
+      active: coverage.activeCount,
+      held: coverage.heldCount,
+      available: coverage.availableCount,
+      activePercent: coverage.activeCoveragePercent,
+      // Lever ids and states only: a held lever's reason is prose and stays out.
+      levers: coverage.stands.map((stand) => ({
+        lever: stand.lever,
+        state: stand.state,
+        ...(stand.class === undefined ? {} : { class: stand.class }),
+      })),
+    },
+    theo: {
+      hasRun: memory !== null,
+      mode: memory?.autonomy ?? "unknown",
+      pendingProposals: memory?.proposals?.length ?? 0,
+    },
+  };
+  return { result, summary, coverage };
+}
+
+/**
+ * `mesh status` as data. Returns; never prints and never exits. Reads files
+ * under ~/.mesh and ~/.claude, asks launchd whether the service is registered,
+ * and makes one health request to the local proxy port. No other network
+ * call, and it changes nothing.
+ */
+export async function collectStatus(options: StatusOptions = {}): Promise<StatusResult> {
+  return (await gatherStatus(options)).result;
+}
+
+const STATUS_USAGE = `Usage: mesh status [options]
+
+Is the service up, is the proxy answering, and what has been verified so far?
+Reads your own ledger; changes nothing.
+
+  --port <n>       Look for the proxy on this port. Default: the installed
+                   service's port, else a running \`mesh start\`, else ${DEFAULT_PORT}.
+  --ledger <dir>   Ledger directory to read. Default ~/.mesh/ledger.
+  --json           Print one JSON object (schema mesh-status/1) instead of text.
+  --help           Show this message.
+
+Exits 0 whenever status could be read: a stopped proxy or an empty ledger is
+reported, not failed (the same with --json).`;
+
+export async function runStatus(argv: string[]): Promise<void> {
+  const { values, flags } = parseFlags("status", argv, { valueFlags: ["--port", "--ledger"] });
+  if (flags.has("--help")) { console.log(STATUS_USAGE); return; }
+  const port = parsePortFlag(values["--port"]);
+  const { result, summary: s, coverage: cov } = await gatherStatus({
+    ...(port === undefined ? {} : { port }),
+    ...(values["--ledger"] === undefined ? {} : { ledgerDir: resolve(values["--ledger"]) }),
+  });
+  if (flags.has("--json")) { writeJson(result); return; }
+
+  const loaded = result.service.installed;
+  const up = result.proxy.portOpen;
   console.log("");
   console.log(`  mesh status — build ${BUILD_COMMIT}`);
   console.log(`  service   ${loaded ? "installed (launchd)" : "not installed"}`);
-  console.log(`  proxy     ${up ? `up on http://127.0.0.1:${port}` : "not responding"}`);
+  console.log(`  proxy     ${up ? `up on http://127.0.0.1:${result.proxy.port}` : "not responding"}`);
   if (s.events > 0 && !s.chainOk) {
     // A ledger that does not verify has no verified total: say so, never a figure.
     console.log(`  ⬢ theo    ${s.events} requests seen · ledger did NOT verify, so no savings figure · run: mesh verify`);
@@ -225,7 +541,6 @@ export async function runStatus(_argv: string[]): Promise<void> {
   if (s.chainOk && s.hasVerifiedSavings) {
     console.log(`  claim     keep these savings metered → ${MESH_SIGNUP_URL}`);
   }
-  const cov = policyCoverage(readPolicy());
   console.log(
     `  coverage  live on ${cov.activeCount}/${cov.enforceableCount} enforceable levers ` +
     `(${cov.activeCoveragePercent.toFixed(0)}%)` +

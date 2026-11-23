@@ -18,9 +18,10 @@
  * `mesh-runtime verify`.
  */
 import { execSync } from "node:child_process";
-import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -122,15 +123,21 @@ npx @harrym1707/mesh start
 Your API key never leaves Claude Code. Build: ${commit}.
 `);
 
+// Smoke tests run in an empty temporary HOME, so they read no real ledger,
+// no real Claude Code settings, and write nothing outside it.
+const smokeHome = mkdtempSync(path.join(tmpdir(), "mesh-build-smoke-"));
+const smokeEnv = { ...process.env, HOME: smokeHome, USERPROFILE: smokeHome, MESH_NO_AUTO_UPDATE: "1" };
+process.on("exit", () => rmSync(smokeHome, { recursive: true, force: true }));
+
 // Smoke test: the runtime must run and pass its own self-checks.
-const smoke = execSync(`node ${JSON.stringify(runtimeFile)} verify`, { cwd: root }).toString();
+const smoke = execSync(`node ${JSON.stringify(runtimeFile)} verify`, { cwd: root, env: smokeEnv }).toString();
 if (!smoke.includes("All checks passed")) {
   console.error("Smoke test FAILED — runtime did not pass `verify`:\n" + smoke);
   process.exit(1);
 }
 
 // The download must expose Theo's command: it is how a user answers a proposal.
-const theoHelp = execSync(`node ${JSON.stringify(runtimeFile)} theo --help`, { cwd: root }).toString();
+const theoHelp = execSync(`node ${JSON.stringify(runtimeFile)} theo --help`, { cwd: root, env: smokeEnv }).toString();
 if (!theoHelp.includes("Usage: mesh theo") || !theoHelp.includes("--accept")) {
   console.error("Smoke test FAILED — runtime has no working `theo` command:\n" + theoHelp);
   process.exit(1);
@@ -138,10 +145,23 @@ if (!theoHelp.includes("Usage: mesh theo") || !theoHelp.includes("--accept")) {
 
 // The download must expose the statement command: it is how a customer produces
 // the figure for a billing period on their own machine.
-const statementHelp = execSync(`node ${JSON.stringify(runtimeFile)} statement --help`, { cwd: root }).toString();
+const statementHelp = execSync(`node ${JSON.stringify(runtimeFile)} statement --help`, { cwd: root, env: smokeEnv }).toString();
 if (!statementHelp.includes("Usage: mesh statement") || !statementHelp.includes("--period")) {
   console.error("Smoke test FAILED — runtime has no working `statement` command:\n" + statementHelp);
   process.exit(1);
+}
+
+// The download must expose what an agent reads: `status`, `verify` and
+// `connect` each print exactly one JSON object with their schema. A command
+// that went missing from the runtime prints the usage text instead and fails here.
+for (const [command, schema] of [["status", "mesh-status/1"], ["verify", "mesh-verify/1"], ["connect", "mesh-connect/1"]] as const) {
+  const out = execSync(`node ${JSON.stringify(runtimeFile)} ${command} --json`, { cwd: root, env: smokeEnv }).toString();
+  let parsed: { schema?: unknown; mesh?: { build?: unknown } } = {};
+  try { parsed = JSON.parse(out) as typeof parsed; } catch { /* reported below */ }
+  if (parsed.schema !== schema || parsed.mesh?.build !== commit || !out.endsWith("}\n") || out.trim().includes("\n")) {
+    console.error(`Smoke test FAILED — \`${command} --json\` did not print one ${schema} object:\n${out}`);
+    process.exit(1);
+  }
 }
 
 const kb = (n: number): string => `${(n / 1024).toFixed(0)}KB`;
@@ -152,4 +172,5 @@ console.log(`  mesh-version.json  update manifest`);
 console.log(`  smoke test: mesh-runtime verify — All checks passed`);
 console.log(`  smoke test: mesh-runtime theo --help — command present`);
 console.log(`  smoke test: mesh-runtime statement --help — command present`);
+console.log(`  smoke test: mesh-runtime status|verify|connect --json — one JSON object each`);
 console.log(`  publish npm with:  (cd ${path.relative(root, outDir)} && npm publish --access public)`);

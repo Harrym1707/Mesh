@@ -40,18 +40,19 @@ import { wireClaudeCode } from "./claude-wiring.js";
 // Pure formatter module (no core imports) — reused so the signup URL and the
 // README badge have one source of truth across the proxy, SDK and this CLI.
 import { MESH_SIGNUP_URL, savingsBadge, type SavingsSnapshot } from "../../sdk-js/src/cta.js";
-import { recomputeBillInvoice, verdictNote } from "./bill-verdict.js";
+import { billVerdict, recomputeBillInvoice, verdictNote, type BillVerdict } from "./bill-verdict.js";
 import { pullNewerRuntime } from "./update.js";
+import { BUILD_COMMIT } from "./build-info.js";
+import { DEFAULT_PORT } from "./machine.js";
 
-declare const __MESH_BUILD_COMMIT__: string | undefined;
-export const BUILD_COMMIT =
-  typeof __MESH_BUILD_COMMIT__ !== "undefined" ? __MESH_BUILD_COMMIT__ : (process.env.MESH_BUILD_COMMIT ?? "dev");
+// Defined in leaf modules (build-info.ts, machine.ts) so the JSON conventions
+// and the read-only commands can use them without importing the proxy.
+export { BUILD_COMMIT, DEFAULT_PORT };
 
 export const MESH_HOME = join(homedir(), ".mesh");
 export const CLAUDE_SETTINGS = join(homedir(), ".claude", "settings.json");
 /** What Claude Code's settings held before `mesh start` changed them (see claude-wiring.ts). */
 export const WIRING_STATE = join(MESH_HOME, "claude-wiring.json");
-export const DEFAULT_PORT = 8787;
 
 /**
  * Read the user's Theo policy without writing anything — the default (STRICT,
@@ -59,8 +60,8 @@ export const DEFAULT_PORT = 8787;
  * so both read the policy the same way; the proxy's own read in
  * startProxyWithPolicy is separate because it writes the default on first run.
  */
-export function readPolicy(): TheoPolicy {
-  return readPolicyBundle().default;
+export function readPolicy(policyPath?: string): TheoPolicy {
+  return readPolicyBundle(policyPath).default;
 }
 
 /**
@@ -68,8 +69,8 @@ export function readPolicy(): TheoPolicy {
  * a legacy single-policy file into a bundle. The DEFAULT (STRICT, lossless-only)
  * when none exists yet or the file is unreadable.
  */
-export function readPolicyBundle(): TheoPolicyBundle {
-  const path = join(MESH_HOME, "theo-policy.json");
+export function readPolicyBundle(policyPath?: string): TheoPolicyBundle {
+  const path = policyPath ?? join(MESH_HOME, "theo-policy.json");
   const fallback = (): TheoPolicyBundle => asBundle(defaultPolicy("local", new Date().toISOString()));
   if (!existsSync(path)) return fallback();
   try {
@@ -175,6 +176,13 @@ function blindKey(): string {
 export type LedgerSummary = {
   events: number;
   savedUsd: number;
+  /** Net verified savings in whole cents, as the invoice recompute rounds them. */
+  savedCents: number;
+  /** The bill's decision as data: fee percent, fee cents, and the reason when nothing is charged. */
+  bill: BillVerdict;
+  /** When the earliest and latest recorded requests started (ISO 8601, UTC), if the ledger has any. */
+  firstEventAt?: string;
+  lastEventAt?: string;
   /** The bill's verdict at the contracted fee: "charge" only when a fee of at least one cent is owed. */
   verdict: "charge" | "do_not_charge";
   /** The verdict as printed: it adds the reason when savings are positive but the fee is below one cent. */
@@ -183,8 +191,41 @@ export type LedgerSummary = {
   hasVerifiedSavings: boolean;
   chainOk: boolean;
   brokenAt?: string;
+  brokenSpool?: number;
+  brokenSeq?: number;
 };
-export type LedgerRead = { records: LedgerRecord[]; chainOk: boolean; brokenAt?: string };
+export type LedgerRead = {
+  records: LedgerRecord[];
+  chainOk: boolean;
+  /** For the screen: the spool's file name and the sequence number. */
+  brokenAt?: string;
+  /**
+   * The same place without the file name, for JSON output: a spool's name is
+   * built from the application id a request sent, so it is not repeated there.
+   * `brokenSpool` is the spool's 1-based position in name order.
+   */
+  brokenSpool?: number;
+  brokenSeq?: number;
+};
+
+const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?Z$/;
+
+/**
+ * The earliest and latest request start times in the ledger. Only a value
+ * that looks like a timestamp is used: an event field is never repeated as
+ * free text.
+ */
+export function ledgerTimeRange(records: readonly LedgerRecord[]): { firstEventAt?: string; lastEventAt?: string } {
+  let first: string | undefined;
+  let last: string | undefined;
+  for (const record of records) {
+    const at: unknown = record.event?.timestamp;
+    if (typeof at !== "string" || !ISO_TIME.test(at)) continue;
+    if (first === undefined || at < first) first = at;
+    if (last === undefined || at > last) last = at;
+  }
+  return { ...(first === undefined ? {} : { firstEventAt: first }), ...(last === undefined ? {} : { lastEventAt: last }) };
+}
 
 /** Read every ledger spool and verify each hash chain. Shared by status and the dashboard. */
 export function readLedger(ledgerDir: string): LedgerRead {
@@ -193,6 +234,9 @@ export function readLedger(ledgerDir: string): LedgerRead {
   const allRecords: LedgerRecord[] = [];
   let chainOk = true;
   let brokenAt: string | undefined;
+  let brokenSpool: number | undefined;
+  let brokenSeq: number | undefined;
+  const inNameOrder = [...spools].sort();
   for (const spool of spools) {
     const records: LedgerRecord[] = [];
     const raw = readFileSync(join(ledgerDir, spool), "utf8").trim();
@@ -202,17 +246,36 @@ export function readLedger(ledgerDir: string): LedgerRead {
       try { records.push(JSON.parse(line) as LedgerRecord); } catch { /* partial tail line mid-write */ }
     }
     const chain = verifyLedgerChain(records);
-    if (!chain.ok) { chainOk = false; brokenAt = `${spool} seq ${chain.seq}`; }
+    if (!chain.ok) {
+      chainOk = false;
+      brokenAt = `${spool} seq ${chain.seq}`;
+      brokenSpool = inNameOrder.indexOf(spool) + 1;
+      brokenSeq = typeof chain.seq === "number" ? chain.seq : undefined;
+    }
     allRecords.push(...records);
   }
-  return { records: allRecords, chainOk, ...(brokenAt === undefined ? {} : { brokenAt }) };
+  return {
+    records: allRecords,
+    chainOk,
+    ...(brokenAt === undefined ? {} : { brokenAt }),
+    ...(brokenSpool === undefined ? {} : { brokenSpool }),
+    ...(brokenSeq === undefined ? {} : { brokenSeq }),
+  };
 }
 
 /** Read every ledger spool, verify each chain, and recompute one honest invoice. */
 export function summariseLedger(ledgerDir: string): LedgerSummary {
-  const { records, chainOk, brokenAt } = readLedger(ledgerDir);
+  const { records, chainOk, brokenAt, brokenSpool, brokenSeq } = readLedger(ledgerDir);
+  const broken = {
+    ...(brokenAt === undefined ? {} : { brokenAt }),
+    ...(brokenSpool === undefined ? {} : { brokenSpool }),
+    ...(brokenSeq === undefined ? {} : { brokenSeq }),
+  };
   if (records.length === 0) {
-    return { events: 0, savedUsd: 0, verdict: "do_not_charge", verdictNote: "do_not_charge", hasVerifiedSavings: false, chainOk, ...(brokenAt === undefined ? {} : { brokenAt }) };
+    // Recomputed over no events rather than written out by hand, so the empty
+    // case carries the same fee rate and reason as every other.
+    const empty = recomputeBillInvoice([]);
+    return { events: 0, savedUsd: 0, savedCents: 0, bill: billVerdict(empty), verdict: "do_not_charge", verdictNote: "do_not_charge", hasVerifiedSavings: false, chainOk, ...broken };
   }
   // At the contracted fee, so the verdict printed by status and start is the
   // bill's: positive savings whose fee is below one cent are do_not_charge.
@@ -220,11 +283,14 @@ export function summariseLedger(ledgerDir: string): LedgerSummary {
   return {
     events: records.length,
     savedUsd: invoice.netVerifiedSavingsUsd,
+    savedCents: invoice.netVerifiedSavingsCents,
+    bill: billVerdict(invoice),
+    ...ledgerTimeRange(records),
     verdict: invoice.verdict,
     verdictNote: verdictNote(invoice),
     hasVerifiedSavings: invoice.netVerifiedSavingsCents > 0,
     chainOk,
-    ...(brokenAt === undefined ? {} : { brokenAt }),
+    ...broken,
   };
 }
 

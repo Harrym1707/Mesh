@@ -410,6 +410,8 @@ Usage: mesh <command> [options]
   stop       Stop the background service (kept; resume with install).
   uninstall  Stop and remove the background service; restore Claude Code.
   status     Is the service up, and what has Theo saved so far?
+  connect    How a client reaches MESH on this machine: the base URLs to set
+             and whether the proxy is answering. Reads no key, changes nothing.
   dashboard  Open a live local web view of your savings and what Theo is doing.
   theo       Run Theo now over your metered traffic: observe it, find savings,
              and update what he enforces, within your chosen autonomy level.
@@ -449,6 +451,8 @@ async function main(): Promise<void> {
     await (await import("./update.js")).runUpdate(process.argv.slice(3));
   } else if (sub === "verify") {
     await (await import("./verify.js")).runVerify(process.argv.slice(3));
+  } else if (sub === "connect") {
+    await (await import("./connect.js")).runConnect(process.argv.slice(3));
   } else if (sub === "statement") {
     await (await import("./statement.js")).runStatement(process.argv.slice(3));
   } else if (sub === "doctor") {
@@ -473,7 +477,8 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
+// A command that throws: the message on stderr, or with --json one failure
+// object on stdout. Exit 1 either way (json-output.ts).
+main().catch(async (error: unknown) => {
+  (await import("./json-output.js")).reportFatal(error);
 });
