@@ -1,7 +1,9 @@
 # Reddit posts — one per community, in that community's register
 
-**Drafts, not posted.** Refreshed 2026-11-18 for Mesh 0.2.3. Posting is the
-founder's act.
+**Drafts, not posted.** Refreshed 2026-11-23 for Mesh 0.2.5. Posting is the
+founder's act. Both install routes gave 0.2.5 when run on 2026-11-23
+(website: build `59363e8`; npm: build `932bcd0`); the posts name no version,
+so check `mesh version` on both routes the morning you post.
 
 Rules of engagement (from research/reddit.md): text posts, no URL in the
 title, GitHub link mid-body after the numbers, one sub per day, warm the
@@ -19,6 +21,20 @@ Claude Code or `mesh proxy` for your own app
 (`ANTHROPIC_BASE_URL=http://127.0.0.1:8787` or
 `OPENAI_BASE_URL=http://127.0.0.1:8787/v1`), then `mesh verify`. Questions go
 to GitHub issues: https://github.com/Harrym1707/Mesh/issues/new
+
+Billing never goes in a title. Where a post or a reply gets to what it
+costs, say what the Pricing and billing page says and link it
+(https://www.mesh-technology.com/pricing.html): installing and
+running Mesh is free; a fee exists only once billing has been agreed in
+writing; it is 1% of verified savings for the calendar month, rounded down
+to the cent, so never more than 1%; nothing is charged automatically (the
+user runs `mesh statement --period YYYY-MM`, sends the statement file and
+the ledger files, and gets a statement and an invoice back); the statement
+is signed by the user's own install, whose key fingerprint
+(`mesh statement --key`) they register once when billing is agreed. Keep the
+measurement honest in the same breath: the usage after reduction is the
+provider's reported number; the baseline it is compared with is computed by
+Mesh.
 
 ---
 
@@ -103,12 +119,14 @@ claims, so structure as method-first:
    hold.
 2. The mechanism: hash-chained JSONL per app; invoice = pure function over
    events; `mesh verify` re-checks the chain and recomputes the all-time
-   total with no network calls, and the MIT `@harrym1707/verify` package
-   does the same independently; if your recompute disagrees with ours, yours
-   prevails.
-3. The numbers with tradeoffs: 37.9% cache-only (SIMULATOR, both arms clean
-   38/40); the 57.3% full-stack figure (SIMULATOR) FAILS our own quality gate
-   (−5pp) and is published as a non-win; 18.2% net on the live basket (LIVE,
+   total with no network calls; `mesh statement --period YYYY-MM` recomputes
+   one calendar month and writes a statement file signed by a key your own
+   install holds; the MIT `@harrym1707/verify` package recomputes
+   independently; if your recompute disagrees with ours, yours prevails.
+3. The numbers with tradeoffs: 37.9% cache-only (SIMULATOR, same quality in
+   both arms); the 57.3% full-stack figure (SIMULATOR) costs 5 points of
+   quality against the raw baseline (−5pp) and is published with that cost,
+   which is why 37.9% is the one we quote; 18.2% net on the live basket (LIVE,
    run 2026-10-26, our own test agents); already-lean stacks 0–5% and a
    do-not-pay-us verdict.
 4. The loss: our own stamp lever lost money on an early live run; root cause
@@ -117,8 +135,12 @@ claims, so structure as method-first:
    `mesh verify`).
 6. Disclosure: I built it; no customers yet, it has only run on our own test
    agents; BUSL source-available (not open source — free to evaluate and use
-   non-commercially, Apache-2.0 in 2030); production is 1% of verified
-   savings, monthly, and a month that saves nothing bills nothing.
+   non-commercially, Apache-2.0 in 2030); installing and running it is free;
+   a fee exists only once billing is agreed in writing, and is then 1% of
+   the month's verified savings, rounded down to the cent, never charged
+   automatically; a month that saves nothing bills nothing. Link the pricing
+   page (https://www.mesh-technology.com/pricing.html) here, not
+   in the title.
 
 ---
 

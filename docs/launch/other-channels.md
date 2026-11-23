@@ -1,9 +1,18 @@
 # Launch posts — other channels (founder fires each one)
 
-**Drafts, not posted or sent.** Refreshed 2026-11-18 for Mesh 0.2.3. Posting
-and sending are the founder's acts. Every savings number is in
-docs/NUMBERS.md with its label (LIVE or SIMULATOR). Mesh has no customers and
-has only run on our own test traffic: imply nothing else.
+**Drafts, not posted or sent.** Refreshed 2026-11-23 for Mesh 0.2.5. Posting
+and sending are the founder's acts; retype each one before it goes out. Every
+savings number is in docs/NUMBERS.md with its label (LIVE or SIMULATOR). Mesh
+has no customers and has only run on our own test traffic: imply nothing
+else. Both install routes gave 0.2.5 when run on 2026-11-23 (website: build
+`59363e8`; npm: build `932bcd0`); the texts below name no version, so check
+`mesh version` on both routes on the day.
+
+Where a text says what Mesh costs, it follows the Pricing and billing page
+(https://www.mesh-technology.com/pricing.html) and the Terms: free to
+install and run; a fee only once billing is agreed in writing; 1% of the
+month's verified savings, rounded down to the cent; nothing charged
+automatically. Billing never goes in a title, tagline or subject line.
 
 Sequencing (from research/channels.md): listings first (compounding GEO),
 then HN, then DevHunt, X cadence throughout, Product Hunt later with social
@@ -28,12 +37,15 @@ Subject: Mesh — local LLM cost proxy with a savings ledger you can recompute y
 > ledger of the provider's own reported usage to your disk. The differentiator
 > is verification rather than claimed savings: the invoice is a pure function
 > of a file the user holds, `mesh verify` recomputes it locally (a separate
-> MIT package does the same), and the output for already-optimised stacks
-> literally says "do not pay us". Published numbers include where it loses.
-> It is new: so far it has only run on our own test traffic.
+> MIT package does the same), `mesh statement --period YYYY-MM` gives one
+> month's figure in a file signed by the user's own install, and the output
+> for already-optimised stacks literally says "do not pay us". Published
+> numbers include where it loses. It is new: so far it has only run on our
+> own test traffic.
 >
 > Repo: https://github.com/Harrym1707/Mesh · Site: https://www.mesh-technology.com
 > · Five-minute start: https://www.mesh-technology.com/start.html
+> · Pricing and billing: https://www.mesh-technology.com/pricing.html
 >
 > Happy to answer anything. — Harry
 
@@ -45,6 +57,9 @@ Subject: Mesh — local LLM cost proxy with a savings ledger you can recompute y
 - Link GitHub repo as primary; first line is the zero-signup install
   (`curl -fsSL https://www.mesh-technology.com/install.sh | sh`, then
   `mesh start` or `mesh proxy`, then `mesh verify`).
+- If the listing has a pricing field or link: "Free to install and run. 1%
+  of verified savings, monthly, once billing is agreed in writing", linked to
+  https://www.mesh-technology.com/pricing.html
 
 ## 3. X thread (no hashtags; story form; real numbers only)
 
@@ -74,11 +89,15 @@ modelled, identical prompts both arms). 18.2% net on our one live basket
 (LIVE: 30 requests, run 2026-10-26, our own test agents). Already-optimised
 stack? It says "do not pay us."
 
-6/ Free to try, your prompts go to your provider and nowhere else, ~22ms
-added p50 (local stub, 2026-10-20). Production pricing is 1% of verified
-savings, monthly — a month that saves nothing bills nothing. No customers
-yet; tell us where it breaks: github.com/Harrym1707/Mesh/issues/new ·
-mesh-technology.com
+6/ Free to install and run. Your prompts go to your provider and nowhere
+else. No customers yet; tell us where it breaks:
+github.com/Harrym1707/Mesh/issues/new
+
+7/ What it costs: nothing until billing is agreed in writing. Then 1% of the
+month's verified savings, rounded down to the cent, never charged
+automatically: you run `mesh statement --period YYYY-MM`, your own install
+signs the statement, we recompute it and send an invoice. A month that saves
+nothing bills nothing. mesh-technology.com/pricing.html
 
 ## 4. Product Hunt (later — after HN + some social proof)
 
@@ -86,6 +105,9 @@ mesh-technology.com
 - Maker's first comment: the ledger story (compress the Show HN first comment
   to 150 words, keeping the install → `mesh start` / `mesh proxy` →
   `mesh verify` path and the number labels); invite scepticism explicitly.
+- Pricing field: link https://www.mesh-technology.com/pricing.html;
+  one line only, "free to install and run; 1% of verified savings, monthly,
+  once billing is agreed in writing". Not in the tagline.
 - Launch Tue/Wed 12:01 AM Pacific; reply to every comment within 15 min.
 - Assets needed before listing: 240×240 animated thumbnail, 1270×760 gallery
   shots (hero waves, reducer demo, the receipt), 60–90s screen demo.

@@ -1,7 +1,7 @@
 # Communities — where MESH launches, in what order, in whose language
 
-**Draft plan; nothing here has been posted.** Refreshed 2026-11-18 for MESH
-0.2.3.
+**Draft plan; nothing here has been posted.** Refreshed 2026-11-23 for MESH
+0.2.5.
 
 The one-page view. Research: research/hackernews.md, research/reddit.md,
 research/channels.md. Posts: show-hn.md, reddit-posts.md, other-channels.md.
@@ -54,6 +54,23 @@ research/channels.md. Posts: show-hn.md, reddit-posts.md, other-channels.md.
   `mesh proxy` (your own app, with `ANTHROPIC_BASE_URL=http://127.0.0.1:8787`
   or `OPENAI_BASE_URL=http://127.0.0.1:8787/v1`), then `mesh verify`.
   `npx -y -p @harrym1707/sdk mesh-proxy` is the no-install alternative only.
+- No version number in text meant to be posted. Both install routes gave
+  0.2.5 when run on 2026-11-23 (website: build `59363e8`; npm: build
+  `932bcd0`); the two are published separately and npm has lagged the website
+  before, so check `mesh version` on both the morning of each post.
+- Billing stays out of every title. Where a post or a reply gets to price, it
+  links the Pricing and billing page
+  (https://www.mesh-technology.com/pricing.html) and says what that
+  page and the Terms say: free to install and run; a fee only once billing is
+  agreed in writing; 1% of verified savings for the calendar month, rounded
+  down to the cent, so never more than 1%; nothing charged automatically; a
+  month is recomputed with `mesh statement --period YYYY-MM`; the statement
+  is signed by the customer's own install, and the customer registers the key
+  fingerprint once (`mesh statement --key`).
+- Say how a saving is measured the same way every time: the usage after
+  reduction is the provider's reported number; the baseline it is compared
+  with is computed by MESH.
+- Retype every draft in your own words before it goes out.
 - Every savings number comes from docs/NUMBERS.md with its label (LIVE or
   SIMULATOR). MESH has not run on anyone's traffic but our own test runs:
   no customers, no testimonials, no case studies, and no post may imply one.

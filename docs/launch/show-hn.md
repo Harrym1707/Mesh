@@ -1,12 +1,22 @@
 # Show HN — the post (founder fires)
 
-**Draft, not posted.** Refreshed 2026-11-18 for Mesh 0.2.3. Posting is the
-founder's act.
+**Draft, not posted.** Refreshed 2026-11-23 for Mesh 0.2.5. Posting is the
+founder's act. Retype it in your own words before posting.
+
+Both install routes gave 0.2.5 when run on 2026-11-23 (website: build
+`59363e8`; npm: build `932bcd0`). The comment below names no version on
+purpose, so it does not go stale; check `mesh version` on both routes the
+morning you post (docs/launch/checklist.md).
 
 Built from docs/launch/research/hackernews.md. Every savings number below is
 in docs/NUMBERS.md and carries that file's label (LIVE or SIMULATOR); do not
 add any that isn't. Mesh has not run on anyone's traffic but our own test
 runs: write nothing that implies a customer, a user's result or a testimonial.
+The proxy-overhead figure the earlier draft quoted is not in docs/NUMBERS.md
+(it is on the site's evidence page, measured 2026-10-20 on an older build),
+so the comment points at the measurement script and gives no number; if you
+want a number in the post, re-run the script on the build you are launching
+and quote that run with its date.
 
 ## Title (pick one — mechanism-led, never the billing, never "open source")
 
@@ -51,19 +61,22 @@ stored. Requests are reduced before they reach the provider (compacted tool
 schemas that decode identically, exact-duplicate removal, relocating the
 per-request timestamp that silently breaks the provider's cache, and correct
 cache_control placement). Responses come back byte-identical, streaming
-included. Your prompts go to your provider and nowhere else; the proxy added
-~22ms p50 on 31KB agent requests on my machine against a local stub
-(2026-10-20; measurement script in the repo, rerun it on yours).
+included. Your prompts go to your provider and nowhere else. The proxy adds
+a little latency to each request; the script that measures it is in the repo
+(evals/run-proxy-overhead.ts), so run it on your machine rather than take a
+number from mine.
 
 The part I actually care about: every request appends one event to an
 append-only, hash-chained ledger on YOUR disk — usage numbers from the
 provider's own response, lever names, hashes, never prompt content. The
 invoice is a pure function over that file. `mesh verify` recomputes it on
 your machine with no network calls (it reports the all-time total for the
-ledger), and the same check ships as a separate MIT package
-(`@harrym1707/verify`) so checking me doesn't mean trusting my CLI. If your
-recomputation and my statement disagree, yours prevails; that is in the
-terms. To be exact about what is measured: the "after" side of a saving is
+ledger), `mesh statement --period YYYY-MM` recomputes one calendar month and
+writes it to a file signed by a key your own install generates and keeps, and
+the same recompute ships as a separate MIT package (`@harrym1707/verify`) so
+checking me doesn't mean trusting my CLI. If your recomputation and my
+statement disagree, yours prevails; that is in the terms. To be exact about
+what is measured: the "after" side of a saving is
 the provider's own reported usage; the "before" side is a baseline Mesh
 computes. It is a counterfactual, which is why the computation sits in a
 file you can re-run.
@@ -96,10 +109,19 @@ money.
 
 Licence and pricing, plainly: the code is source-available under BUSL 1.1 —
 not open source — free to use non-commercially and to evaluate, converting
-to Apache-2.0 in 2030. Production use is a commercial agreement: 1% of
-verified savings, monthly, nothing else; a month that saved nothing bills
-nothing, and negative lever months count against us. I know %-of-savings
-billing invites scepticism — that scepticism is exactly why the ledger is
+to Apache-2.0 in 2030. Installing and running it is free, and the terms on
+the site are the agreement for running it in production on your own usage.
+A fee exists only once we have agreed billing in writing: 1% of verified
+savings for the calendar month, rounded down to the cent so it is never more
+than 1%, and nothing else. Nothing is charged automatically. After the month
+ends you run `mesh statement --period YYYY-MM` and send the signed statement
+file with the ledger files; I recompute the same figure and send a statement
+and an invoice. You register your install's key fingerprint once
+(`mesh statement --key`) when billing is agreed, so nobody else, me included,
+can produce a statement in your name. A month that saved nothing bills
+nothing, and a lever that lost money counts against us. Month by month:
+https://www.mesh-technology.com/pricing.html. I know %-of-savings billing
+invites scepticism — that scepticism is exactly why the ledger is
 recomputable by you and why the do-not-pay-us verdict exists.
 
 Genuine question for this crowd: what would it take for you to trust a

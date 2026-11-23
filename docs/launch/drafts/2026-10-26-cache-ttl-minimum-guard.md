@@ -1,7 +1,8 @@
 # We caught our own cache lever claiming a saving that could never happen
 
-*(**Draft, not published.** Written 2026-10-26; refreshed 2026-11-18 for MESH
-0.2.3. Publishing is the founder's act.)*
+*(**Draft, not published.** Written 2026-10-26; the install path at the end
+was checked again on 2026-11-23 against MESH 0.2.5 and is unchanged.
+Publishing is the founder's act; retype it in your own words first.)*
 
 Anthropic won't cache a prompt prefix below a minimum length: 1,024 tokens
 for Opus- and Sonnet-class models, 2,048 for Haiku-class ones. Send a

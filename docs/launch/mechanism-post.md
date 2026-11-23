@@ -1,11 +1,12 @@
 # How we verify LLM API savings with a ledger you can recompute yourself
 
-*(**Draft, not published.** Refreshed 2026-11-18 for MESH 0.2.3. The
-newsletter/blog asset: the mechanism story TLDR-class newsletters and Latent
-Space link to. Founder reviews, personalises the first-person voice, and
-publishes — on the site as a page, or as the body of a pitch. Every savings
-number is in docs/NUMBERS.md with its label, LIVE or SIMULATOR; add nothing
-that isn't.)*
+*(**Draft, not published.** Refreshed 2026-11-23 for MESH 0.2.5, the release
+that signs statements with the customer's own install; both install routes
+gave 0.2.5 when run that day. The newsletter/blog asset: the mechanism story
+TLDR-class newsletters and Latent Space link to. Founder reviews, retypes it
+in his own first-person voice, and publishes — on the site as a page, or as
+the body of a pitch. Every savings number is in docs/NUMBERS.md with its
+label, LIVE or SIMULATOR; add nothing that isn't.)*
 
 ---
 
@@ -16,9 +17,10 @@ marketing goes to lie. Independent replays of popular token trimmers keep
 finding the measured saving far below the claimed one (the sources are on
 our comparison page).
 
-We build MESH, a local proxy that cuts Claude/OpenAI request costs, and the
-price is 1% of verified savings, monthly. Pricing on a counterfactual forced
-us to solve the verification problem for real, and the solution turned out to
+We build MESH, a local proxy that cuts Claude/OpenAI request costs.
+Installing and running it is free; once billing is agreed in writing, the
+price is 1% of verified savings for the month. Pricing on a counterfactual
+forced us to solve the verification problem for real, and the solution turned out to
 be the interesting part of the product. MESH is new: it has not yet run on
 anyone's traffic but our own test runs, and the numbers at the end say which
 is which. Here is the whole mechanism.
@@ -51,15 +53,26 @@ verification loudly instead of billing quietly.
 
 ## 3. The invoice is a pure function — and the verifier is MIT
 
-`invoice = recompute(ledger file)`. That is the entire billing pipeline.
-`mesh verify` runs it on your machine with no network calls; it reports the
-all-time total for the ledger. The functions that verify the chain and
+`invoice = recompute(ledger file)`. That is the whole calculation behind a
+bill. `mesh verify` runs it on your machine with no network calls; it reports
+the all-time total for the ledger. `mesh statement --period YYYY-MM` runs it
+for one calendar month (UTC), prints the savings by lever and the fee, and
+writes a statement file. The functions that verify the chain and
 recompute the invoice also ship as a separate MIT package
 (`@harrym1707/verify`) with zero dependencies and no network access,
 precisely because the product itself is commercial (source-available BUSL):
 an honesty claim you cannot independently check is worthless, so checking us
 requires accepting no terms at all. If your recomputation of the same ledger
 differs from our statement, yours prevails. That sentence is in the terms.
+
+The statement file is signed by a key your own install generates and keeps.
+`mesh statement --key` prints its fingerprint, which you register with us
+once, when billing is agreed; the private half never leaves your machine. We
+bill only from statements signed by that key, so nobody else, including us,
+can produce a statement in your name. Nothing is charged automatically: you
+send the statement file and the ledger files it was made from, we recompute
+the same figure from the same ledger, and we send a statement and an invoice.
+The fee is rounded down to the cent, so it is never more than 1%.
 
 ## 4. Quality is part of the number
 
@@ -69,8 +82,9 @@ and several "obvious" levers fail exactly this way. Lossless transforms
 (byte-exact dedup, schemas that decode identically) apply by default. Anything
 that changes what the model reads is off until a replay gate re-runs your own
 recorded requests and shows quality held. One of our stack's strongest arms —
-57.3% versus an uncached baseline (SIMULATOR) — is published as a **non-win**
-because it costs 5 points of task quality, over our own limit.
+57.3% versus an uncached baseline (SIMULATOR) — is published with its cost
+attached: it loses 5 points of task quality against that baseline, so the
+figure we quote for the cache lever is the smaller, clean one.
 
 ## 5. Losses count against us, and that's not hypothetical
 
@@ -101,8 +115,11 @@ only thing a counterfactual biller can sell: being checkable.
   real API traffic, our own test agents; spools in
   `evals/live-exports-2026-10-26/`)
 - Already-optimised stacks: **0–5%**, verdict `do_not_charge`
-- The proxy's own cost: **~22ms p50** added per request against a local stub
-  (2026-10-20, our machine), measurement script in the repo
+- The proxy's own cost in latency: measured by a script in the repo
+  (`evals/run-proxy-overhead.ts`); run it on your machine. *(Draft note: the
+  figure on the evidence page is from 2026-10-20 and is not in
+  docs/NUMBERS.md, so no number is given here; re-run the script on the
+  launch build if you want one, and quote that run with its date.)*
 
 Try it on your own traffic; it is open to anyone, no signup or account.
 Install with `curl -fsSL https://www.mesh-technology.com/install.sh | sh`
@@ -111,4 +128,5 @@ Then `mesh start` for Claude Code, or `mesh proxy` for your own app with
 `ANTHROPIC_BASE_URL=http://127.0.0.1:8787` or
 `OPENAI_BASE_URL=http://127.0.0.1:8787/v1`. Then `mesh verify`. Everything
 above traces to a runnable command: https://www.mesh-technology.com/evidence.html
+What it costs and how a month is billed: https://www.mesh-technology.com/pricing.html
 Questions and bugs: https://github.com/Harrym1707/Mesh/issues/new
