@@ -322,9 +322,9 @@ async function main(): Promise<void> {
     if (registered.ok) {
       registration = registered.registration;
     } else if (!args.dryRun || registered.code !== "no-key") {
-      throw new Error(`DO NOT BILL — ${registered.reason}`);
+      throw new Error(`DO NOT BILL — ${registered.reason} (Registry: ${registryPath})`);
     } else {
-      console.log(`WARNING — ${registered.reason} A real run will refuse to bill ${args.customer} until then.`);
+      console.log(`WARNING — ${registered.reason} A real run will refuse to bill ${args.customer} until then. (Registry: ${registryPath})`);
     }
   }
   if (customerKey !== undefined) {
@@ -363,7 +363,7 @@ async function main(): Promise<void> {
     // is registered after it, and is refused here. Same in a dry run.
     if (registration !== undefined) {
       const order = checkRegisteredKeyForStatement({ entries: registryEntries, customer: args.customer, statement: statementDocument });
-      if (!order.ok) throw new Error(`DO NOT BILL — ${order.reason}`);
+      if (!order.ok) throw new Error(`DO NOT BILL — ${order.reason} (Registry: ${registryPath})`);
     }
   }
 
