@@ -47,9 +47,10 @@ import {
   selectBillableEvents,
   verifyLedgerChain,
   type BillableEvent,
+  type Invoice,
   type LedgerRecord,
 } from "../../core/src/savings-ledger.js";
-import { buildStripeInvoicePlan } from "../../core/src/stripe-billing.js";
+import { buildStripeInvoicePlan, type StripeInvoicePlan } from "../../core/src/stripe-billing.js";
 import { VERSION } from "./diag.js";
 import { BUILD_COMMIT, MESH_HOME } from "./start.js";
 import { loadOrCreateStatementKey, statementKeyPath } from "./statement-key.js";
@@ -160,7 +161,7 @@ const WITHHELD = "(withheld)";
  * and each must look like one: anything else (spaces, quotes, a path, prose)
  * is withheld rather than shared.
  */
-function plainId(value: unknown): string {
+export function plainId(value: unknown): string {
   return typeof value === "string" && PLAIN_ID.test(value) ? value : WITHHELD;
 }
 function hash64(value: unknown): string {
@@ -355,6 +356,49 @@ function ledgerSection(spools: readonly SpoolInput[], period: string): Statement
   };
 }
 
+/** One period's events put through the bill's own functions. */
+export type PeriodRecompute = {
+  /** The invoice recompute at the contracted fee. Every billed figure is read off this. */
+  invoice: Invoice;
+  /** The bill's decision for that invoice (bill or not, the amount, the reason). */
+  plan: StripeInvoicePlan;
+  /** The selection the invoice itself applies: for descriptive counts only. */
+  selection: ReturnType<typeof selectBillableEvents>;
+  /** Price-list cost of the priced requests, from the provider's own reported usage. */
+  actualCostUsd: number;
+};
+
+/**
+ * The bill's own sequence for one period, in one place: `recomputeInvoice` at
+ * the contracted fee, then `buildStripeInvoicePlan`, with `selectBillableEvents`
+ * for the counts and the actual cost. `mesh statement` runs it over a whole
+ * period; `mesh report` (report.ts) runs it over the part of a period that
+ * falls in one week. Neither works out a saving, a fee or a verdict itself.
+ *
+ * `failedTaskIds` names tasks known to have failed outside the events given.
+ * The statement never passes it. The weekly report does: a task that failed
+ * anywhere in the period voids all its turns in that period on the statement,
+ * so a week's part of the period must void them too, even when the failing
+ * turn fell in a different week.
+ *
+ * The caller must have verified the ledger chain first.
+ */
+export function recomputePeriod(
+  events: readonly BillableEvent[],
+  period: string,
+  options: { failedTaskIds?: readonly string[] } = {},
+): PeriodRecompute {
+  const failed = options.failedTaskIds === undefined ? {} : { failedTaskIds: options.failedTaskIds };
+  const invoice = recomputeInvoice(events, { period, feePercent: DEFAULT_FEE_PERCENT, ...failed });
+  const plan = buildStripeInvoicePlan(invoice, true, { stripeCustomerId: PLAN_PREVIEW_CUSTOMER });
+  const selection = selectBillableEvents(events, { period, ...failed });
+  const actualCostUsd = selection.consideredEvents.reduce(
+    (sum, event) => sum + (event.pricingStatus === "priced" && Number.isFinite(event.actualUsd) ? event.actualUsd! : 0),
+    0,
+  );
+  return { invoice, plan, selection, actualCostUsd };
+}
+
 export type BuildStatementInput = {
   spools: readonly SpoolInput[];
   period: string;
@@ -394,11 +438,9 @@ export function buildStatement(input: BuildStatementInput): StatementResult {
   // The bill's own sequence (scripts/mesh-bill.ts): every spool's events into
   // one recompute for the period at the contracted fee, then the plan.
   const events: BillableEvent[] = spools.flatMap((spool) => spool.records.map((record) => record.event));
-  const invoice = recomputeInvoice(events, { period, feePercent: DEFAULT_FEE_PERCENT });
-  const plan = buildStripeInvoicePlan(invoice, true, { stripeCustomerId: PLAN_PREVIEW_CUSTOMER });
+  const { invoice, plan, selection, actualCostUsd } = recomputePeriod(events, period);
 
   // Descriptive counts only, from the selection the invoice itself applies.
-  const selection = selectBillableEvents(events, { period });
   const unpriced = new Map<string, { provider: string; model: string; requests: number }>();
   let withSavingsAlreadyYours = 0;
   const repricing = { matched: 0, differentCatalogue: 0, mismatched: 0 };
@@ -419,11 +461,6 @@ export function buildStatement(input: BuildStatementInput): StatementResult {
     else if (audit.status === "catalogue_version_mismatch") repricing.differentCatalogue += 1;
     else repricing.mismatched += 1;
   }
-  const actualCostUsd = selection.consideredEvents.reduce(
-    (sum, event) => sum + (event.pricingStatus === "priced" && Number.isFinite(event.actualUsd) ? event.actualUsd! : 0),
-    0,
-  );
-
   const now = input.now ?? new Date();
   const bounds = periodBounds(period);
   const thisBuildVersion = catalogueVersion(publishedModelPrices);

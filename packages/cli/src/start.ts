@@ -447,6 +447,14 @@ export async function runServe(argv: string[]): Promise<void> {
     console.log(`[${stamp()}] ${T} running every ${Math.round(theoIntervalMs / 1000)}s · autonomy ${args.autonomy ?? "recommend"}${args.capturePath ? " · proving on capture" : ""}`);
   }
 
+  // The weekly report: about hourly, write last week's page and show one
+  // notification once it is due (report-delivery.ts). Local only; it never
+  // throws into the proxy and its timers do not keep the process alive.
+  const stopWeeklyReport = (await import("./report-delivery.js")).startWeeklyReportSchedule({
+    ledgerDir: args.ledgerDir,
+    onDelivered: (line) => console.log(`[${stamp()}] ${line}`),
+  });
+
   let lastEvents = -1;
   const monitor = setInterval(() => {
     const s = summariseLedger(args.ledgerDir);
@@ -480,6 +488,7 @@ export async function runServe(argv: string[]): Promise<void> {
   const shutdown = async (): Promise<void> => {
     clearInterval(monitor);
     if (updateTimer) clearInterval(updateTimer);
+    stopWeeklyReport();
     stopTheo?.();
     await proxy.close();
     process.exit(0);
@@ -553,6 +562,13 @@ export async function runStart(argv: string[]): Promise<void> {
   const withheld = withheldLevers(policy);
 
   // ---- banner ----
+  // First, last week in one line (nothing when there is nothing to say), and
+  // the same weekly delivery the installed service runs, for as long as this
+  // session is up.
+  const weekly = await import("./report-delivery.js");
+  const lastWeek = weekly.startBannerLine({ ledgerDir: args.ledgerDir });
+  if (lastWeek !== undefined) console.log(`  ${lastWeek}`);
+  weekly.startWeeklyReportSchedule({ ledgerDir: args.ledgerDir });
   console.log("");
   console.log(`  MESH is running  ·  build ${BUILD_COMMIT}`);
   console.log(`  proxy    ${proxy.url}`);
