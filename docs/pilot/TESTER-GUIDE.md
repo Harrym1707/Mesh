@@ -8,9 +8,12 @@ current release. It takes about five minutes to set up.
 ## What you are testing
 
 MESH is a small program that runs on your own machine, between your app (or
-Claude Code) and your AI provider. It removes tokens you were about to pay for
-twice, and writes one line per request into a ledger file you hold, so the
-saving can be checked by you and not only by us.
+Claude Code) and your AI provider. It does two things: it keeps your prompts
+cacheable, making only lossless changes to a request by default, and it
+writes one line per request into a ledger file you hold, so every figure can
+be checked by you and not only by us. Nobody has measured MESH against a real
+provider bill yet, so we promise no smaller bill; what you see on your own
+traffic is the point of testing.
 
 - Your API key passes through to your provider. MESH does not store it.
 - Your prompts and answers stay on your machine. The ledger holds usage
@@ -99,9 +102,27 @@ the base URL setting has not reached it. `mesh doctor` checks the rest.
   lists, batches and file uploads, is passed to your provider untouched. If a
   call that worked before fails through MESH, that is a bug we want to hear
   about the same day.
+- **What a fresh install does.** Out of the box MESH makes three lossless
+  changes and nothing else: it compacts tool schemas, removes exact duplicate
+  context and repairs the order of a cacheable prefix. Our published figures
+  were not measured that way. The one figure from real API traffic, 18.2%
+  (LIVE, our own test basket, run 2026-10-26), had the Anthropic cache stamp
+  and a tool-result cap switched on, both off in a fresh install; the three
+  default changes account for under half of it. We have no figure yet for a
+  fresh install on its own.
 - **The first number may be small, or zero.** The default levers are the safe
   ones. On traffic that is already lean, MESH says so in plain words:
   `nothing to bill yet — do not pay us`. That is a real result, not a fault.
+  Expect the most from your own agents calling the API (coding, browsing,
+  support, RAG, multi-agent). If you only use Claude Code, expect little from
+  the defaults: Claude Code already caches.
+- **How more gets switched on.** Theo can prove a few further changes on your
+  own traffic and propose them (next point); you say yes or no. One more
+  lever, JSON tool-result compaction, can be added by hand: the
+  [configure guide](../guide/configure.md#optional-compact-json-tool-results)
+  says how, and when not to. The cache stamp and the tool-result cap behind
+  our live figure are not something a fresh install or Theo's proposals turn
+  on today.
 - **Theo will suggest more.** Theo is the part of MESH that studies your
   traffic. When he finds a saving that changes what is sent, he proposes it in
   the MESH window and waits for your yes. Please leave his autonomy at the

@@ -294,3 +294,33 @@ spread over several machines, the key file's protection on Windows (the code
 says the mode bits mean little there), and a statement written by 0.2.4 read
 by 0.2.5.
 
+## Later on 2026-11-23: the customer key registry, and the levers behind the figures
+
+Run after `main` moved to `e20a187`, which changed how `mesh-bill` learns the
+customer's key. The table above describes `932bcd0`, where the fingerprint
+was passed with `--customer-key`; on `e20a187` a real run reads it from a
+registry and `--customer-key` is for a dry run only.
+
+| Step | Result |
+|---|---|
+| `scripts/mesh-customer-key.ts register --registry <throwaway file> --customer cus_PLACEHOLDER --fingerprint <test fingerprint> --channel "…"` | Creates the registry and prints the entry (`seq 0`, a time, an entry hash) and that `mesh-bill` now accepts a statement from that customer only if it is signed by this key and was written after that time. |
+| `mesh-bill --dry-run --registry … --statement <the statement written earlier that day>` | `DO NOT BILL`: the key was registered after the statement was written. |
+| A new statement written after registration, then the same dry run | `signed by the customer's registered statement key <fingerprint>, registered <time> (registry entry seq 0)` and a line naming the registry file, its entry count and head hash. |
+| The dry run for a customer not in the registry | A warning that the customer has no current key in the registry, and that who wrote the statement was not checked. |
+| `scripts/mesh-customer-key.ts verify --registry …` | `OK … 1 entry, chain verified.` |
+
+**The levers behind the published figures (read and summed, not a product
+run).** The default policy in `packages/sdk-js/src/theo-policy.ts` has three
+levers: tool-schema compaction, duplicate-context removal and cache-prefix
+repair. The `levers` rows of the spools in `evals/live-exports-2026-10-26/`
+were summed: the LIVE run had the Anthropic cache stamp and a gate-approved
+tool-result cap on, and those two together earned more than the default
+levers did. `evals/run-live-agents.ts` shows the same configuration. The
+simulator arms in `evals/run-agent-ab.ts` use description trimming, history
+compaction, an output cap, a tool-result cap, a discounted execution tier
+and a 1-hour cache stamp in various combinations; none is a fresh install.
+`packages/sdk-js/src/theo-agent.ts` shows that Theo can prove and propose
+three levers (description trimming, stale-history compaction, a lower output
+effort) and not the cache stamp or the tool-result cap. No fresh-install
+percentage was measured here, and none is in `docs/NUMBERS.md`.
+

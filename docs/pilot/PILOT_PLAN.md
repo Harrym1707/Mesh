@@ -29,11 +29,17 @@ measured and billed end-to-end, is worth more than any further synthetic harness
 ## Who a pilot suits
 
 This is who a hands-on pilot is expected to suit, and who outreach is aimed
-at. It is not a condition of using MESH. Teams already spending enough on LLM
-APIs to care, who can change one base URL without a committee:
+at. It is not a condition of using MESH. Teams that run their own agents on
+the API, already spend enough on it to care, and can change one base URL
+without a committee:
 
-- **Primary:** small/mid AI product teams running agent or RAG workloads on
-  Anthropic and/or OpenAI, **$5k–$100k/mo** of API spend, no dedicated FinOps.
+- **Primary:** agentic AI startups and application-layer businesses that
+  call the API constantly from their own agents (coding, browsing, support,
+  RAG, multi-agent) on Anthropic and/or OpenAI, **$5k–$100k/mo** of API
+  spend, no dedicated FinOps.
+- **Not the target:** someone who only uses Claude Code. That path is
+  supported, but Claude Code already caches, and a fresh install should be
+  expected to save such a user little.
 - **Signal they're a fit:** multi-turn agents that don't use prompt caching;
   large tool schemas resent every turn; latency-tolerant batch/classification
   jobs; "our LLM bill is scary and nobody owns it."
@@ -123,11 +129,22 @@ net verified savings**, by calendar month, rounded down to the cent;
   drafts, and there is no DPA.
 - **Compliance.** No SOC 2 / ISO yet; the architecture (no prompt data leaves the
   partner's machines) is the current answer, not a certificate.
-- **Savings figures are not yet from customer traffic.** The one LIVE figure is
-  18.2% on MESH's own mixed 30-request test basket (run 2026-10-26); every
-  other figure is SIMULATOR. All of them are in
-  [docs/NUMBERS.md](../NUMBERS.md), and this pilot exists to replace them with
-  real-traffic numbers.
+- **Savings figures are not yet from customer traffic, and none is what a
+  fresh install gives.** The one LIVE figure is 18.2% on MESH's own mixed
+  30-request test basket (run 2026-10-26), measured with the Anthropic cache
+  stamp and a tool-result cap switched on, both off in a fresh install; the
+  three default levers account for under half of it. Every other figure is
+  SIMULATOR, modelled with further levers on. All of them are in
+  [docs/NUMBERS.md](../NUMBERS.md), which has no default-install figure yet,
+  and this pilot exists to replace them with real-traffic numbers.
+- **What a fresh install does is less than what was measured.** A partner on
+  a fresh install gets the three lossless levers. Theo, on `recommend`, can
+  prove and propose three more (tool-description trimming, stale-history
+  compaction, a lower output effort). He does not propose the cache stamp or
+  the tool-result cap, the two levers behind most of the LIVE figure, and
+  the configure guide gives no steps for turning them on in the installed
+  `mesh`. So a pilot measures the defaults plus whatever the partner accepts,
+  not the tuned configuration.
 - **Billing outside a pilot.** The website states the price (1% of verified
   savings, monthly, nothing else) and that no fee is due unless billing is
   agreed in writing. The draft [order form](./order-form.md) is that

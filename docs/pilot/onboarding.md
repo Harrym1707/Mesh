@@ -176,7 +176,9 @@ in the [engagement list](./engagement-list.md):
    `--autonomy optimise` during a pilot: automatic adoption is not ready for
    real traffic.
 4. **Levers.** A fresh install enforces three lossless levers: tool-schema
-   compaction, duplicate-context removal and cache-prefix repair. A lossy
+   compaction, duplicate-context removal and cache-prefix repair. See
+   [What a fresh install does](#what-a-fresh-install-does-and-how-more-is-switched-on)
+   below for what that leaves out. A lossy
    lever runs only if the partner accepts a proposal for it. There is also
    one opt-in lever, JSON tool-result compaction, added in 0.2.2. It is off
    by default and Theo does not adopt it. Whether to use it in a pilot is
@@ -200,6 +202,46 @@ in the [engagement list](./engagement-list.md):
    runtime.
 
 ---
+
+## What a fresh install does, and how more is switched on
+
+Stated once, plainly, because the published figures were not measured this
+way.
+
+**Out of the box** MESH applies three lossless levers and nothing else:
+tool-schema compaction, duplicate-context removal and cache-prefix repair
+(the default policy, `~/.mesh/theo-policy.json`). The request the provider
+receives means what the app sent. No savings percentage has been published
+for this configuration on its own. The one LIVE figure, 18.2% (run
+2026-10-26), was measured with the Anthropic cache stamp and a tool-result
+cap switched on, both off in a fresh install; the three default levers
+account for under half of it. A team whose client already caches, as Claude
+Code does, should expect little from the defaults.
+
+**How more is switched on today,** as the code and the
+[configure guide](../guide/configure.md) on `main` have it:
+
+- **Theo's proposals.** On the default autonomy, `recommend`, Theo applies
+  the lossless levers himself. He can prove three answer-changing levers on
+  the partner's own traffic and then propose them: tool-description
+  trimming, stale-history compaction and a lower output effort. Proving
+  needs request capture (`mesh start --capture <file>` or
+  `mesh proxy --capture <file>`, off by default, which writes prompt text to
+  that local file) and a replay to the partner's own provider under their
+  key (`mesh theo --gate <file>`). The partner answers with
+  `mesh theo --proposals`, `--accept <lever>` or `--reject <lever>`. Nobody
+  sets `--autonomy optimise`.
+- **The policy file.** The proxy enforces levers listed in
+  `~/.mesh/theo-policy.json`, and from 0.2.3 Theo keeps one added by hand.
+  The configure guide gives the steps for one such lever, JSON tool-result
+  compaction. A lever that can change an answer is still withheld unless it
+  carries a replay-gate proof.
+- **The cache stamp and the tool-result cap,** the two levers behind most of
+  the LIVE figure, are not among the levers Theo proposes, and the configure
+  guide gives no steps for them in the installed `mesh`. The no-install npm
+  proxy below can switch the cache stamp on with `MESH_PROXY_CACHE_TTL`, and
+  the SDK wrapper takes both as options. Do not tell a partner that the
+  installed `mesh` will reach the measured configuration by itself.
 
 ## No-install alternative: the proxy from npm
 

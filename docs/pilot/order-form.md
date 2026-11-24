@@ -326,10 +326,13 @@ are filled knowingly:**
   statements; both must update first.
 - **Our invoice tool** (`scripts/mesh-bill.ts`) needs `--period`, refuses a
   month that has not ended, and on a real run needs the customer's own
-  statement file (`--statement`) and their registered fingerprint
-  (`--customer-key`). It checks the statement against the ledger files and
-  its own recompute, and that the signature verifies and is by exactly that
-  key; any mismatch is "do not bill". `--dry-run` reads no
+  statement file (`--statement`) and their fingerprint in the operator's
+  customer key registry (`scripts/mesh-customer-key.ts register`, on `main`
+  since 2026-11-23). It checks the statement against the ledger files and
+  its own recompute, that the signature verifies and is by exactly that
+  key, and that the statement was written after the key was registered; any
+  mismatch is "do not bill". So the fingerprint in section 1 has to be
+  registered before the customer writes the first statement. `--dry-run` reads no
   Stripe key and sends nothing. The procedure is
   `docs/ops/first-invoice-runbook.md`. That runbook records that none of its
   runs reached Stripe, in test or live mode, and no customer has been
@@ -364,9 +367,10 @@ are filled knowingly:**
 - **What our tool does with the fingerprint.** `scripts/mesh-bill.ts
   --dry-run`, run on 2026-11-23: with the registered fingerprint it reported
   `signed by the customer's registered statement key`; with a different
-  fingerprint, with an unsigned statement, and with a statement signed by the
-  operator machine's own install, it reported `DO NOT BILL`. Without
-  `--customer-key` a dry run warns and a real run refuses.
+  fingerprint, with an unsigned statement, with a statement signed by the
+  operator machine's own install, and with a statement written before the
+  key was registered, it reported `DO NOT BILL`. For a customer with no key
+  in the registry a dry run warns and a real run refuses.
 - **What the signature does not show.** It shows which install wrote the
   statement. It does not show that the customer's ledger was complete, and it
   is only as good as the channel the fingerprint was registered through. A

@@ -15,38 +15,42 @@
 
 ## Part A — Onboarding email (copy/paste, fill the brackets)
 
-> **Subject: MESH pilot — cut your LLM bill, pay only a share of what we verifiably save**
+> **Subject: Mesh pilot — a measured month on your own traffic, and a ledger you can recompute**
 >
 > Hi [name],
 >
-> Thanks for trying MESH. You don't need this email, or anything from me, to
-> use it: MESH is open to everyone and you can install it today. A pilot is
+> Thanks for trying Mesh. You don't need this email, or anything from me, to
+> use it: Mesh is open to everyone and you can install it today. A pilot is
 > the hands-on version, for a team that wants an agreed measuring window, help
 > with setup and an invoice checked by hand. Here's exactly what one involves
 > and what it costs you — short version: a few minutes of setup, no
-> infrastructure change, and you pay us nothing unless we verifiably save you
-> money.
+> infrastructure change, and no fee is due unless we have agreed billing with
+> you in writing. I can't promise you a smaller bill: Mesh has not been
+> measured against a real provider bill yet, and finding out on yours is what
+> a pilot is for.
 >
-> **Setup (about five minutes).** You install MESH on your own machine with one
+> **Setup (about five minutes).** You install Mesh on your own machine with one
 > command, then run `mesh start` if you use Claude Code, or `mesh proxy` and
 > point your app's base URL at it. That's it — any language, any OpenAI- or
 > Anthropic-compatible client. Step-by-step: [the tester guide]. Your API key
 > is not stored; it passes straight through to your provider.
 >
-> **What runs for two weeks.** Normal traffic. MESH reduces each request before
-> it reaches your provider (losslessly by default), and writes a local,
-> tamper-evident ledger of usage numbers — never your prompts or responses.
+> **What runs for two weeks.** Normal traffic. Mesh does two things: it keeps
+> your prompts cacheable, making only lossless changes to a request by
+> default, and it writes a local, tamper-evident ledger of usage numbers that
+> you can recompute — never your prompts or responses.
 > With a short kickoff before and a debrief after, the whole pilot is about
 > four weeks.
 >
-> **How you're billed.** At the end we recompute, from your own ledger, the net
-> amount MESH saved you, and the fee is **1% of that**, rounded down to the
-> cent. If MESH saved you nothing, the invoice is **$0** — and you can check
-> our number yourself with one command: `mesh statement --period YYYY-MM`
-> recomputes a month from your own ledger. During the pilot any invoice is
-> drafted,
-> checked by a person and agreed with you before it is issued; nothing is ever
-> charged automatically.
+> **How you're billed.** No fee is due unless we have agreed billing with you
+> in writing. Where we have, the fee is 1% of verified savings for the month,
+> rounded down to the cent, and nothing else. If the verdict for a month is
+> `do_not_charge`, you owe nothing for that month. Verified savings are
+> computed from the ledger on your machine, and you can check our number
+> yourself with one command: `mesh statement --period YYYY-MM` recomputes a
+> month from your own ledger. During the pilot any invoice is drafted, checked
+> by a person and agreed with you before it is issued; nothing is ever charged
+> automatically.
 >
 > If you'd like to run it as a pilot, reply "yes" and I'll send the one-pager
 > and agree the dates with you.

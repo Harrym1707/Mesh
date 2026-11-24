@@ -56,13 +56,20 @@ the proof-of-pain and the audience list.
 - Standing constraints from the honesty rules, with figures from
   [docs/NUMBERS.md](../NUMBERS.md) (last reconciled 2026-10-27; refreshed here
   2026-11-16):
+  - Every figure says, in the same sentence, whether it is out of the box
+    or which levers it needed. No figure exists for a fresh install, so none
+    is given.
   - Lead with the one LIVE figure, 18.2% (mixed 30-request basket of MESH's
-    own test agents, run 2026-10-26). Every other MESH savings figure is
-    SIMULATOR and is said to be.
-  - 34.3% (SIMULATOR, sparse interactive, 1h TTL) never appears in
-    engagement.
-  - The async figure is 57.7% net (SIMULATOR), only with the latency-tolerant
-    and OpenAI-priced caveats; the 64.3% ceiling is never quoted on its own.
+    own test agents, run 2026-10-26, with the Anthropic cache stamp and a
+    tool-result cap switched on, both off in a fresh install; the three
+    default levers account for under half of it). Every other MESH savings
+    figure is SIMULATOR, modelled with further levers on, and is said to be.
+  - 34.3% (SIMULATOR, sparse interactive, the interactive levers plus a
+    1-hour cache stamp) never appears in engagement.
+  - The async figure is 57.7% net (SIMULATOR, the interactive levers plus a
+    discounted execution tier), only with the latency-tolerant and
+    OpenAI-priced caveats; the 64.3% ceiling, from the same levers, is never
+    quoted on its own.
   - The provider cache's own savings are always credited to the operator.
   - No mention of competitor incidents.
 
