@@ -144,6 +144,9 @@ export function schemaFor(command: string | undefined): string {
     case "--version":
     case "-v":
       return "mesh-version/1";
+    case "--json":
+      // Bare `mesh --json` is `mesh status --json`.
+      return "mesh-status/1";
     case undefined:
       return "mesh-error/1";
     default:
@@ -158,7 +161,7 @@ export function schemaFor(command: string | undefined): string {
  */
 export function reportFatal(error: unknown, argv: readonly string[] = process.argv.slice(2)): void {
   const [command, ...rest] = argv;
-  if (wantsJson(rest)) {
+  if (wantsJson(rest) || command === "--json") {
     const failure = jsonFailure(schemaFor(command), error);
     process.stdout.write(`${JSON.stringify(failure)}\n`, () => process.exit(1));
     return;

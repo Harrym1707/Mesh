@@ -15,6 +15,8 @@ import { join } from "node:path";
 
 import { BUILD_COMMIT, CLAUDE_SETTINGS, DEFAULT_PORT, MESH_HOME, WIRING_STATE, summariseLedger } from "./start.js";
 import { checkWiring, repairWiring } from "./claude-wiring.js";
+import { collectStatus } from "./daemon.js";
+import { flowLines } from "./flow.js";
 import { VERSION } from "./build-info.js";
 
 const WIRING_PATHS = { settingsPath: CLAUDE_SETTINGS, statePath: WIRING_STATE };
@@ -52,6 +54,9 @@ type Check = { ok: boolean; warn?: boolean; name: string; detail: string; fix?: 
 export async function runDoctor(argv: string[]): Promise<void> {
   const checks: Check[] = [];
   const port = DEFAULT_PORT;
+  // Is anything flowing, and the one command that fixes it when not: the same
+  // answer `mesh status` and bare `mesh` give (flow.ts). Printed first.
+  const { flow } = await collectStatus();
 
   // 1. Node runtime — the runtime is built for Node 22 (esbuild target node22),
   // so anything older is a hard failure, matching the installer's floor.
@@ -71,7 +76,7 @@ export async function runDoctor(argv: string[]): Promise<void> {
 
   // 3. Proxy reachable
   const up = await portUp(port);
-  checks.push({ ok: true, warn: !up, name: "proxy", detail: up ? `up on 127.0.0.1:${port}` : `not running on :${port}`, fix: up ? undefined : "Start it with: mesh start" });
+  checks.push({ ok: true, warn: !up, name: "proxy", detail: up ? `up on 127.0.0.1:${port}` : `not running on :${port}`, fix: up ? undefined : flow.fix?.startsWith("mesh setup") ? `Connect it with: ${flow.fix}` : "Start it with: mesh start" });
 
   // 4. Claude Code wiring. A base URL that points at a proxy which is no longer
   // running breaks Claude Code outright, so that is a hard failure with a fix.
@@ -102,7 +107,9 @@ export async function runDoctor(argv: string[]): Promise<void> {
     fix: s.chainOk ? undefined : "Run `mesh verify` and report this — the ledger should never break.",
   });
 
-  if (argv.includes("--json")) { console.log(JSON.stringify({ checks })); return; }
+  if (argv.includes("--json")) { console.log(JSON.stringify({ flow, checks })); return; }
+  console.log("");
+  for (const line of flowLines(flow)) console.log(`  ${line}`);
   console.log("");
   console.log(`  mesh doctor — build ${BUILD_COMMIT}`);
   console.log("");
@@ -114,7 +121,16 @@ export async function runDoctor(argv: string[]): Promise<void> {
     if (c.fix) console.log(`              ↳ ${c.fix}`);
   }
   console.log("");
-  console.log(hardFail ? "  Some checks failed — see above." : "  Looks healthy.");
+  // "Healthy" is only said when requests can actually reach MESH: every check
+  // above passes on a machine that was installed and never connected.
+  const connected = flow.state === "flowing" || flow.state === "connected_idle";
+  console.log(
+    hardFail
+      ? "  Some checks failed — see above."
+      : connected
+        ? "  Looks healthy."
+        : "  No check failed, but nothing is flowing through Mesh yet: see the first lines above.",
+  );
   if (hardFail) process.exitCode = 1;
 }
 

@@ -159,6 +159,15 @@ if (!reportText.includes("Mesh saw no requests") || !reportText.includes("Fix: m
   process.exit(1);
 }
 
+// Bare `mesh` is what a person types first. It must print the summary with
+// the flow headline and the one fix, never the usage text; in the empty smoke
+// HOME that fix is `mesh setup`, whatever happens to be on the default port.
+const bareText = execSync(`node ${JSON.stringify(runtimeFile)}`, { cwd: root, env: smokeEnv }).toString();
+if (!bareText.includes("Fix: mesh setup") || !bareText.includes("mesh --help for all commands") || bareText.includes("Usage: mesh <command>")) {
+  console.error("Smoke test FAILED — bare `mesh` did not print the summary and the next step:\n" + bareText);
+  process.exit(1);
+}
+
 // The download must expose what an agent reads: `status`, `verify`, `connect`
 // and `report` each print exactly one JSON object with their schema. A command
 // that went missing from the runtime prints the usage text instead and fails here.
@@ -181,5 +190,6 @@ console.log(`  smoke test: mesh-runtime verify — All checks passed`);
 console.log(`  smoke test: mesh-runtime theo --help — command present`);
 console.log(`  smoke test: mesh-runtime statement --help — command present`);
 console.log(`  smoke test: mesh-runtime report — the weekly report in words`);
+console.log(`  smoke test: mesh-runtime (no command) — the summary and the next step`);
 console.log(`  smoke test: mesh-runtime status|verify|connect|report --json — one JSON object each`);
 console.log(`  publish npm with:  (cd ${path.relative(root, outDir)} && npm publish --access public)`);

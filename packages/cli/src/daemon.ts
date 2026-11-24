@@ -706,7 +706,9 @@ export async function runStatus(argv: string[]): Promise<void> {
   } else if (s.events > 0) {
     console.log(`  ⬢ theo    ${s.events} requests seen · $${s.savedUsd.toFixed(4)} verified saved (${s.verdictNote})`);
   } else {
-    console.log(`  ⬢ theo    no traffic yet — use Claude Code and check back`);
+    // "Use Claude Code and check back" is only true once something points at MESH.
+    const connected = result.flow.state === "connected_idle" || result.flow.state === "flowing";
+    console.log(`  ⬢ theo    no traffic yet${connected ? " — use Claude Code and check back" : ""}`);
   }
   // The invitation is about savings existing, not about a bill being due, so
   // it keys on verified savings rather than the billing verdict.

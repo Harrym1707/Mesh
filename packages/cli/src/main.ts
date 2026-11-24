@@ -401,6 +401,8 @@ const TOP_USAGE = `mesh — cut your LLM bill, verified on your own usage.
 
 Usage: mesh <command> [options]
 
+  (nothing)  Just \`mesh\`: is it working, the one thing to fix if not, and this
+             month so far in money.
   start      Start the MESH proxy, point Claude Code at it, and run Theo
              alongside you. One command; reverts cleanly on exit.
   proxy      Start the MESH proxy for any app or agent: point its base URL at
@@ -441,7 +443,15 @@ async function main(): Promise<void> {
       (await import("./report-delivery.js")).announceInTerminal(process.argv.slice(2));
     } catch { /* never in the way of the command */ }
   }
-  if (sub === "start") {
+  if (sub === undefined) {
+    // Bare `mesh`: the summary and the next step, not the usage text.
+    await (await import("./summary.js")).runSummary();
+  } else if (sub === "--json" && process.argv.length === 3) {
+    // `mesh --json` is `mesh status --json`.
+    await (await import("./daemon.js")).runStatus(["--json"]);
+  } else if (sub === "--help" || sub === "-h" || sub === "help") {
+    console.log(TOP_USAGE);
+  } else if (sub === "start") {
     await (await import("./start.js")).runStart(process.argv.slice(3));
   } else if (sub === "proxy") {
     // The same proxy and Theo as `start`, for an application rather than Claude Code.
@@ -480,8 +490,6 @@ async function main(): Promise<void> {
     await runAnalyse(process.argv.slice(3));
   } else if (sub === "compaction") {
     await (await import("./compaction.js")).runCompaction(process.argv.slice(3));
-  } else if (sub === undefined || sub === "--help" || sub === "-h") {
-    console.log(TOP_USAGE);
   } else {
     // Back-compat: bare flags (e.g. `mesh --input x.jsonl`) still analyse.
     await runAnalyse(process.argv.slice(2));
