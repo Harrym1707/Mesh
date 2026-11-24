@@ -55,9 +55,11 @@ p{margin:0 0 8px}
 code{font:14px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--soft);padding:2px 6px;border-radius:6px;white-space:nowrap}
 .scroll{overflow-x:auto;margin:0 -4px 18px;padding:0 4px}
 table{border-collapse:collapse;width:100%;font-size:14px;font-variant-numeric:tabular-nums}
-th,td{text-align:left;padding:7px 10px 7px 0;border-bottom:1px solid var(--line);white-space:nowrap}
+th,td{text-align:left;padding:7px 0;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}
 th{color:var(--muted);font-weight:600;font-size:13px}
-td.r,th.r{text-align:right;padding-right:0}
+td:first-child,th:first-child{min-width:8.5em}
+td.r,th.r{text-align:right;white-space:nowrap;padding-left:14px;overflow-wrap:normal}
+@media (max-width:480px){.card{padding:22px 18px}table{font-size:12.5px}th{font-size:12px}td.r,th.r{padding-left:9px}td:first-child,th:first-child{min-width:6em}}
 .notes{margin:0;padding-left:18px;color:var(--muted);font-size:14px}
 .notes li{margin-bottom:6px}
 .tag{color:var(--muted);font-size:12px}
@@ -115,7 +117,7 @@ function detailSection(report: Report): string {
     }</tbody></table></div>`);
   }
   if (detail.models.length > 0) {
-    parts.push(`<p><strong>By model</strong></p><div class="scroll"><table><thead><tr><th>Model</th><th class="r">Requests</th><th class="r">You paid</th><th class="r">Verified saving</th></tr></thead><tbody>${
+    parts.push(`<p><strong>By model</strong></p><div class="scroll"><table><thead><tr><th>Model</th><th class="r">Requests</th><th class="r">You paid</th><th class="r">Saved</th></tr></thead><tbody>${
       detail.models.map((model) =>
         `<tr><td>${esc(`${model.provider}/${model.model}`)}</td><td class="r">${esc(count(model.requests))}</td>` +
         `<td class="r">${esc(usd4(model.paidProviderUsd))}</td><td class="r">${esc(usd4(model.savedUsd))}</td></tr>`).join("")
@@ -132,7 +134,7 @@ function detailSection(report: Report): string {
     requestRows.map(([label, value]) => `<tr><td>${esc(label)}</td><td class="r">${esc(value)}</td></tr>`).join("")
   }</tbody></table></div>`);
   if (detail.pieces.length > 1) {
-    parts.push(`<p><strong>By billing month</strong></p><div class="scroll"><table><thead><tr><th>Month</th><th class="r">Requests</th><th class="r">You paid</th><th class="r">Verified saving</th></tr></thead><tbody>${
+    parts.push(`<p><strong>By billing month</strong></p><div class="scroll"><table><thead><tr><th>Month</th><th class="r">Requests</th><th class="r">You paid</th><th class="r">Saved</th></tr></thead><tbody>${
       detail.pieces.map((piece) =>
         `<tr><td>${esc(piece.billingMonth)}</td><td class="r">${esc(count(piece.requests))}</td>` +
         `<td class="r">${esc(usd4(piece.paidProviderUsd))}</td><td class="r">${esc(usd4(piece.savedUsd))}</td></tr>`).join("")
