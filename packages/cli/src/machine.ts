@@ -29,10 +29,32 @@ export function portOpen(port: number, timeoutMs = 800): Promise<boolean> {
   });
 }
 
+/**
+ * The one place MESH talks to the service manager. Everything that registers,
+ * removes or asks about the background service goes through a runner, so a
+ * caller (and every test) can pass its own instead of the real `launchctl`:
+ * launchd registers an agent for the logged-in user whatever HOME says, so a
+ * test must never reach the real one.
+ */
+export type ServiceRunner = {
+  /** Run `launchctl` with these arguments. True when it exited 0. Never throws. */
+  launchctl: (args: readonly string[]) => boolean;
+};
+
+/** The real service manager: `launchctl` for the logged-in user. */
+export const systemServiceRunner: ServiceRunner = {
+  launchctl: (args) => {
+    try { execFileSync("launchctl", [...args], { stdio: "pipe" }); return true; } catch { return false; }
+  },
+};
+
 /** Is the launchd service registered? Always false off macOS. */
-export function serviceLoaded(): boolean {
-  if (platform() !== "darwin") return false;
-  try { execFileSync("launchctl", ["list", LAUNCHD_LABEL], { stdio: "pipe" }); return true; } catch { return false; }
+export function serviceLoaded(
+  runner: ServiceRunner = systemServiceRunner,
+  os: NodeJS.Platform = platform(),
+): boolean {
+  if (os !== "darwin") return false;
+  return runner.launchctl(["list", LAUNCHD_LABEL]);
 }
 
 export type ProxyProbe = {
@@ -62,8 +84,8 @@ export async function probeProxy(port: number, timeoutMs = 1500): Promise<ProxyP
 export type PortSource = "flag" | "service" | "start-session" | "default";
 
 /** The `--port` the launchd service was installed with, if a service definition exists. */
-function servicePort(plistPath: string): number | undefined {
-  if (platform() !== "darwin" || !existsSync(plistPath)) return undefined;
+function servicePort(plistPath: string, os: NodeJS.Platform = platform()): number | undefined {
+  if (os !== "darwin" || !existsSync(plistPath)) return undefined;
   try {
     const match = /<string>--port<\/string>\s*<string>(\d+)<\/string>/.exec(readFileSync(plistPath, "utf8"));
     const port = match ? Number(match[1]) : Number.NaN;
@@ -91,10 +113,10 @@ function startSessionPort(statePath: string): number | undefined {
  */
 export function resolvePort(
   flag?: number,
-  paths: { plistPath?: string; wiringStatePath?: string } = {},
+  paths: { plistPath?: string; wiringStatePath?: string; platform?: NodeJS.Platform } = {},
 ): { port: number; source: PortSource } {
   if (flag !== undefined) return { port: flag, source: "flag" };
-  const fromService = servicePort(paths.plistPath ?? LAUNCHD_PLIST);
+  const fromService = servicePort(paths.plistPath ?? LAUNCHD_PLIST, paths.platform);
   if (fromService !== undefined) return { port: fromService, source: "service" };
   const fromSession = startSessionPort(paths.wiringStatePath ?? WIRING_STATE);
   if (fromSession !== undefined) return { port: fromSession, source: "start-session" };

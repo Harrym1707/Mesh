@@ -9,7 +9,6 @@
  *
  * macOS (launchd) for now; on other platforms it tells you to use `mesh start`.
  */
-import { execFileSync } from "node:child_process";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { platform } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -21,7 +20,8 @@ import type { TheoAutonomyLevel } from "../../sdk-js/src/theo-agent.js";
 import { MESH_SIGNUP_URL } from "../../sdk-js/src/cta.js";
 import type { VerdictReasonCode } from "./bill-verdict.js";
 import { checkWiring, loopbackPort } from "./claude-wiring.js";
-import { meshIdentity, parseFlags, parsePortFlag, writeJson, type MeshIdentity } from "./json-output.js";
+import { detectFlow, flowLines, type Flow } from "./flow.js";
+import { CliError, meshIdentity, parseFlags, parsePortFlag, writeJson, type MeshIdentity } from "./json-output.js";
 import {
   LAUNCHD_LABEL as LABEL,
   LAUNCHD_PLIST as PLIST,
@@ -30,8 +30,10 @@ import {
   proxyUrls,
   resolvePort,
   serviceLoaded,
+  systemServiceRunner,
   type PortSource,
   type ProxyProbe,
+  type ServiceRunner,
 } from "./machine.js";
 
 const DAEMON_LOG = join(MESH_HOME, "daemon.log");
@@ -56,35 +58,88 @@ function parsePort(argv: string[]): number {
   return DEFAULT_PORT;
 }
 
-function launchctl(...args: string[]): void {
-  try { execFileSync("launchctl", args, { stdio: "pipe" }); } catch { /* idempotent: ignore */ }
+// ---------------------------------------------------------------------------
+// The always-on service: one implementation, used by `mesh install`,
+// `mesh stop`, `mesh uninstall` and `mesh setup`.
+//
+// Every file it writes and every `launchctl` call is reachable through
+// `ServiceTarget`, so a test (and `mesh setup`'s tests) can run the whole
+// path against temporary files and a fake service manager. The defaults are
+// this user's own ~/.mesh, ~/.claude and ~/Library/LaunchAgents, and the real
+// `launchctl`.
+// ---------------------------------------------------------------------------
+
+/** Where the service's files live and who registers it. Every field has the real default. */
+export type ServiceTarget = {
+  /** Default ~/.mesh. The launcher copy, the ledger and the service log are under it. */
+  meshHome?: string;
+  /** Default ~/Library/LaunchAgents/dev.meshtoken.mesh.plist. */
+  plistPath?: string;
+  /** Default ~/.claude/settings.json. */
+  claudeSettingsPath?: string;
+  /** Default: the real `launchctl`. */
+  runner?: ServiceRunner;
+};
+
+type ResolvedTarget = {
+  meshHome: string;
+  plistPath: string;
+  claudeSettingsPath: string;
+  runner: ServiceRunner;
+  stableBin: string;
+  ledgerDir: string;
+  daemonLog: string;
+};
+
+function resolveTarget(target: ServiceTarget = {}): ResolvedTarget {
+  const meshHome = target.meshHome ?? MESH_HOME;
+  return {
+    meshHome,
+    plistPath: target.plistPath ?? PLIST,
+    claudeSettingsPath: target.claudeSettingsPath ?? CLAUDE_SETTINGS,
+    runner: target.runner ?? systemServiceRunner,
+    stableBin: join(meshHome, "bin", "mesh"),
+    ledgerDir: join(meshHome, "ledger"),
+    daemonLog: join(meshHome, "daemon.log"),
+  };
 }
 
-function isLoaded(): boolean {
-  try { execFileSync("launchctl", ["list", LABEL], { stdio: "pipe" }); return true; } catch { return false; }
+/** The address the service's proxy is reached on, exactly as it is written into Claude Code's settings. */
+export function serviceBaseUrl(port: number): string {
+  return `http://127.0.0.1:${port}`;
 }
 
-function setClaudeBaseUrl(url: string): void {
-  mkdirSync(dirname(CLAUDE_SETTINGS), { recursive: true });
+function setClaudeBaseUrl(settingsPath: string, url: string): void {
+  mkdirSync(dirname(settingsPath), { recursive: true });
   let settings: Record<string, unknown> = {};
-  if (existsSync(CLAUDE_SETTINGS)) {
-    try { settings = JSON.parse(readFileSync(CLAUDE_SETTINGS, "utf8")) as Record<string, unknown>; }
-    catch { throw new Error("~/.claude/settings.json isn't valid JSON — fix it first; MESH won't overwrite it."); }
+  if (existsSync(settingsPath)) {
+    try { settings = JSON.parse(readFileSync(settingsPath, "utf8")) as Record<string, unknown>; }
+    catch { throw new CliError("claude_settings_invalid", "~/.claude/settings.json isn't valid JSON — fix it first; MESH won't overwrite it."); }
   }
   const env = { ...((settings.env as Record<string, string>) ?? {}), ANTHROPIC_BASE_URL: url };
-  writeFileSync(CLAUDE_SETTINGS, `${JSON.stringify({ ...settings, env }, null, 2)}\n`);
+  writeFileSync(settingsPath, `${JSON.stringify({ ...settings, env }, null, 2)}\n`);
 }
 
-function clearClaudeBaseUrl(): void {
-  if (!existsSync(CLAUDE_SETTINGS)) return;
+/**
+ * Take the service's address back out of Claude Code's settings. Only a local
+ * address is removed: that is what `mesh install` writes. A base URL that
+ * points somewhere else was set by the user or another tool and is left
+ * exactly as it is. Returns whether the file was changed.
+ */
+function clearClaudeBaseUrl(settingsPath: string): boolean {
+  if (!existsSync(settingsPath)) return false;
   try {
-    const settings = JSON.parse(readFileSync(CLAUDE_SETTINGS, "utf8")) as Record<string, unknown>;
+    const settings = JSON.parse(readFileSync(settingsPath, "utf8")) as Record<string, unknown>;
     const env = { ...((settings.env as Record<string, string>) ?? {}) };
+    const current: unknown = env.ANTHROPIC_BASE_URL;
+    if (current === undefined) return false;
+    if (typeof current === "string" && loopbackPort(current) === undefined) return false;
     delete env.ANTHROPIC_BASE_URL;
     const next: Record<string, unknown> = { ...settings, env };
     if (Object.keys(env).length === 0) delete next.env;
-    writeFileSync(CLAUDE_SETTINGS, `${JSON.stringify(next, null, 2)}\n`);
-  } catch { /* leave it */ }
+    writeFileSync(settingsPath, `${JSON.stringify(next, null, 2)}\n`);
+    return true;
+  } catch { return false; /* leave it */ }
 }
 
 /** Forward Theo-related flags from `mesh install` into the daemon's `mesh serve`
@@ -109,8 +164,8 @@ function theoServeArgs(argv: string[]): string[] {
   return out;
 }
 
-function writePlist(port: number, extraServeArgs: string[] = []): void {
-  const argv = [process.execPath, STABLE_BIN, "serve", "--port", String(port), "--ledger", DEFAULT_LEDGER, ...extraServeArgs];
+function writePlist(target: ResolvedTarget, nodePath: string, port: number, extraServeArgs: readonly string[] = []): void {
+  const argv = [nodePath, target.stableBin, "serve", "--port", String(port), "--ledger", target.ledgerDir, ...extraServeArgs];
   const esc = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const argXml = argv.map((a) => `      <string>${esc(a)}</string>`).join("\n");
   const plist = `<?xml version="1.0" encoding="UTF-8"?>
@@ -124,36 +179,131 @@ ${argXml}
   </array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>${esc(DAEMON_LOG)}</string>
-  <key>StandardErrorPath</key><string>${esc(DAEMON_LOG)}</string>
+  <key>StandardOutPath</key><string>${esc(target.daemonLog)}</string>
+  <key>StandardErrorPath</key><string>${esc(target.daemonLog)}</string>
 </dict>
 </plist>
 `;
-  mkdirSync(dirname(PLIST), { recursive: true });
-  writeFileSync(PLIST, plist);
+  mkdirSync(dirname(target.plistPath), { recursive: true });
+  writeFileSync(target.plistPath, plist);
+}
+
+/** Has the proxy come up on this port? Bounded: about four seconds. */
+async function waitForPort(port: number): Promise<boolean> {
+  let up = false;
+  for (let i = 0; i < 10 && !up; i += 1) { up = await portUp(port); if (!up) await sleep(400); }
+  return up;
+}
+
+export type InstallServiceOptions = ServiceTarget & {
+  port: number;
+  /** Extra arguments for the service's `mesh serve` (Theo's flags). */
+  serveArgs?: readonly string[];
+  /** Write the proxy's address into Claude Code's settings. Default true. False for a user's own app. */
+  pointClaudeCode?: boolean;
+  /** The launcher to register. Default: the file that started this process. */
+  launcherPath?: string;
+  /** The Node binary the service runs. Default: this process's. */
+  nodePath?: string;
+  /** Wait for the proxy to answer. Default: poll the port for about four seconds. */
+  waitForProxy?: (port: number) => Promise<boolean>;
+};
+
+export type InstallServiceResult = {
+  /** The proxy answered after the service was loaded. */
+  up: boolean;
+  port: number;
+  baseUrl: string;
+  plistPath: string;
+  launcherPath: string;
+  ledgerDir: string;
+  logPath: string;
+  claudeSettingsPath: string;
+  /** Claude Code's settings were written. */
+  pointedClaudeCode: boolean;
+};
+
+/**
+ * Register MESH as the always-on service: copy the launcher somewhere stable,
+ * write the launchd agent, load it, point Claude Code at the proxy, and wait
+ * for the proxy to answer. Never prints and never exits. Throws before
+ * changing Claude Code's settings if that file is not valid JSON.
+ */
+export async function installService(options: InstallServiceOptions): Promise<InstallServiceResult> {
+  const target = resolveTarget(options);
+  const pointClaudeCode = options.pointClaudeCode !== false;
+  // Refuse before anything is written, not after the service is loaded.
+  if (pointClaudeCode && existsSync(target.claudeSettingsPath)) {
+    try { JSON.parse(readFileSync(target.claudeSettingsPath, "utf8")); }
+    catch { throw new CliError("claude_settings_invalid", "~/.claude/settings.json isn't valid JSON — fix it first; MESH won't overwrite it."); }
+  }
+  mkdirSync(dirname(target.stableBin), { recursive: true });
+  mkdirSync(target.ledgerDir, { recursive: true });
+
+  // Register the self-updating bootstrap (not the runtime) with launchd, copied
+  // to a stable home so moving the download can't break the service. The
+  // bootstrap sets MESH_BOOTSTRAP_PATH before running us; fall back to argv[1].
+  const self = resolve(options.launcherPath ?? process.env.MESH_BOOTSTRAP_PATH ?? process.argv[1] ?? "");
+  if (self !== target.stableBin) copyFileSync(self, target.stableBin);
+  chmodSync(target.stableBin, 0o755);
+
+  if (serviceLoaded(target.runner, "darwin")) target.runner.launchctl(["unload", target.plistPath]);
+  writePlist(target, options.nodePath ?? process.execPath, options.port, options.serveArgs);
+  target.runner.launchctl(["load", "-w", target.plistPath]);
+  const baseUrl = serviceBaseUrl(options.port);
+  if (pointClaudeCode) setClaudeBaseUrl(target.claudeSettingsPath, baseUrl);
+
+  // Confirm it actually came up.
+  const up = await (options.waitForProxy ?? waitForPort)(options.port);
+  return {
+    up,
+    port: options.port,
+    baseUrl,
+    plistPath: target.plistPath,
+    launcherPath: target.stableBin,
+    ledgerDir: target.ledgerDir,
+    logPath: target.daemonLog,
+    claudeSettingsPath: target.claudeSettingsPath,
+    pointedClaudeCode: pointClaudeCode,
+  };
+}
+
+export type RemoveServiceResult = {
+  /** The service was registered before this call. */
+  wasLoaded: boolean;
+  /** The service definition file was there and has been removed. */
+  removedDefinition: boolean;
+  /** The service's address was taken back out of Claude Code's settings. */
+  restoredClaudeCode: boolean;
+  ledgerDir: string;
+};
+
+/** Stop and remove the service and take its address out of Claude Code's settings. The ledger is kept. */
+export function uninstallService(target: ServiceTarget = {}): RemoveServiceResult {
+  const resolved = resolveTarget(target);
+  const wasLoaded = serviceLoaded(resolved.runner, "darwin");
+  resolved.runner.launchctl(["unload", "-w", resolved.plistPath]);
+  const removedDefinition = existsSync(resolved.plistPath);
+  rmSync(resolved.plistPath, { force: true });
+  const restoredClaudeCode = clearClaudeBaseUrl(resolved.claudeSettingsPath);
+  return { wasLoaded, removedDefinition, restoredClaudeCode, ledgerDir: resolved.ledgerDir };
+}
+
+/** Stop the service but keep its definition. Changes nothing when it is not registered. */
+export function stopService(target: ServiceTarget = {}): RemoveServiceResult {
+  const resolved = resolveTarget(target);
+  if (!serviceLoaded(resolved.runner, "darwin")) {
+    return { wasLoaded: false, removedDefinition: false, restoredClaudeCode: false, ledgerDir: resolved.ledgerDir };
+  }
+  resolved.runner.launchctl(["unload", "-w", resolved.plistPath]);
+  const restoredClaudeCode = clearClaudeBaseUrl(resolved.claudeSettingsPath);
+  return { wasLoaded: true, removedDefinition: false, restoredClaudeCode, ledgerDir: resolved.ledgerDir };
 }
 
 export async function runInstall(argv: string[]): Promise<void> {
   requireMac("install");
   const port = parsePort(argv);
-  mkdirSync(join(MESH_HOME, "bin"), { recursive: true });
-  mkdirSync(DEFAULT_LEDGER, { recursive: true });
-
-  // Register the self-updating bootstrap (not the runtime) with launchd, copied
-  // to a stable home so moving the download can't break the service. The
-  // bootstrap sets MESH_BOOTSTRAP_PATH before running us; fall back to argv[1].
-  const self = resolve(process.env.MESH_BOOTSTRAP_PATH ?? process.argv[1] ?? "");
-  if (self !== STABLE_BIN) copyFileSync(self, STABLE_BIN);
-  chmodSync(STABLE_BIN, 0o755);
-
-  if (isLoaded()) launchctl("unload", PLIST);
-  writePlist(port, theoServeArgs(argv));
-  launchctl("load", "-w", PLIST);
-  setClaudeBaseUrl(`http://127.0.0.1:${port}`);
-
-  // Confirm it actually came up.
-  let up = false;
-  for (let i = 0; i < 10 && !up; i += 1) { up = await portUp(port); if (!up) await sleep(400); }
+  const { up } = await installService({ port, serveArgs: theoServeArgs(argv) });
 
   console.log("");
   if (up) {
@@ -175,9 +325,7 @@ export async function runInstall(argv: string[]): Promise<void> {
 
 export function runUninstall(_argv: string[]): void {
   requireMac("uninstall");
-  launchctl("unload", "-w", PLIST);
-  rmSync(PLIST, { force: true });
-  clearClaudeBaseUrl();
+  uninstallService();
   console.log("");
   console.log(`  ⬢ theo — always-on removed. The service is stopped and Claude Code is back to normal.`);
   console.log(`  Your ledger is kept at ${DEFAULT_LEDGER} — recompute any time with: mesh verify`);
@@ -188,15 +336,13 @@ export function runUninstall(_argv: string[]): void {
  *  normal; the service definition stays so `mesh install` resumes it. */
 export function runStop(_argv: string[]): void {
   requireMac("stop");
-  if (!isLoaded()) {
+  if (!stopService().wasLoaded) {
     console.log("");
     console.log(`  No MESH background service is running.`);
     console.log(`  (A foreground \`mesh start\` is stopped with Ctrl+C.)`);
     console.log("");
     return;
   }
-  launchctl("unload", "-w", PLIST);
-  clearClaudeBaseUrl();
   console.log("");
   console.log(`  ⬢ theo — MESH service stopped. Claude Code is back to normal.`);
   console.log(`  The service is kept — resume always-on any time with: mesh install`);
@@ -232,6 +378,11 @@ export type StatusResult = {
   /** True whenever status could be read. A stopped proxy or an empty ledger is a state, not a failure. */
   ok: true;
   mesh: MeshIdentity;
+  /**
+   * Is anything flowing through MESH, and if not, why and the one command
+   * that fixes it (flow.ts). Worked out from the fields below and the clock.
+   */
+  flow: Flow;
   /** What is on disk under ~/.mesh from the website install (absent on an npm install). */
   runtime: {
     /** A downloaded, checksum-verified runtime is cached in ~/.mesh/runtime. */
@@ -336,6 +487,14 @@ export type StatusOptions = {
   wiringStatePath?: string;
   plistPath?: string;
   env?: Record<string, string | undefined>;
+  /** The clock `flow` is worked out against. Default: now. */
+  now?: Date;
+  /** The IANA zone `flow` counts days in ("yesterday"). Default: this machine's. */
+  timeZone?: string;
+  /** Who is asked whether the service is registered. Default: the real `launchctl`. */
+  runner?: ServiceRunner;
+  /** The platform to report for. Default: this one. */
+  platform?: NodeJS.Platform;
 };
 
 type StatusParts = {
@@ -394,9 +553,11 @@ async function gatherStatus(options: StatusOptions = {}): Promise<StatusParts> {
   const settingsPath = options.claudeSettingsPath ?? CLAUDE_SETTINGS;
   const env = options.env ?? process.env;
 
+  const os = options.platform ?? platform();
   const { port, source } = resolvePort(options.port, {
     ...(options.plistPath === undefined ? {} : { plistPath: options.plistPath }),
     wiringStatePath: statePath,
+    platform: os,
   });
   const probe = await probeProxy(port);
   const urls = proxyUrls(port);
@@ -414,9 +575,9 @@ async function gatherStatus(options: StatusOptions = {}): Promise<StatusParts> {
 
   const pointsAtMesh = (value: string | undefined): boolean =>
     value !== undefined && probe.isMesh && loopbackPort(value) === port;
-  const supported = platform() === "darwin";
+  const supported = os === "darwin";
 
-  const result: StatusResult = {
+  const facts: Omit<StatusResult, "flow"> = {
     schema: "mesh-status/1",
     ok: true,
     mesh: meshIdentity(),
@@ -426,7 +587,11 @@ async function gatherStatus(options: StatusOptions = {}): Promise<StatusParts> {
       launcherInstalled: existsSync(join(meshHome, "bin", "mesh")),
       runningFromCache,
     },
-    service: { supported, installed: supported ? serviceLoaded() : false, manager: supported ? "launchd" : null },
+    service: {
+      supported,
+      installed: supported ? serviceLoaded(options.runner ?? systemServiceRunner, os) : false,
+      manager: supported ? "launchd" : null,
+    },
     proxy: {
       reachable: probe.isMesh,
       portOpen: probe.portOpen,
@@ -485,6 +650,10 @@ async function gatherStatus(options: StatusOptions = {}): Promise<StatusParts> {
       pendingProposals: memory?.proposals?.length ?? 0,
     },
   };
+  // `flow` is listed straight after `mesh`, so it is the first thing a reader of the JSON meets.
+  const { schema, ok, mesh, ...rest } = facts;
+  const flow = detectFlow(facts, options.now ?? new Date(), options.timeZone);
+  const result: StatusResult = { schema, ok, mesh, flow, ...rest };
   return { result, summary, coverage };
 }
 
@@ -524,6 +693,9 @@ export async function runStatus(argv: string[]): Promise<void> {
 
   const loaded = result.service.installed;
   const up = result.proxy.portOpen;
+  // First: is anything flowing, and the one command that fixes it when not.
+  console.log("");
+  for (const line of flowLines(result.flow)) console.log(`  ${line}`);
   console.log("");
   console.log(`  mesh status — build ${BUILD_COMMIT}`);
   console.log(`  service   ${loaded ? "installed (launchd)" : "not installed"}`);
