@@ -18,7 +18,7 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { renderLanding } from "./landing-page.js";
+import { MESH_DESCRIPTION, MESH_FEE, MESH_TITLE, renderLanding } from "./landing-page.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const siteDir = path.join(root, "docs/site");
@@ -247,13 +247,13 @@ estimates are always labelled. <a href="${REPO_URL}">Source</a> · <a href="llms
 `;
 }
 
-/** schema.org FAQPage from faq.md's **Question?** / answer structure. */
+/** schema.org FAQPage from faq.md: each `## Question?` heading and the text under it. */
 function faqJsonLd(markdown: string): string {
   const pairs: Array<{ q: string; a: string }> = [];
-  const blocks = markdown.split(/\n\n+/);
-  for (let i = 0; i < blocks.length; i += 1) {
-    const match = blocks[i]!.match(/^\*\*(.+?)\*\*\n([\s\S]+)$/);
-    if (match) pairs.push({ q: match[1]!, a: match[2]!.replace(/\s+/g, " ").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/\*\*/g, "").trim() });
+  const sections = markdown.split(/\n(?=## )/);
+  for (const section of sections) {
+    const match = section.match(/^## (.+\?)\n([\s\S]+)$/);
+    if (match) pairs.push({ q: match[1]!.trim(), a: match[2]!.replace(/^- /gm, "").replace(/\s+/g, " ").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/\*\*|`/g, "").trim() });
   }
   if (pairs.length === 0) return "";
   const data = {
@@ -273,16 +273,16 @@ function startJsonLd(): string {
   const data = {
     "@context": "https://schema.org",
     "@type": "HowTo",
-    name: "Cut your LLM API bill with MESH in five minutes",
-    description: "Install MESH with one command, run mesh proxy (or mesh start for Claude Code), point your app's base URL at it, and recompute the verified-savings invoice yourself with mesh verify from the hash-chained ledger you hold.",
+    name: "Set up Mesh, a local proxy for LLM API traffic, in five minutes",
+    description: "Install Mesh with one command, run mesh proxy (or mesh start for Claude Code), point your app's base URL at it, and recompute the verified-savings invoice yourself with mesh verify from the hash-chained ledger you hold.",
     totalTime: "PT5M",
     tool: [{ "@type": "HowToTool", name: "mesh (installer at https://www.mesh-technology.com/install.sh, or @harrym1707/mesh on npm)" }],
     step: [
       { "@type": "HowToStep", name: "Install", text: "curl -fsSL https://www.mesh-technology.com/install.sh | sh on macOS, Linux or WSL (or npm install -g @harrym1707/mesh). Needs Node 22 or newer. No signup, no account." },
-      { "@type": "HowToStep", name: "Run the proxy", text: "mesh proxy starts a local proxy on http://127.0.0.1:8787 with a hash-chained ledger in ~/.mesh/ledger. Claude Code users run mesh start instead, which points Claude Code at MESH and restores it on exit. Your API key passes through to your provider and is never stored." },
+      { "@type": "HowToStep", name: "Run the proxy", text: "mesh proxy starts a local proxy on http://127.0.0.1:8787 with a hash-chained ledger in ~/.mesh/ledger. Claude Code users run mesh start instead, which points Claude Code at Mesh and restores it on exit. Your API key passes through to your provider and is never stored." },
       { "@type": "HowToStep", name: "Point your app at it", text: "Set ANTHROPIC_BASE_URL=http://127.0.0.1:8787 or OPENAI_BASE_URL=http://127.0.0.1:8787/v1 (the official SDKs read them), or set the base URL in code. Any language and any OpenAI-compatible endpoint work." },
-      { "@type": "HowToStep", name: "Run traffic as normal", text: "Responses return byte-identical, streaming included. Reduction is lossless-only by default; each request appends one hash-chained event recording usage numbers and lever names, never prompt content." },
-      { "@type": "HowToStep", name: "Recompute the invoice yourself", text: "mesh verify re-checks the ledger's hash chain and recomputes the invoice from it with no network calls. If MESH saved nothing the verdict reads do_not_charge. The fee is 1% of verified savings, monthly, nothing else." },
+      { "@type": "HowToStep", name: "Run traffic as normal", text: "Responses return byte-identical, streaming included. A fresh install makes three lossless changes only (tool-schema compaction, exact-duplicate removal, cache-prefix repair); each request appends one hash-chained event recording usage numbers and lever names, never prompt content." },
+      { "@type": "HowToStep", name: "Recompute the invoice yourself", text: "mesh verify re-checks the ledger's hash chain and recomputes the invoice from it with no network calls. If Mesh saved nothing the verdict reads do_not_charge. " + MESH_FEE },
     ],
   };
   return `<script type="application/ld+json">${JSON.stringify(data)}</script>\n`;
@@ -370,7 +370,12 @@ const landing = readFileSync(path.join(outDir, "index.html"), "utf8");
 for (const [marker, why] of [
   ['class="field-deep"', "dark chapter break missing"],
   ["prefers-reduced-motion", "reduced-motion guard missing"],
-  ["A smaller AI bill", "hero promise missing"],
+  [`<title>${MESH_TITLE}</title>`, "the title that says what Mesh is, who it is for and the fee is missing"],
+  [MESH_DESCRIPTION, "the canonical description is missing"],
+  [MESH_FEE, "the canonical fee statement is missing"],
+  ["out of the box", "the statement of what a fresh install does is missing"],
+  ["under half", "the default levers' share of the live figure is not stated"],
+  ["Claude Code user gains little", "the Claude Code caveat is missing"],
   ['id="install"', "install section missing"],
   ["install.sh | sh", "install command missing"],
   ["mesh start", "the Claude Code connect command missing"],
@@ -382,7 +387,9 @@ for (const [marker, why] of [
   ["SoftwareApplication", "structured data missing"],
   ["LIVE EXPORT", "the receipt is missing"],
   ["NET VERIFIED SAVINGS", "the receipt total row is missing"],
-  ["37.9%", "the clean cache figure missing"],
+  ["37.9", "the cache-stamp figure missing"],
+  ["SIMULATOR, verified 2026-10-22", "the cache-stamp figure has lost its label and date"],
+  ["LIVE, run 2026-10-26", "the live figure has lost its label and date"],
   ['id="reducer"', "the reduction performance missing"],
   ['data-chip', "the performance folds missing"],
 ] as const) {
@@ -411,6 +418,30 @@ for (const bot of ["GPTBot", "ClaudeBot", "PerplexityBot", "Google-Extended"]) {
 }
 const llmsFull = readFileSync(path.join(outDir, "llms-full.txt"), "utf8");
 if (llmsFull.length < 5000 || !llmsFull.includes("37.9%")) failures.push("llms-full.txt: missing or missing the numbers");
+// One description and one fee statement, word for word, wherever they appear.
+for (const [name, text] of [
+  ["llms.txt", readFileSync(path.join(siteDir, "llms.txt"), "utf8")],
+  ["README.md", readFileSync(path.join(root, "README.md"), "utf8")],
+  ["overview.md", readFileSync(path.join(siteDir, "overview.md"), "utf8")],
+] as const) {
+  if (!text.includes(MESH_DESCRIPTION)) failures.push(`${name}: the canonical description is missing or reworded`);
+  if (!text.includes(MESH_FEE)) failures.push(`${name}: the canonical fee statement is missing or reworded`);
+}
+// The claims that were wrong on 2026-11-23 must not come back: the proxy does
+// not make every saving a provider measurement, and no page may quote a
+// fee other than the Terms' own.
+for (const name of built) {
+  const html = readFileSync(path.join(outDir, name), "utf8");
+  if (/never (our|an) estimate/i.test(html)) failures.push(`${name}: says savings are never an estimate (lossless savings are an estimated baseline)`);
+  if (/share of verified savings|percentage of verified savings/i.test(html)) failures.push(`${name}: quotes the fee as a share or percentage instead of the Terms' 1%`);
+  const visible = html.replace(/<style>[\s\S]*?<\/style>/g, "").replace(/MESH_[A-Z_]+/g, "");
+  if (/\bMESH\b(?! is running| proxy listening)/.test(visible)) failures.push(`${name}: writes the name as MESH (prose is "Mesh"; the command and wordmark are "mesh")`);
+}
+// Each page that quotes the live figure states what a fresh install does.
+for (const name of built) {
+  const html = readFileSync(path.join(outDir, name), "utf8");
+  if (html.includes("18.2%") && !/under half/.test(html)) failures.push(`${name}: quotes 18.2% without saying the default levers account for under half of it`);
+}
 if (!landing.includes('property="og:title"')) failures.push("index.html: missing OpenGraph metadata");
 const startHtml = readFileSync(path.join(outDir, "start.html"), "utf8");
 if (!startHtml.includes("npx -y -p @harrym1707/sdk mesh-proxy")) failures.push("start.html: install command missing");
@@ -418,6 +449,8 @@ if (!startHtml.includes('"@type":"HowTo"')) failures.push("start.html: HowTo str
 if (!startHtml.includes("do_not_charge")) failures.push("start.html: the honest verdict missing");
 const faqHtml = readFileSync(path.join(outDir, "faq.html"), "utf8");
 if (!faqHtml.includes("application/ld+json") || !faqHtml.includes("FAQPage")) failures.push("faq.html: missing FAQ structured data");
+if (!faqHtml.includes("<h2>How much does Mesh save out of the box?</h2>")) failures.push("faq.html: the questions are not headings");
+if ((faqHtml.match(/"@type":"Question"/g) ?? []).length !== (faqHtml.match(/<h2>[^<]*\?<\/h2>/g) ?? []).length) failures.push("faq.html: FAQ structured data does not match the visible questions");
 if (failures.length > 0) {
   for (const failure of failures) console.error(`SITE BUILD FAILED: ${failure}`);
   process.exit(1);

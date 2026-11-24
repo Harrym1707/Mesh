@@ -1,9 +1,9 @@
 /**
- * The MESH landing page — built to the dealt tasteskill direction sheet
+ * The Mesh landing page — built to the dealt tasteskill direction sheet
  * (.taste-skill/direction.json, seed 1631001276): "The product performs".
  *
  * The idea sentence: on this page, THE LEDGER AND THE REDUCER THEMSELVES
- * become the imagery — every picture is a true, working fragment of MESH at
+ * become the imagery — every picture is a true, working fragment of Mesh at
  * real size (data-ui), and the stats section's receipt is the actual first
  * live export, rows summing to the total.
  *
@@ -30,6 +30,18 @@ const LOGO_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "../doc
 const logo = (slug: string): string =>
   readFileSync(path.join(LOGO_DIR, slug + ".svg"), "utf8").replace("<svg ", '<svg aria-hidden="true" ');
 
+/**
+ * The one description and the one fee statement. Used word for word on this
+ * page (hero, meta description, JSON-LD), in docs/site/llms.txt and in
+ * README.md; scripts/build-site.ts fails the build if any of them drifts.
+ * The description must stay true of a fresh install: three lossless changes.
+ * The fee statement is the Terms' own (docs/site/terms.md, "Fees").
+ */
+export const MESH_DESCRIPTION = "Mesh is a local proxy for LLM API traffic, for teams running their own agents on the Anthropic or OpenAI API: out of the box it makes three lossless changes to each request and records every saving in a hash-chained ledger on your own machine, so you can recompute the bill yourself.";
+export const MESH_FEE = "The fee is 1% of verified savings for the month, rounded down to the cent, and nothing else; no fee is due unless billing has been agreed in writing.";
+/** The page title: what Mesh is, who it is for and what it costs. */
+export const MESH_TITLE = "Mesh: a local proxy for LLM API traffic from your own agents. Fee: 1% of verified savings";
+
 export function renderLanding(origin: string, repoUrl: string): string {
   // --- The hero demo's sample request: token counts computed from the bytes.
   const DUP_BLOCK = "Records 0-19: settlement entry nominal, reconciliation standard, no notification sent, annotation routine.";
@@ -52,9 +64,9 @@ export function renderLanding(origin: string, repoUrl: string): string {
   const afterCost = (afterTokens * INPUT_RATE).toFixed(5);
   const steps = [
     { chip: "12 tool schemas compacted", tokens: approxTokens(SCHEMA_RAW) - approxTokens(SCHEMA_AFTER) },
-    { chip: "stale history compacted, byte-stable", tokens: approxTokens(HISTORY_RAW) - approxTokens(HISTORY_AFTER) },
+    { chip: "stale history compacted (off by default)", tokens: approxTokens(HISTORY_RAW) - approxTokens(HISTORY_AFTER) },
     { chip: "exact duplicate removed", tokens: approxTokens(DUP_BLOCK) },
-    { chip: "fresh result capped before it bills", tokens: approxTokens(TOOLRES_RAW) - approxTokens(TOOLRES_AFTER) },
+    { chip: "fresh tool result capped (off by default)", tokens: approxTokens(TOOLRES_RAW) - approxTokens(TOOLRES_AFTER) },
   ];
 
   // --- The receipt: the live export of 2026-10-26, the headline LIVE number
@@ -67,11 +79,11 @@ export function renderLanding(origin: string, repoUrl: string): string {
     ["support-chat", 0.05225], ["already-lean", 0.00529],
   ] as const;
   const SAVED = [
-    ["coding-agent — cap + schemas + cache", 0.02254],
-    ["rag-docqa — duplicate excerpt removed", 0.00861],
-    ["support-chat — tool-schema compaction", 0.00537],
-    ["batch-classifier — cache stamp withheld, nothing billed", 0.0],
-    ["already-lean — nothing to remove", 0.0],
+    ["coding-agent: tool-result cap and cache stamp (both off by default), schemas", 0.02254],
+    ["rag-docqa: duplicate excerpt removed (on by default)", 0.00861],
+    ["support-chat: tool-schema compaction, as measured before 2026-10-29", 0.00537],
+    ["batch-classifier: cache stamp withheld, nothing billed", 0.0],
+    ["already-lean: nothing to remove", 0.0],
   ] as const;
   const spendTotal = SPEND.reduce((s, [, v]) => s + v, 0);
   const savedTotal = SAVED.reduce((s, [, v]) => s + v, 0);
@@ -81,7 +93,7 @@ export function renderLanding(origin: string, repoUrl: string): string {
   const PAGE_JS = `
 (function () {
   var reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  // The performance: when the panel scrolls into view, MESH passes over the
+  // The performance: when the panel scrolls into view, Mesh passes over the
   // request — each fold collapses, a chip names the lever, and the token and
   // cost meters run down. Counts come from the panel's own bytes. Loops.
   var panel = document.getElementById("reducer");
@@ -248,7 +260,7 @@ export function renderLanding(origin: string, repoUrl: string): string {
 
   const CSS = `
 :root{
-  /* MESH brand: Off White ground, Deep Graphite ink, Mesh Blue accent, Frost tone-step */
+  /* Mesh brand: Off White ground, Deep Graphite ink, Mesh Blue accent, Frost tone-step */
   --bg:#FAFAF9; --surface:#0B0F14; --surface-2:#14181F; --ink:#0B0F14; --muted:#5B6472;
   --line:#E5E7EB; --accent:#2563EB; --accent-ink:#ffffff; --ocean:#1D4ED8; --paper:#ffffff; --paper-ink:#0B0F14;
   --deep:#0B0F14; --deep-ink:#FAFAF9; --deep-muted:#9AA3B2; --deep-line:#262B33;
@@ -561,9 +573,9 @@ section h2::after{content:"";position:absolute;left:50%;transform:translateX(-50
 
   const MARK = `<svg viewBox="0 0 240 240" fill="none" aria-hidden="true"><g stroke="currentColor" stroke-width="16" stroke-linejoin="round" stroke-linecap="round"><path d="M139.24 34.86 L100.03 49.91 L93.46 91.39 L126.1 117.82 L165.31 102.77 L171.88 61.29 Z"/><path d="M80.38 107.54 L41.17 122.6 L34.6 164.08 L67.24 190.51 L106.45 175.46 L113.02 133.98 Z"/><path d="M172.76 122.18 L133.55 137.23 L126.98 178.71 L159.62 205.14 L198.83 190.09 L205.4 148.61 Z"/></g></svg>`;
 
-  // Theo, the MESH token-engineer bot: a small, friendly ink-line robot with a
+  // Theo, the Mesh token-engineer bot: a small, friendly ink-line robot with a
   // Mesh-blue "signal" dot that pulses, eyes that blink and a gentle float.
-  const THEO_BOT = `<svg viewBox="0 0 120 124" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Theo, the MESH token-engineer bot">
+  const THEO_BOT = `<svg viewBox="0 0 120 124" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Theo, the Mesh token-engineer bot">
 <line x1="60" y1="34" x2="60" y2="22" stroke="#0B0F14" stroke-width="3.5" stroke-linecap="round"/>
 <circle class="theo-signal" cx="60" cy="15" r="5.5" fill="#2563EB"/>
 <rect x="24" y="34" width="72" height="56" rx="18" fill="#ffffff" stroke="#0B0F14" stroke-width="3.5"/>
@@ -579,16 +591,16 @@ section h2::after{content:"";position:absolute;left:50%;transform:translateX(-50
   const jsonLd = JSON.stringify({
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
-    name: "MESH",
+    name: "Mesh",
     applicationCategory: "DeveloperApplication",
     operatingSystem: "Any",
     url: `${origin}/`,
-    description: "Cut LLM API costs on Claude and OpenAI. One-URL proxy or one-line SDK; savings verified per completed task into a customer-recomputable ledger; fee is a share of verified savings.",
+    description: `${MESH_DESCRIPTION} ${MESH_FEE}`,
   });
   const orgLd = JSON.stringify({
     "@context": "https://schema.org",
     "@type": "Organization",
-    name: "MESH", url: `${origin}/`, logo: `${origin}/favicon.svg`, sameAs: [repoUrl], slogan: "Less in. More out.",
+    name: "Mesh", url: `${origin}/`, logo: `${origin}/favicon.svg`, sameAs: [repoUrl], slogan: "Less in. More out.",
   });
 
   const spendRows = SPEND.map(([name, v]) =>
@@ -601,14 +613,14 @@ section h2::after{content:"";position:absolute;left:50%;transform:translateX(-50
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>mesh — less in, more out</title>
-<meta name="description" content="Cut your Claude and OpenAI API bill. One URL in, savings verified per completed task, pay only a share of verified savings. Every invoice is recomputable from a ledger you hold.">
+<title>${MESH_TITLE}</title>
+<meta name="description" content="${MESH_DESCRIPTION} ${MESH_FEE}">
 <link rel="canonical" href="${origin}/">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="mesh">
-<meta property="og:title" content="mesh — less in, more out">
-<meta property="og:description" content="Cut your Claude and OpenAI API bill. Savings verified per completed task; pay only a share of verified savings.">
+<meta property="og:title" content="${MESH_TITLE}">
+<meta property="og:description" content="${MESH_DESCRIPTION}">
 <meta property="og:image" content="${origin}/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -639,21 +651,21 @@ section h2::after{content:"";position:absolute;left:50%;transform:translateX(-50
 <div class="hero-wrap">
 <header class="hero">
   <div class="col">
-    <h1 class="rise">A smaller AI bill<span class="dot">.</span></h1>
-    <p class="sub rise">Same answers &mdash; MESH sits in front of your LLM traffic and strips out wasted tokens without changing a single reply. You pay 1% of the savings, verified on the provider&rsquo;s own usage, never our estimate.</p>
+    <h1 class="rise">A local proxy for your agents&rsquo; LLM API calls<span class="dot">.</span></h1>
+    <p class="sub rise">${MESH_DESCRIPTION} ${MESH_FEE}</p>
     <div class="actions rise">
-      <a class="btn-download" href="#install"><svg class="arrow" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3v11m0 0l-4.5-4.5M12 14l4.5-4.5M5 20h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Install MESH</a>
+      <a class="btn-download" href="#install"><svg class="arrow" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3v11m0 0l-4.5-4.5M12 14l4.5-4.5M5 20h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Install Mesh</a>
       <a class="arrowlink" href="evidence.html">See the evidence</a>
     </div>
     <p class="cta-note rise">One command &middot; no signup &middot; keep your own key &middot; <b>verify every number yourself</b></p>
   </div>
   <aside class="hero-proof rise">
-    <p class="lbl"><span class="pct">${savedPct.toFixed(1)}<span>%</span></span> net savings on our last live export: our own test agents, 30 real API requests, recomputable from a ledger you hold.</p>
+    <p class="lbl"><span class="pct">${savedPct.toFixed(1)}<span>%</span></span> of spend on our own 30-request test basket (LIVE, run 2026-10-26) with a cache stamp and a tool-result cap switched on. A fresh install does not switch those on: its three lossless changes account for under half of that figure.</p>
   </aside>
 </header>
 </div>
 
-<section id="install" aria-label="Install MESH" class="install-sect">
+<section id="install" aria-label="Install Mesh" class="install-sect">
   <h2 class="rise">Install in one command.</h2>
   <div class="os-tabs rise" role="tablist" aria-label="Choose your platform">
     <button class="os-tab" type="button" role="tab" data-os="unix" aria-selected="true">macOS &amp; Linux</button>
@@ -663,14 +675,14 @@ section h2::after{content:"";position:absolute;left:50%;transform:translateX(-50
   <div class="install-cmd rise" data-os-panel="unix"><span class="prompt">$</span><code>curl -fsSL https://www.mesh-technology.com/install.sh | sh</code><button class="copy" type="button" data-copy="curl -fsSL https://www.mesh-technology.com/install.sh | sh">copy</button></div>
   <div class="install-cmd rise" data-os-panel="npm" hidden><span class="prompt">$</span><code>npm install -g @harrym1707/mesh</code><button class="copy" type="button" data-copy="npm install -g @harrym1707/mesh">copy</button></div>
   <div class="install-cmd rise" data-os-panel="windows" hidden><span class="prompt">$</span><code>curl -fsSL https://www.mesh-technology.com/install.sh | sh</code><button class="copy" type="button" data-copy="curl -fsSL https://www.mesh-technology.com/install.sh | sh">copy</button></div>
-  <p class="os-note" data-os-panel="windows" hidden>Run it inside WSL: MESH installs as a Linux program. Native PowerShell is not supported yet &mdash; <a href="${repoUrl}/issues/new">tell us</a> if you need it.</p>
+  <p class="os-note" data-os-panel="windows" hidden>Run it inside WSL: Mesh installs as a Linux program. Native PowerShell is not supported yet &mdash; <a href="${repoUrl}/issues/new">tell us</a> if you need it.</p>
 
   <h3 class="connect-head rise">Then connect what you run.</h3>
   <div class="connect rise">
     <div class="connect-opt">
       <span class="who">Claude Code</span>
       <div class="mini-cmd"><span class="prompt">$</span><code>mesh start</code><button class="copy" type="button" data-copy="mesh start">copy</button></div>
-      <div class="what"><p>Points Claude Code at MESH and runs alongside you. Ctrl+C puts Claude Code back exactly as it was.</p></div>
+      <div class="what"><p>Points Claude Code at Mesh and runs alongside you. Ctrl+C puts Claude Code back exactly as it was. Supported, but a Claude Code user gains little on the defaults.</p></div>
     </div>
     <div class="connect-opt">
       <span class="who">Your own app or agent</span>
@@ -684,13 +696,13 @@ section h2::after{content:"";position:absolute;left:50%;transform:translateX(-50
 </section>
 
 <section aria-label="Measured bands" class="bands">
-  <h2 class="rise">Measured savings.</h2>
+  <h2 class="rise">Simulator figures, with levers switched on.</h2>
   <div class="bandrow rise">
-    <div class="band"><div class="n">45<span>&ndash;73%</span></div><p>off repetitive API calls &mdash; the top of the range when they can wait a few seconds</p></div>
-    <div class="band"><div class="n">57.7<span>%</span></div><p>off background work that can wait a few extra seconds</p></div>
-    <div class="band"><div class="n">37.6<span>%</span></div><p>just from switching on Claude&rsquo;s cache &mdash; many apps never do</p></div>
+    <div class="band"><div class="n">45.5<span>%</span></div><p>SIMULATOR, verified 2026-10-13: one-shot calls on a shared template. Cache-prefix repair, on by default, carries most of it where the provider caches automatically; the rest, and the 72.8% for work that can wait, needed levers that are off by default.</p></div>
+    <div class="band"><div class="n">57.7<span>%</span></div><p>SIMULATOR, verified 2026-10-13: background work that can wait, net of assumed fallback, with the provider&rsquo;s flex tier, a tool-result cap, history compaction, description trimming and an output cap switched on. None of those is on in a fresh install.</p></div>
+    <div class="band"><div class="n">37.9<span>%</span></div><p>SIMULATOR, verified 2026-10-22: multi-turn Claude traffic that places no cache breakpoints, with the 5-minute cache stamp switched on. The stamp is off by default.</p></div>
   </div>
-  <p class="bandcap rise">Measured in our open test harness at the providers&rsquo; real prices, with answer quality checked on every task. Some setups save nothing &mdash; then we say it plainly: <strong>do not pay us</strong>. Every number comes with a command you can run &rarr; <a href="evidence.html">evidence</a>.</p>
+  <p class="bandcap rise">None of these is what a fresh install gives. Out of the box Mesh makes three lossless changes: tool-schema compaction, exact-duplicate removal and cache-prefix repair. On our own test basket (LIVE, run 2026-10-26) those account for under half of the ${savedPct.toFixed(1)}% recorded with a cache stamp and a tool-result cap switched on, and a Claude Code user gains little on the defaults. The figures above are modelled in our open harness at the providers&rsquo; published prices, not measured on anyone&rsquo;s bill. Some setups save nothing; then we say it plainly: <strong>do not pay us</strong>. <a href="start.html">How to switch levers on</a> &middot; <a href="evidence.html">which levers each figure needed</a>.</p>
 </section>
 
 <section aria-label="Works with every provider" class="works">
@@ -704,7 +716,7 @@ section h2::after{content:"";position:absolute;left:50%;transform:translateX(-50
     <span class="wlogo">${logo("mistralai")}<span>Mistral</span></span>
     <span class="wlogo">${logo("deepseek")}<span>DeepSeek</span></span>
   </div>
-  <p class="works-cap rise">Point it at whatever you already use. MESH speaks Anthropic and OpenAI natively, plus anything with an OpenAI-style API &mdash; Grok, Llama, Mistral, DeepSeek and more. Full savings verification is live for Claude, GPT and DeepSeek today; other models are reduced and recorded while their price tables land. <em>*Gemini via its OpenAI-compatible endpoint.</em></p>
+  <p class="works-cap rise">Point it at whatever you already use. Mesh speaks Anthropic and OpenAI natively, plus anything with an OpenAI-style API &mdash; Grok, Llama, Mistral, DeepSeek and more. Full savings verification is live for Claude, GPT and DeepSeek today; other models are reduced and recorded while their price tables land. <em>*Gemini via its OpenAI-compatible endpoint.</em></p>
 </section>
 
 <section aria-label="The reduction, performed" class="demo-sect">
@@ -718,18 +730,18 @@ section h2::after{content:"";position:absolute;left:50%;transform:translateX(-50
  "system":"You are a careful assistant. Cite sources. Escalate anything risky.",
  "messages":[
    {"role":"user","content":"Step 1: inspect account 1001."},
-   {"role":"assistant","content":"<span class="fold" data-chip="stale history compacted, byte-stable" data-after="[ digest kept: errors + file paths; rest summarised ]">${DUP_BLOCK} ${DUP_BLOCK} ${DUP_BLOCK}</span>"},
+   {"role":"assistant","content":"<span class="fold" data-chip="stale history compacted (off by default)" data-after="[ digest kept: errors + file paths; rest summarised ]">${DUP_BLOCK} ${DUP_BLOCK} ${DUP_BLOCK}</span>"},
    {"role":"user","content":"Step 2: reconcile the ledger entries.
      ${DUP_BLOCK}
      <span class="fold" data-chip="exact duplicate removed" data-after="">${DUP_BLOCK}</span>"},
-   {"role":"tool","content":"<span class="fold" data-chip="fresh result capped before it bills" data-after="[ headline + errors kept; oversized body capped ]">Row 1 of 400: settlement nominal&hellip; Row 2 of 400: settlement nominal&hellip; Row 3 of 400&hellip; (397 more rows)</span>"},
+   {"role":"tool","content":"<span class="fold" data-chip="fresh tool result capped (off by default)" data-after="[ headline + errors kept; oversized body capped ]">Row 1 of 400: settlement nominal&hellip; Row 2 of 400: settlement nominal&hellip; Row 3 of 400&hellip; (397 more rows)</span>"},
    {"role":"user","content":"Investigate account 1009 and summarise."}]}</pre>
     <div class="footrow">
       <span class="statusline" id="demo-status">watching&hellip;</span>
-      <span class="ok" id="same-note">the answer cannot change &mdash; only safe moves run by default <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" style="vertical-align:-1px"><path d="M2.5 8.5 6 12 13.5 4" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      <span class="ok" id="same-note">two of these four moves run by default; the other two wait for your yes <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" style="vertical-align:-1px"><path d="M2.5 8.5 6 12 13.5 4" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
     </div>
   </div>
-  <p class="bandcap rise">A demonstration of the moves &mdash; token counts computed at build time from the full sample request (abridged on screen). Your real number comes from your own traffic. <a href="methodology.html">How we measure</a>.</p>
+  <p class="bandcap rise">A demonstration of which part of a request each move touches, not a measurement. The panel folds each block down to a label, so its counts are far larger than the levers remove in practice: tool-schema compaction, for one, strips only keys the model never reads. Schema compaction and duplicate removal run by default; history compaction and the tool-result cap are off until a replay of your own requests approves them. Your real number comes from your own traffic. <a href="methodology.html">How we measure</a>.</p>
   </div>
 </section>
 
@@ -782,17 +794,17 @@ The ledger is yours; this command recomputes the invoice from it with no network
 <section aria-label="The first live export" class="field-deep">
   <div class="receipt-wrap">
     <div class="total-side rise">
-      <h2>Proven, line by line.</h2>
-      <p class="note">Most savings claims are projections. Ours come with the receipt: we ran real requests, published every line, and the rows add up to the total &mdash; check them.</p>
-      <div class="figure">37.9%</div>
-      <p class="cap">saved by a single lever &mdash; switching Claude&rsquo;s cache on &mdash; measured both ways on identical prompts, answers unchanged. The receipt beside is our latest small live run on our own test agents: ${savedPct.toFixed(1)}% of real spend saved, the cache lever earning live, and nothing billed where there was nothing to save. The full measured range is 26&ndash;73% by traffic type &rarr; <a href="evidence.html">evidence</a>.</p>
+      <h2>Our one live run, line by line.</h2>
+      <p class="note">This is the only live figure Mesh has. We ran real requests on a test basket we wrote, published every line, and the rows add up to the total. It is not a customer&rsquo;s bill: Mesh has no customers yet.</p>
+      <div class="figure">${savedPct.toFixed(1)}%</div>
+      <p class="cap">of spend on our own 30-request test basket (LIVE, run 2026-10-26), with a 5-minute cache stamp and a gate-approved tool-result cap switched on. A fresh install does not switch those on; its three lossless changes account for under half of this total. The tool-schema rows were measured before a correction of 2026-10-29 and would not be recorded today. The cache stamp alone is 37.9% on the harness (SIMULATOR, verified 2026-10-22; off by default) &rarr; <a href="evidence.html">evidence</a>.</p>
     </div>
     <div class="slip rise in-self" aria-label="The export, row by row">
-      <h3>MESH &mdash; LIVE EXPORT</h3>
-      <p class="meta">Live export &middot; 2026-10-26 &middot; claude-sonnet-5-5 &middot; 30 requests &middot; 5 hash chains verified</p>
+      <h3>mesh &mdash; LIVE EXPORT</h3>
+      <p class="meta">Live export &middot; 2026-10-26 &middot; claude-sonnet-5-5 &middot; 30 requests &middot; 5 hash chains verified &middot; our own test basket &middot; cache stamp and tool-result cap switched on</p>
       <p class="grp">SPEND, BY AGENT</p>
       ${spendRows}
-      <p class="grp">VERIFIED SAVINGS, BY LEVER</p>
+      <p class="grp">RECORDED SAVINGS, BY AGENT AND LEVER</p>
       ${savedRows}
       <div class="total-row"><span>NET VERIFIED SAVINGS</span><span>${money(savedTotal)} &middot; ${savedPct.toFixed(1)}%</span></div>
     </div>
@@ -803,8 +815,8 @@ The ledger is yours; this command recomputes the invoice from it with no network
   <div class="theo-wrap">
     <div class="theo-avatar rise">${THEO_BOT}</div>
     <h2 class="rise">Meet Theo, your token engineer.</h2>
-    <p class="theo-lead rise">Theo ships with MESH. He studies your own traffic, finds new waste to cut, and only ever tunes MESH &mdash; never your prompts, never your answers.</p>
-    <p class="theo-note rise">When he finds a saving he tells you what it is and what it might cost in quality, then waits for your yes. Anything that could touch an answer stays off until a replay of your own traffic proves it safe &mdash; and once a month he reports his own honesty: what he tried, what he saved, and where he held back.</p>
+    <p class="theo-lead rise">Theo ships with Mesh and runs beside the proxy. He looks at the shape of your traffic, never its content, and proposes levers beyond the three defaults.</p>
+    <p class="theo-note rise">Today he can prove three levers: tool-description trimming, stale-history compaction and a lower output effort. To prove one he replays a capture of your own requests against your provider, so he needs a capture and a key that you switch on; without them he proposes nothing. When a lever passes he tells you the measured saving and the quality cost, then waits for your yes. The cache stamp and the tool-result cap are not his to propose yet: <a href="start.html">you switch those on yourself</a>.</p>
   </div>
 </section>
 
@@ -812,14 +824,15 @@ The ledger is yours; this command recomputes the invoice from it with no network
   <div class="price-wrap">
     <div class="price-side rise">
       <h2>One price.</h2>
-      <p>No subscription. No seats. No minimum. You pay a slice of what MESH actually saved you &mdash; and you can recheck the maths behind every invoice yourself.</p>
+      <p>${MESH_FEE} No subscription, no seats, no minimum, and you can recheck the maths behind every invoice yourself.</p>
     </div>
     <div class="price-figure rise">
       <div class="fig">1<sup>%</sup></div>
       <span class="overlap">${MARK}</span>
-      <p class="per">of verified savings, monthly &mdash; nothing else</p>
+      <p class="per">of verified savings for the month, rounded down to the cent, and nothing else</p>
       <ul>
-        <li>Savings counted per finished task, from your provider&rsquo;s own numbers</li>
+        <li>What you paid is your provider&rsquo;s own reading; what you would have paid is Mesh&rsquo;s estimated baseline</li>
+        <li>No fee is due unless billing has been agreed in writing</li>
         <li>Save nothing, pay nothing</li>
         <li>If a move loses money, that loss is ours, not yours</li>
         <li>Already efficient? Our quote will say: <strong>do not pay us</strong></li>
@@ -834,12 +847,12 @@ The ledger is yours; this command recomputes the invoice from it with no network
   <div class="faq-wrap">
     <h2 class="rise">The catch, printed.</h2>
     <div class="faq rise">
-      <details name="faq" open><summary>Can MESH break my app?<span class="plus"></span></summary><div class="answer-wrap"><div class="answer">The default levers are lossless: compacted schemas decode identically, removed duplicates are exact, prefix repair reorders without deleting, and the reducer never throws &mdash; a failure returns your request untouched. Lossy levers stay off until a replay gate proves on your own recorded requests that quality held. <a href="faq.html">Full answer</a></div></div></details>
-      <details name="faq"><summary>Why a range and not one number?<span class="plus"></span></summary><div class="answer-wrap"><div class="answer">Savings depend on your traffic&rsquo;s shape. The quote comes from your own export and names your segment; sometimes the verdict is literally do not pay us. <a href="segments.html">The bands, by segment</a></div></div></details>
-      <details name="faq"><summary>How can you bill for money I didn&rsquo;t spend?<span class="plus"></span></summary><div class="answer-wrap"><div class="answer">The way energy performance contracts have done it since 1995: a defined baseline, provider-verbatim measurements, an agreed adjustment method. Every request writes an append-only hash-chained event; the invoice is a pure function over those events. <a href="methodology.html">Methodology</a></div></div></details>
+      <details name="faq" open><summary>Can Mesh break my app?<span class="plus"></span></summary><div class="answer-wrap"><div class="answer">The default levers are lossless: compacted schemas decode identically, removed duplicates are exact, prefix repair reorders without deleting, and the reducer never throws &mdash; a failure returns your request untouched. Lossy levers stay off until a replay gate proves on your own recorded requests that quality held. <a href="faq.html">Full answer</a></div></div></details>
+      <details name="faq"><summary>Why a range and not one number?<span class="plus"></span></summary><div class="answer-wrap"><div class="answer">Savings depend on the shape of your traffic and on which levers are switched on. The quote comes from your own export and names your shape; sometimes the verdict is do not pay us. <a href="segments.html">The figures by shape, with the levers each needed</a></div></div></details>
+      <details name="faq"><summary>How can you bill for money I didn&rsquo;t spend?<span class="plus"></span></summary><div class="answer-wrap"><div class="answer">The way energy performance contracts have done it since 1995: a defined baseline, measurements, an agreed adjustment method. What you paid is the provider&rsquo;s own reading; what you would have paid is worked out by Mesh and labelled an estimated baseline. Every request writes an append-only hash-chained event; the invoice is a pure function over those events. <a href="methodology.html">Methodology</a></div></div></details>
       <details name="faq"><summary>What do you do with my prompts?<span class="plus"></span></summary><div class="answer-wrap"><div class="answer">Analysis runs locally; prompts never leave your machine. The ledger records usage numbers, lever names and hashes &mdash; not content. Your API key passes through the proxy verbatim and is never stored.</div></div></details>
-      <details name="faq"><summary>Where does MESH lose?<span class="plus"></span></summary><div class="answer-wrap"><div class="answer">Busy interactive agents cap around 29% before cache enablement; already-optimised stacks get 0&ndash;5% and a do-not-pay-us verdict; a free trimmer may be all you need if you don&rsquo;t need the saving verified. <a href="comparison.html">The honest comparison</a></div></div></details>
-      <details name="faq"><summary>Are these numbers real?<span class="plus"></span></summary><div class="answer-wrap"><div class="answer">Every figure traces to a runnable command and a commit. The bands are simulator-measured at published provider prices and labelled so; the ${savedPct.toFixed(1)}% receipt above is real traffic. Your pilot replaces all of it with your own number before any fee exists. <a href="evidence.html">Evidence</a></div></div></details>
+      <details name="faq"><summary>Where does Mesh lose?<span class="plus"></span></summary><div class="answer-wrap"><div class="answer">A fresh install makes three lossless changes and nothing more, and a Claude Code user gains little from them. Busy interactive agents reach 25.9&ndash;29.4% on the harness (SIMULATOR, verified 2026-10-13) only with six levers switched on, four of them off by default. Already-optimised stacks get 0&ndash;5% (SIMULATOR, fixture) and a do-not-pay-us verdict. A free trimmer may be all you need if you don&rsquo;t need the saving verified. <a href="comparison.html">The comparison, including where Mesh loses</a></div></div></details>
+      <details name="faq"><summary>What does a fresh install save?<span class="plus"></span></summary><div class="answer-wrap"><div class="answer">Out of the box Mesh makes three lossless changes. On our own test basket (LIVE, run 2026-10-26) they account for under half of the ${savedPct.toFixed(1)}% recorded with a cache stamp and a tool-result cap switched on. The larger figures on this page are SIMULATOR figures with named levers switched on, and none is from a customer&rsquo;s bill. Every figure traces to a command, a date and its levers. <a href="evidence.html">Evidence</a></div></div></details>
     </div>
   </div>
 </section>
@@ -849,8 +862,8 @@ The ledger is yours; this command recomputes the invoice from it with no network
     <div class="cta-flat" aria-hidden="true"></div>
     <div class="cta-main">
       <h2>Start with one URL.</h2>
-      <p>Point your app&rsquo;s baseURL at MESH and keep your own key. Five minutes later you have a tamper-evident record of what you spend &mdash; and what you stopped spending. Open to everyone: no signup, no waiting list, and the source is public.</p>
-      <a class="btn" href="#install">Install MESH</a>
+      <p>Point your app&rsquo;s baseURL at Mesh and keep your own key. Five minutes later you have a tamper-evident record of what you spend, and of anything Mesh saved. Open to everyone: no signup, no waiting list, and the source is public.</p>
+      <a class="btn" href="#install">Install Mesh</a>
       <p class="cta-help">Stuck, or want a hand setting it up? <a href="${repoUrl}/issues/new">Ask us on GitHub</a> &middot; <a href="start.html">Read the setup guide</a></p>
     </div>
     <div class="xfade" aria-hidden="true">
@@ -862,7 +875,7 @@ The ledger is yours; this command recomputes the invoice from it with no network
 </section>
 
 <footer class="quiet-foot">
-  <span>mesh &mdash; verified LLM cost reduction</span>
+  <span>mesh &mdash; a local proxy for LLM API traffic</span>
   <span class="links"><a href="overview.html">Overview</a><a href="segments.html">Savings</a><a href="methodology.html">Methodology</a><a href="evidence.html">Evidence</a><a href="comparison.html">Comparison</a><a href="start.html">Get started</a><a href="pricing.html">Pricing</a><a href="faq.html">FAQ</a><a href="${repoUrl}/issues/new">Contact</a><a href="${repoUrl}">GitHub</a><a href="llms.txt">llms.txt</a><a href="terms.html">Terms</a><a href="privacy.html">Privacy</a></span>
   <span class="right">2026 &middot; BUSL-1.1</span>
 </footer>

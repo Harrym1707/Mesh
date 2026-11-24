@@ -1,52 +1,103 @@
-# Evidence — every published number, traced
+# Evidence: every Mesh savings figure, with its label, date and the levers it needed
 
-Each figure on this site maps to the command that produces it and the commit it
-was verified at. Reproduce any of them from the repo root. (Numbers were
-independently re-verified by a checker separate from the implementer at each
-listed commit; the harness run prints every row below.)
+Mesh is a local proxy for LLM API traffic, and this page traces each figure
+the site quotes to the command that produces it, the date it was measured and
+the levers that were switched on when it was measured.
 
-Harness: `node --import tsx evals/run-agent-ab.ts` · tests:
-`./node_modules/.bin/vitest run` (354 passing) · gates: the three suites under
-`evals/run-*-triage.ts` and `evals/run-analysis-regression.ts` against freshly
-generated fixtures (27/27).
+Last updated: 2026-11-24.
 
-| Published figure | Where it comes from | Verified at |
+## What a fresh install does today
+
+Out of the box Mesh makes three lossless changes to a request: tool-schema
+compaction, exact-duplicate removal and cache-prefix repair. No figure in the
+table below was measured with only those three switched on across the whole
+run. On Mesh's own 30-request test basket (LIVE, run 2026-10-26, not a
+customer's traffic) the three default changes account for under half of the
+18.2% recorded; the rest came from two levers that are off by default, a
+5-minute Anthropic cache stamp and a gate-approved cap on oversized tool
+results. A Claude Code user gains little on the defaults. Mesh has no
+customers yet and has not run on a customer's traffic, so nothing here is a
+measurement of a real provider bill. How to switch on more than the defaults
+is on [Get started](start.md).
+
+## What the labels mean
+
+- **LIVE** means measured on real API calls that Mesh paid for, on a test
+  basket Mesh wrote. It does not mean a customer's traffic.
+- **SIMULATOR** means modelled on a harness at the providers' published prices
+  and cache rules. It is not a measurement of anyone's bill.
+- **Out of the box** means with the three default changes only. Anything else
+  names the levers that were switched on.
+
+## The figures
+
+Reproduce any of them from the repo root. Harness:
+`node --import tsx evals/run-agent-ab.ts` and
+`node --import tsx evals/run-cache-decomposition.ts`. The simulator rows were
+re-run on `main` on 2026-11-24 and printed the same figures.
+
+The "J stack" named below is one fixed set of levers: tool descriptions
+trimmed to 40 tokens, exact-duplicate removal, cache-prefix repair, a cap on
+oversized fresh tool results, stale-history compaction and a 2,000-token
+output cap. Four of those six are off in a fresh install.
+
+| Figure | Label and date | Levers it needed | On in a fresh install? | Where it comes from |
+|---|---|---|---|---|
+| **18.2%** of real spend ($0.0365 of $0.2010) | LIVE, run 2026-10-26, Mesh's own 30-request test basket on claude-sonnet-5-5 | The three defaults, plus on the coding agent a 5-minute Anthropic cache stamp, a gate-approved cap on oversized tool results and stale-history compaction | No. The cache stamp and the tool-result cap are off by default and earned more than half of it | `MESH_LIVE_KEEP=1 node --import tsx evals/run-live-agents.ts`; spools in `evals/live-exports-2026-10-26/`, hash chains verified; commit `68ab94e` |
+| Coding agent **38.1%** ($0.0225) | LIVE, run 2026-10-26, same basket | 5-minute cache stamp, tool-result cap, tool-schema compaction | No. Most of it came from the stamp and the cap | same run. The cache placement that lost $0.0063 in the second export earns here because the volatility guard refuses to stamp a prefix that changes every turn |
+| RAG agent **22.0%** ($0.0086) | LIVE, run 2026-10-26, same basket | Exact-duplicate removal only | Yes, out of the box, on a test prompt Mesh wrote to paste the same excerpt twice. A prompt with no exact duplicate gets nothing from this lever | same run |
+| Support agent **10.3%** ($0.0054) | LIVE, run 2026-10-26, same basket | Tool-schema compaction only, as it was measured before the correction of 2026-10-29 | The lever is on by default, but this figure would not be recorded today: see the note under the table | same run |
+| Batch and already-lean agents: $0 | LIVE, run 2026-10-26, same basket | None earned anything. The batch agent's cache stamp was withheld because its prefix is under the provider's cacheable minimum | Not applicable | same run; the provider's own `count_tokens` confirms the prefix is under Anthropic's documented minimum |
+| **18.0%** of real spend | LIVE, run 2026-10-19, same basket; superseded by 18.2% | 5-minute cache stamp and the tool-result cap with its gate verdict, on top of the defaults | No | `evals/run-live-agents.ts`; commit `ebec869`. Its spools were not kept, so it cannot be re-audited; its batch claim is contradicted by the later run |
+| **9.3%** of real spend | LIVE, run 2026-10-19, first smoke run; superseded | Levers switched on (set not recorded) | No | commit `d84e256`. The old cache placement lost money; per-agent outcomes were mixed |
+| Multi-turn Claude, cache stamp alone: **37.9%** | SIMULATOR, verified 2026-10-22 | The 5-minute Anthropic cache stamp, measured on top of the J stack in both arms | No. The stamp is off by default | `evals/run-cache-decomposition.ts`: J stack with the stamp against the same J stack with caching disabled; both arms 38 of 40 clean; commit `6f08b72` |
+| Full stack against a raw uncached baseline: **57.3%** lower simulated cost, with 5 points lower clean-task quality | SIMULATOR, verified 2026-10-22 | The J stack plus the 5-minute cache stamp | No. Fails the agreed quality limit; not a qualified saving | same script, second row; commit `6f08b72` |
+| Async or batch-eligible work: **57.7% net** (64.3% ceiling; quote the net) | SIMULATOR, verified 2026-10-13 | The J stack plus the provider's discounted flex tier, on traffic flagged as able to wait | No | arm K; the net assumes 10% fallback to the default tier and 5% retries, priced at the tier served; commit `4e51734` |
+| One-shot templated calls: **45.5%**, and **72.8%** where the work can wait | SIMULATOR, verified 2026-10-13 | 45.5%: cache-prefix repair plus tool-description trimming, stale-history compaction and an output cap. 72.8%: the same plus the flex tier | Partly. Cache-prefix repair is on by default and carries most of the 45.5%; the rest is not. Priced on a provider that caches automatically (OpenAI) | one-shot section, arms H and I ($0.569 to $0.310 and $0.155); commits `7b08666`, `4e51734` |
+| Busy interactive agents: **25.9–29.4%** | SIMULATOR, verified 2026-10-13 | The J stack | No. On this harness the three defaults alone move the simulated bill very little | arm J across three provider blocks, 38 of 40 clean; commits `c7b03d4`, `4e51734` |
+| Sparse interactive agents: **34.3%** | SIMULATOR, verified 2026-10-22 | The J stack plus the 1-hour Anthropic cache stamp | No | arm L; commit `6f08b72`. May overstate on some models: per-model cache minimums are not in the simulator |
+
+### A correction that affects the 18.2% run
+
+The run of 2026-10-26 was made three days before a correction to how
+tool-schema compaction is measured. Until 2026-10-29 that lever counted the
+removal of JSON formatting as a saving; the provider counts the same tokens
+either way, so formatting is no longer counted (commit `58581e1`). The
+tool-schema part of the 18.2% run, which includes all of the support agent's
+10.3%, was measured under the old rule. Running the same basket through
+today's code against a local stand-in provider (2026-11-24) records no
+tool-schema saving on those requests. The 18.2% has not been re-run on live
+traffic since, so it stands as the figure measured on 2026-10-26 and should be
+read with this note.
+
+## Figures that are not savings
+
+| Figure | What it is | Where it comes from |
 |---|---|---|
-| Async 64.3% ceiling / **57.7% net** (quote the net) | arm K rows, async-eligible segment: ceiling assumes 0% tier fallback; net assumes 10% default + 5% 429-retry, priced per event at the SERVED tier | `4e51734` |
-| Interactive 25.9–29.4% | arm J across openai-30s / openai-600s / anthropic-5m blocks, clean 38/40 | `c7b03d4`, re-verified `4e51734` |
-| Proxy mode: zero-code integration | `packages/sdk-js/src/proxy.ts` + `evals/run-proxy.ts`; e2e tests cover reduction-before-forward, byte-identical passthrough, SSE streaming with usage parsed after the last byte, per-app hash chains, credential passthrough | `d31b125` |
-| Proxy overhead: adds ~22 ms p50 / ~24 ms p95 / ~30 ms p99 per request | `node --import tsx evals/run-proxy-overhead.ts` — proxied minus direct against the same instant loopback stub, 800 requests/arm at concurrency 8, ~31 KB agent request bodies, full lossless stack + 5m cache stamp + ledger append (darwin/arm64; absolute values vary by machine — rerun the command on yours). Against provider calls measured in seconds this is under 1% of request latency | run 2026-10-20 |
-| **THIRD live export: 18.2% of real spend** ($0.0365 of $0.2010), hash chains verified, spools committed to this repo | `MESH_LIVE_KEEP=1 node --import tsx evals/run-live-agents.ts` on claude-sonnet-5-5, 30 requests. Coding-agent $0.0225/38.1% — the cache placement that LOST −$0.0063 in export #2 now earns: the volatility guard shipped in between refuses the volatile-prefix stamp. Rag $0.0086/22.0%, support $0.0054/10.3%, already-lean $0 (correct). Batch-classifier $0: the minimum guard suppressed its stamp, and the provider's own `count_tokens` API confirms the prefix is 927 real tokens — under Anthropic's documented 1024 cacheable minimum, so the suppression is right. That contradicts export #2's batch claim (below), which can no longer be re-audited; receipts are retained from now on. Spools: `evals/live-exports-2026-10-26/` — verify them yourself with mesh-verify | run 2026-10-26 |
-| SECOND live export: 18.0% of real spend, every active agent billing | `evals/run-live-agents.ts` keyed rerun with the 5m cache stamp + the freshcap gate verdict wired: coding-agent $0.0206 (cap+schemas net of a −$0.0063 cache miss from its per-turn clock), batch-classifier +$0.0101 (cache stamp EARNING live, 6,286 reads — the one figure export #3's count_tokens check now contradicts: the batch prefix is under the provider's cacheable minimum, and these spools were not retained to re-audit, a process failure we fixed by committing export #3's spools), rag $0.0086, support $0.0054, already-lean $0 | run 2026-10-19, spools audited in session, not retained |
-| Multi-turn Claude cache-only comparison: 37.9% | `node --import tsx evals/run-cache-decomposition.ts` — J + 5m stamp vs the identical J stack with cache disabled; both arms clean 38/40, 97% hits, 200/200 stamps metadata-only. Isolates the pure cache effect | re-verified `6f08b72` (was 37.6% at `6249f86`; moves with the newline fix below) |
-| Full J + 5m stack vs raw uncached A: 57.3% lower simulated cost | same decomposition script, row 2: quality 38/40 vs the raw baseline's 40/40 (−5 pp; within the published >=36/40 gate, but a real delta) — quote 37.9% for the cache lever and label this one with its quality cost | re-verified `6f08b72` (was 57.1% at `6249f86`) |
-| Sparse interactive 34.3% | arm L, 1h cache TTL via the shipped `cacheTtl` stamp (stable-prefix placement), 600s spacing | fixed and re-verified `6f08b72`: ab210c1's stable/tail split silently dropped the separating newline between the two blocks, a model-visible content change; arm L's own metadata-only guard had started hard-crashing on it (and the eval's comparison helper had never been updated for the two-block shape). Was 34.0% at `67eeac6`, unreproducible between `ab210c1` and `6f08b72`. |
-| First real-traffic export: 9.3% net of spend | `evals/run-live-agents.ts`, 30 requests on claude-sonnet-5-5; a smoke run, NOT a band — lossy levers were recorded-unbilled and the old cache placement lost money (per-agent outcomes ranged −24% to +34% of that agent's spend) | `d84e256` run 2026-10-19, superseded by the second export |
-| One-shot 45.5% / 72.8% | one-shot section, arms H and I ($0.569 → $0.310 / $0.155) | `7b08666`, re-verified `4e51734` |
-| Provider cache's own 35–40% (never claimed by MESH) | "what the cache itself is worth" section of the harness output | `33028df` onward |
-| "Do not pay us" 0–5% | support-assistant fixture, 77% pre-cached, triage verdict | `ff04a70` |
-| Replay gate approving fresh-cap at 0.00 quality delta and rejecting the 2000-token output cap at −5.50pp | `evals/run-replay-gate-freshcap.ts` | `ab5b4c7` |
-| Ledger determinism, exclusions, recomputable invoice | `packages/core/src/savings-ledger.test.ts`; canonical-invoice contract | `597e842`, `10407bf` |
+| Proxy overhead: about 22 ms p50, 24 ms p95, 30 ms p99 added per request | Latency, measured on one machine (darwin/arm64), run 2026-10-20, with the three defaults plus the 5-minute cache stamp and the ledger | `node --import tsx evals/run-proxy-overhead.ts`; rerun it on your own machine |
+| The provider's own cache: 35–40% | What the provider's cache saves on busy agent traffic before Mesh does anything. SIMULATOR. Mesh never claims it | "what the cache itself is worth" section of the harness |
+| "Do not pay us": 0–5% | The band for stacks that are already optimised. SIMULATOR, fixture | support-assistant fixture, commit `ff04a70` |
+| Replay gate approving the tool-result cap at 0.00 quality delta and rejecting the 2,000-token output cap | A gate result on Mesh's recorded fixture, not on a customer's traffic | `evals/run-replay-gate-freshcap.ts`, commit `ab5b4c7` |
+| Ledger determinism, exclusions, recomputable invoice | Tests | `packages/core/src/savings-ledger.test.ts` |
+| Proxy mode: no code change | Tests | `packages/sdk-js/src/proxy.ts`, `evals/run-proxy.ts` |
 
-## Open items (also stated wherever the affected number appears)
+## Open items
 
-- Per-model cacheable minimums not yet simulated → 34.3% may overstate on some
-  models.
-- Anthropic batch rate NOW catalogued (2026-10-27): the pricing page states a
-  definitive "Save 50% with batch processing", so Anthropic batch events price
-  natively at half standard. The workload matrix now evaluates batch-routing
-  against caching per shape and picks the cheaper (`evals/run-workload-matrix.ts`).
-- Package freshness gate and automated CJS smoke not yet in the build script
-  (the CJS tarball was smoke-tested manually at `4e51734`).
-- **The banded figures are simulator-measured.** A first real-traffic export
-  exists (30 requests, see the table) and found one lever losing money on
-  one-shot traffic — fixed at `ec191c5` and re-verified. The bands stay
-  simulator-labelled until a pilot-scale export replaces them.
+- No figure here comes from a customer's traffic. Mesh has no customers yet.
+- The 18.2% LIVE run has not been repeated since the tool-schema correction
+  of 2026-10-29, and has never been run with the three defaults alone.
+- Per-model cacheable minimums are not in the simulator, so the 34.3% sparse
+  figure (SIMULATOR, J stack plus the 1-hour cache stamp) may overstate on
+  some models.
+- The 57.7% net async figure (SIMULATOR, J stack plus the flex tier) rests on
+  assumed fallback and retry rates, not measured ones.
+- The second live export's spools were not kept. Spools are committed from
+  the third export onward.
 
 ## Independent sources cited on the comparison page
 
-- codepointer.dev — 614M-token replay of rtk/headroom/caveman: 3.7% actual.
-- archestra.ai — progressive disclosure: ~77% modelled vs ~13% measured.
-- RouterArena (arXiv:2510.00202) — independent router leaderboard.
-- Anthropic & OpenAI published pricing pages — all rates in
-  `packages/core/src/model-prices.ts` carry source URL and capture date.
+- codepointer.dev: 614M-token replay of rtk, headroom and caveman.
+- archestra.ai: progressive disclosure, modelled against measured.
+- RouterArena (arXiv:2510.00202): independent router leaderboard.
+- Anthropic and OpenAI published pricing pages: every rate in
+  `packages/core/src/model-prices.ts` carries its source URL and capture date.
