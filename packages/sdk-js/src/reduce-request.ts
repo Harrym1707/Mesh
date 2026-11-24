@@ -58,6 +58,18 @@ export type MeshHistoryCompactionConfig = {
    * and the provider's exact-prefix cache can keep matching through them.
    */
   epochTurns?: number;
+  /**
+   * Compaction rewrites turns the provider may already hold in its prompt
+   * cache. Where the conversation's history IS cached - the caller placed a
+   * cache breakpoint in it or uses automatic caching, or MESH's own stamp
+   * puts a breakpoint on the newest message - every epoch step turns reads
+   * at a tenth of the input rate into writes at 1.25x, and the bill goes UP
+   * while the token count goes down. So compaction is withheld on such a
+   * request and the reason is recorded. Set this to true only for a
+   * workload where that trade has been measured to pay (a long epoch on a
+   * very long conversation); it is never set by default.
+   */
+  allowUnderCache?: boolean;
 };
 
 export type MeshTokenReductionConfig = {
@@ -618,6 +630,39 @@ function compactJsonToolResults(
       "document, with every key, string and number as written; only the indentation is not kept.",
   });
   return next;
+}
+
+/** Whether a value carries a caller-placed cache_control marker anywhere inside it. */
+function carriesCacheMarker(value: unknown): boolean {
+  return (JSON.stringify(value ?? null) ?? "").includes('"cache_control"');
+}
+
+/**
+ * Why this request's HISTORY is under a prompt-cache breakpoint, or undefined
+ * when it is not. Read from the request as the caller sent it, plus what
+ * MESH's own stamp would do: the stamp places a breakpoint on the newest
+ * message of a multi-turn Claude request, unless the caller placed markers of
+ * their own (it then defers) or a per-request line sits at the end of the
+ * system prompt (no breakpoint behind it could ever match).
+ */
+function cachedHistoryReason(
+  raw: AnyObject,
+  config: MeshTokenReductionConfig,
+  systemVolatileTail: readonly string[],
+): string | undefined {
+  if (raw.cache_control !== undefined && raw.cache_control !== null) {
+    return "the caller uses automatic prompt caching, which covers the conversation's history";
+  }
+  if (carriesCacheMarker(raw.messages) || carriesCacheMarker(raw.input)) {
+    return "the caller placed a cache breakpoint inside the conversation";
+  }
+  const stampOn = config.cacheTtl === "5m" || config.cacheTtl === "1h";
+  const model = typeof raw.model === "string" ? raw.model.toLowerCase() : "";
+  if (stampOn && model.includes("claude") && Array.isArray(raw.messages) && raw.messages.length >= 2 &&
+      systemVolatileTail.length === 0 && !carriesCacheMarker(raw.system) && !carriesCacheMarker(raw.tools)) {
+    return "MESH's cache stamp places a breakpoint on this conversation's newest message";
+  }
+  return undefined;
 }
 
 /**
@@ -1251,11 +1296,34 @@ export function reduceRequestWithCounter(
     // the later passes (and the wire) see.
     if (config.historyCompaction) {
       const options = isPlainObject(config.historyCompaction) ? config.historyCompaction : {};
-      if (Array.isArray(next.input)) {
-        next.input = compactStaleHistory(next.input, options, countTokens, changes);
-      }
-      if (Array.isArray(next.messages)) {
-        next.messages = compactStaleHistory(next.messages, options, countTokens, changes);
+      // Cache safety: never rewrite history the provider is caching. The
+      // reason is worked out from the request as the caller sent it.
+      const cachedReason = options.allowUnderCache === true
+        ? undefined
+        : cachedHistoryReason(request, config, systemVolatileTail);
+      if (cachedReason !== undefined) {
+        // Say so only when compaction would actually have changed something.
+        const wouldChange: MeshReductionChange[] = [];
+        if (Array.isArray(next.input)) compactStaleHistory(next.input, options, countTokens, wouldChange);
+        if (Array.isArray(next.messages)) compactStaleHistory(next.messages, options, countTokens, wouldChange);
+        if (wouldChange.length > 0) {
+          changes.push({
+            lever: "stale-history-compaction-suppressed",
+            lossless: true,
+            // Nothing was changed; this records WHY history was left alone.
+            estimatedTokensSaved: 0,
+            detail: `History compaction withheld: ${cachedReason}. Rewriting turns the provider already holds ` +
+              "in its prompt cache turns reads at a tenth of the input rate into writes at 1.25x, which " +
+              "raises the bill while lowering the token count.",
+          });
+        }
+      } else {
+        if (Array.isArray(next.input)) {
+          next.input = compactStaleHistory(next.input, options, countTokens, changes);
+        }
+        if (Array.isArray(next.messages)) {
+          next.messages = compactStaleHistory(next.messages, options, countTokens, changes);
+        }
       }
     }
 
