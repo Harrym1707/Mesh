@@ -9,25 +9,71 @@ Rules of engagement (from research/reddit.md): text posts, no URL in the
 title, GitHub link mid-body after the numbers, one sub per day, warm the
 account with link-free helpful comments for 1–2 weeks first. Retype rather
 than paste — these drafts are skeletons for YOUR voice, and communities
-detect and punish copy that reads machine-written. Every savings number is in
-docs/NUMBERS.md and carries its label (LIVE or SIMULATOR); add nothing that
-isn't. Mesh has not run on anyone's traffic but our own test runs and has no
-customers: say so when asked and imply nothing else.
+detect and punish copy that reads machine-written. Mesh has not run on
+anyone's traffic but our own test runs and has no customers: say so when
+asked and imply nothing else.
+
+**Who these posts are for (set 2026-11-23).** Teams running their own agents
+on the API: coding agents, browsing agents, support, RAG, multi-agent loops.
+A Claude Code user on a fresh install should expect little, because Claude
+Code already manages its own prompt cache and the out-of-the-box changes add
+little on top; say that without putting a number on it. So the order has
+changed: r/LLMDevs is the first Reddit post, then r/mlops; r/ClaudeAI is
+kept only as the teaching post for people calling the API; r/ClaudeCode is
+held. The order is in communities.md.
+
+**Two rules for every figure.** It is in docs/NUMBERS.md with its label
+(LIVE or SIMULATOR), and the same sentence says whether it is what a fresh
+install gives ("out of the box") or names the levers that were switched on.
+No out-of-the-box percentage is in docs/NUMBERS.md, so no post states one.
+No percentage in a title.
+
+**Two rules for the pitch (set 2026-11-24).** Mesh is not sold as a token
+compressor and no post promises a smaller bill: nobody has measured Mesh
+against a real provider bill, and the LIVE figure is the ledger's own
+arithmetic (provider-reported usage against a baseline Mesh computes), not a
+comparison of two invoices. A post may say what the out-of-the-box changes
+do and quote a labelled figure with its levers. Lead with keeping prompts
+cacheable and with the ledger the reader can recompute. Write "Mesh"
+(`mesh` only for the command), and give the fee as the Terms give it.
+
+**What every post says about a fresh install**, in the post's own words (the
+facts were checked on `main` and on an installed 0.2.5 on 2026-11-23; the
+detail is in show-hn.md):
+
+- Out of the box Mesh makes three changes, none of which alters the
+  provider's answer: it compacts tool schemas so they decode identically,
+  removes exact duplicate context, and keeps the cacheable prefix stable by
+  moving a per-request timestamp out of it. Nothing else is applied.
+- The cache stamp (Mesh placing cache_control on the stable prefix) is off
+  out of the box. It is switched on with one line in the `levers` list of
+  `~/.mesh/theo-policy.json`, `{ "lever": "cache-ttl-5m", "class": "lossless" }`,
+  or `MESH_PROXY_CACHE_TTL=5m` with the no-install proxy.
+- Changes that can alter an answer (trimming tool descriptions, compacting
+  stale history, a lower output-effort setting) stay off until proven on the
+  user's own traffic: `mesh proxy --capture <file>` records a sample on
+  their disk, Theo replays it with their key and measures saving and
+  quality, and a lever that holds is proposed and accepted with
+  `mesh theo --accept <lever>`. That loop has only been run against a
+  stand-in provider so far; say so.
+- The tool-result cap is in the SDK; the installed proxy holds it back
+  because nothing in the CLI proves it today.
 
 Every post teaches the same one path: install
 (`curl -fsSL https://www.mesh-technology.com/install.sh | sh` on macOS, Linux
-or inside WSL, or `npm install -g @harrym1707/mesh`), then `mesh start` for
-Claude Code or `mesh proxy` for your own app
-(`ANTHROPIC_BASE_URL=http://127.0.0.1:8787` or
-`OPENAI_BASE_URL=http://127.0.0.1:8787/v1`), then `mesh verify`. Questions go
-to GitHub issues: https://github.com/Harrym1707/Mesh/issues/new
+or inside WSL, or `npm install -g @harrym1707/mesh`), then `mesh proxy` for
+your own app or agent (`ANTHROPIC_BASE_URL=http://127.0.0.1:8787` or
+`OPENAI_BASE_URL=http://127.0.0.1:8787/v1`), then `mesh verify`. `mesh start`
+is the Claude Code route; mention it second. Questions go to GitHub issues:
+https://github.com/Harrym1707/Mesh/issues/new
 
 Billing never goes in a title. Where a post or a reply gets to what it
 costs, say what the Pricing and billing page says and link it
 (https://www.mesh-technology.com/pricing.html): installing and
-running Mesh is free; a fee exists only once billing has been agreed in
-writing; it is 1% of verified savings for the calendar month, rounded down
-to the cent, so never more than 1%; nothing is charged automatically (the
+running Mesh is free; no fee is due unless billing has been agreed in
+writing; where it has, the fee is 1% of verified savings for the month,
+rounded down to the cent, and nothing else; the month is the calendar month
+in UTC; nothing is charged automatically (the
 user runs `mesh statement --period YYYY-MM`, sends the statement file and
 the ledger files, and gets a statement and an invoice back); the statement
 is signed by the user's own install, whose key fingerprint
@@ -38,75 +84,9 @@ Mesh.
 
 ---
 
-## 1. r/ClaudeCode — flair: Built with Claude (fire first)
+## 1. r/LLMDevs — engineering writeup (first Reddit post; no flair needed; disclosure required)
 
-**Title:** I built a local proxy to cut Claude API costs, and its own ledger caught one of my levers losing money
-
-**Body (skeleton):**
-
-The thing that started this: Anthropic's prompt cache is opt-in, and when I
-actually metered five test agent workloads, a five-turn coding agent was
-re-paying full input rate for its entire history every single turn. Zero
-cache traffic. The cache just… wasn't on, because nobody turns it on.
-
-So I built mesh — a local proxy. No signup, no account:
-
-    curl -fsSL https://www.mesh-technology.com/install.sh | sh
-    mesh start
-
-(macOS, Linux, or inside WSL; `npm install -g @harrym1707/mesh` works too.
-Or read the source first: github.com/Harrym1707/Mesh — it's your API key
-going through it, you should.)
-
-`mesh start` points Claude Code at it and puts it back on Ctrl+C. For your
-own agent it's `mesh proxy` and one setting,
-`ANTHROPIC_BASE_URL=http://127.0.0.1:8787`. It compacts tool schemas (decodes
-identically), removes exact duplicate context, moves the per-request
-timestamp that silently breaks the provider cache, and places cache_control
-on the actually-stable prefix. Responses come back byte-identical. Your key
-passes through and is never stored; your prompts go to Anthropic and nowhere
-else.
-
-The part I'm most proud of is also the embarrassing part. Every request
-writes one line to a hash-chained ledger on your disk, and `mesh verify`
-recomputes the total from that file — on your machine, no network. On an
-early live run that ledger caught one of our OWN levers losing money: a cache
-breakpoint placed over a volatile prefix paid the write premium every turn
-and got zero reads. It counted against us, we published it, and the guard
-that now refuses that placement is in the repo.
-
-Honest numbers: 37.9% from correct cache placement alone (SIMULATOR: same
-prompts both arms, modelled, not proven on a real bill). 18.2% net on a
-30-request live basket, run 2026-10-26 (LIVE: real API traffic, but my own
-test agents, $0.0365 saved of $0.2010 spent; the spools are in the repo).
-Nobody else has run it yet. If your stack already caches well, it literally
-says "do not pay us" — that's a real verdict it produces.
-
-Happy to answer anything about cache_control placement — I've now stared at
-more cache-miss traces than I'd like to admit.
-
----
-
-## 2. r/ClaudeAI — flair: Showcase (needs 50+ account karma; else the Megathread)
-
-**Title:** How Claude's prompt cache actually bills (and the proxy I built after metering agents that never turn it on)
-
-**Body (skeleton):** Lead with 150 words of genuinely useful teaching: the
-cache is OPT-IN; breakpoints define exact-byte prefixes; writes bill 1.25×
-(5m) / 2× (1h), reads 0.1×; one timestamp at the top of your system prompt
-breaks everything after it; TTL counts from request START so a long
-generation can expire its own cache ("bathroom breaks become a financial
-decision" — their joke, reuse the sentiment, not the phrasing). THEN the
-tool: the install one-liner and `mesh start` (or `mesh proxy` + the base
-URL), what it automates, `mesh verify` and the recomputable ledger, the
-published loss story, the do-not-pay-us verdict. Same honesty block as the
-r/ClaudeCode post, compressed, labels included.
-
----
-
-## 3. r/LLMDevs — engineering writeup (no flair needed; disclosure required)
-
-**Title:** 18.2% net on a 30-request LIVE test basket (2026-10-26) — and here's the hash-chained ledger so you can check the math, including where it lost
+**Title:** A ledger of agent API spend you can recompute: what our local proxy does out of the box, what our one live number needed switched on, and where it lost
 
 **Body (skeleton):** This community's live anxiety is *proving* savings
 claims, so structure as method-first:
@@ -123,56 +103,182 @@ claims, so structure as method-first:
    one calendar month and writes a statement file signed by a key your own
    install holds; the MIT `@harrym1707/verify` package recomputes
    independently; if your recompute disagrees with ours, yours prevails.
-3. The numbers with tradeoffs: 37.9% cache-only (SIMULATOR, same quality in
-   both arms); the 57.3% full-stack figure (SIMULATOR) costs 5 points of
-   quality against the raw baseline (−5pp) and is published with that cost,
-   which is why 37.9% is the one we quote; 18.2% net on the live basket (LIVE,
-   run 2026-10-26, our own test agents); already-lean stacks 0–5% and a
-   do-not-pay-us verdict.
-4. The loss: our own stamp lever lost money on an early live run; root cause
+3. What a fresh install does, before any number: the three out-of-the-box
+   changes, then how the cache stamp and the answer-changing levers get
+   switched on (the four points above). Say that no out-of-the-box
+   percentage has been measured and published, so none is quoted. Say too
+   that this is not a token compressor and that nobody has measured it
+   against a real provider bill: removing tokens is not the same as lowering
+   a bill, which is the reason the ledger exists.
+4. The numbers, each with what was switched on, none of them a provider
+   invoice compared before and after:
+   - 18.2% net on the live basket (LIVE, run 2026-10-26, our own test
+     agents) is not an out-of-the-box figure: the run had the cache stamp
+     and the tool-result cap switched on, and the three out-of-the-box
+     changes account for under half of it. The spools carry a row per
+     lever, so readers can split it themselves.
+   - 37.9% (SIMULATOR) is the cache stamp alone, on versus off, with the
+     same quality in both arms; the stamp is off out of the box.
+   - 57.3% (SIMULATOR) is the lossless stack plus the cache stamp against a
+     raw uncached baseline, not out of the box, and it costs 5 points of
+     quality against that baseline (−5pp), which is why the cache-stamp
+     figure is the one we quote.
+   - Already-lean stacks: 0–5% is the reference band, not an out-of-the-box
+     measurement, and the verdict is do-not-pay-us.
+5. The loss: the cache stamp lost money on an early live run; root cause
    (volatile prefix inside the breakpoint span); the guard that fixed it.
-5. Try it: the one path above (install, `mesh proxy`, set the base URL,
+6. Try it: the one path above (install, `mesh proxy`, set the base URL,
    `mesh verify`).
-6. Disclosure: I built it; no customers yet, it has only run on our own test
+7. Disclosure: I built it; no customers yet, it has only run on our own test
    agents; BUSL source-available (not open source — free to evaluate and use
    non-commercially, Apache-2.0 in 2030); installing and running it is free;
-   a fee exists only once billing is agreed in writing, and is then 1% of
-   the month's verified savings, rounded down to the cent, never charged
-   automatically; a month that saves nothing bills nothing. Link the pricing
+   no fee is due unless billing has been agreed in writing; where it has,
+   the fee is 1% of verified savings for the month, rounded down to the
+   cent, and nothing else, and nothing is charged automatically. Link the pricing
    page (https://www.mesh-technology.com/pricing.html) here, not
    in the title.
 
 ---
 
-## 4. r/mlops — flair: Self-Promotion
+## 2. r/mlops — flair: Self-Promotion
 
 **Title:** Our own cost lever was losing money on a live test run. The ledger caught it.
 
 **Body (skeleton):** The post-mortem register — one measured fact, then the
-anatomy: what the lever did (Anthropic cache stamping), why it lost (volatile
-prefix inside the breakpoint span = write premium every turn, zero reads),
-how the billing design surfaced it (negatives are never clamped; losses
-count against the vendor), the fix, and the attribution angle this community
-cares about: per-request, per-lever, per-app cost attribution from the
-provider's own reported usage, recomputable from a file you hold. Say plainly
-it was our own test traffic, not a customer's. Disclosure + link mid-body,
-then the one path (install, `mesh proxy` + base URL, `mesh verify`).
+anatomy: what the lever did (the Anthropic cache stamp, which is off out of
+the box and was switched on for that run), why it lost (volatile prefix
+inside the breakpoint span = write premium every turn, zero reads), how the
+billing design surfaced it (negatives are never clamped; losses count against
+the vendor), the fix, and the attribution angle this community cares about:
+per-request, per-lever, per-app cost attribution from the provider's own
+reported usage, recomputable from a file you hold. Say plainly it was our own
+test traffic, not a customer's. Then what a fresh install does (the three
+out-of-the-box changes) and how the cache stamp and the answer-changing
+levers get switched on. If the live figure is quoted, quote it whole: 18.2%
+net (LIVE, run 2026-10-26) with the cache stamp and the tool-result cap
+switched on, under half of it from the three out-of-the-box changes.
+Disclosure + link mid-body, then the one path (install, `mesh proxy` + base
+URL, `mesh verify`).
 
 ---
 
-## 5. r/ChatGPTCoding — the weekly Self Promotion Thread only
+## 3. r/ChatGPTCoding — the weekly Self Promotion Thread only
 
-Three sentences: what it does (OpenAI + Claude, one base URL setting), the
-install one-liner plus `mesh proxy` and
-`OPENAI_BASE_URL=http://127.0.0.1:8787/v1`, then `mesh verify` for the
-recomputable ledger + do-not-pay-us verdict. No more.
+Three sentences: what it is (a local proxy for agents you run on the OpenAI
+or Claude API, one base URL setting), what it does out of the box (compacts
+tool schemas, removes exact duplicate context, keeps the cacheable prefix
+stable; further levers are opt-in), then the install one-liner plus
+`mesh proxy`, `OPENAI_BASE_URL=http://127.0.0.1:8787/v1` and `mesh verify`
+for the recomputable ledger + do-not-pay-us verdict. No figure. No more.
 
-## 6. r/AI_Agents + r/OpenAI — comments only
+## 4. r/AI_Agents + r/OpenAI — comments only
 
 Use the playbook in research/reddit.md §Natural-thread: answer the runaway-
 spend / caching / budget-cap question fully and by hand, then the disclosure
-line with the do-it-by-hand escape hatch. Never twice in one thread genre in
-one week.
+line with the do-it-by-hand escape hatch. These are the agent builders the
+product is for, so this is where the patient work goes. If a figure comes
+up, it carries its label and what was switched on, as above. Never twice in
+one thread genre in one week.
+
+---
+
+## 5. r/ClaudeAI — flair: Showcase (needs 50+ account karma; else the Megathread). Optional, after the posts above
+
+**Kept, lower priority.** It is worth posting only as the teaching post
+below, aimed at people who call the Claude API from their own agents. It is
+not a pitch to Claude Code or Claude app users, who should expect little from
+a fresh install.
+
+**Title:** How Claude's prompt cache actually bills (and the proxy I built after metering agents that never turn it on)
+
+**Body (skeleton):** Lead with 150 words of genuinely useful teaching: the
+cache is OPT-IN; breakpoints define exact-byte prefixes; writes bill 1.25×
+(5m) / 2× (1h), reads 0.1×; one timestamp at the top of your system prompt
+breaks everything after it; TTL counts from request START so a long
+generation can expire its own cache ("bathroom breaks become a financial
+decision" — their joke, reuse the sentiment, not the phrasing). THEN the
+tool, for agents you run on the API: the install one-liner and `mesh proxy`
++ the base URL. Say plainly that out of the box Mesh does NOT place
+cache_control for you: it makes the three out-of-the-box changes (one of
+which is moving that timestamp), and the cache stamp is the one-line opt-in
+above. Then `mesh verify` and the recomputable ledger, the published loss
+story, the do-not-pay-us verdict. One line for this sub's Claude Code
+users: it already manages its own cache, so expect little from a fresh
+install there. Same honesty block as the r/LLMDevs post, compressed, every
+figure with its label and what was switched on.
+
+---
+
+## 6. r/ClaudeCode — HELD, not a launch venue
+
+**Held on 2026-11-23. Do not post this as a launch post.** Why: the sub is
+Claude Code users, and a Claude Code user on a fresh install should expect
+little, since Claude Code already manages its own prompt cache. The earlier
+draft led with `mesh start` and described cache_control placement as
+something the install does; a fresh install does not do that. Posting it as
+it was would have promised this audience a saving they will not see. It is
+kept, corrected, for one case only: a thread in this sub where people are
+building their own agents on the API and ask about cost. Then use it as a
+reply or a text post, flair "Built with Claude".
+
+**Title:** I built a local proxy that keeps my API agents' prompts cacheable, and its own ledger caught one of my levers losing money
+
+**Body (skeleton):**
+
+Up front, because of where I'm posting: this is for agents you build on the
+API. Claude Code itself already manages its own prompt cache, so if you only
+use Claude Code, expect little from this out of the box.
+
+The thing that started it: Anthropic's prompt cache is opt-in, and when I
+actually metered five test agent workloads, a five-turn coding agent of mine
+was re-paying full input rate for its entire history every single turn. Zero
+cache traffic. The cache just… wasn't on.
+
+So I built Mesh — a local proxy that keeps an agent's prompts cacheable and
+writes every request to a ledger you can recompute. I'm not calling it a
+token compressor and I'm not promising a smaller bill; nobody has measured
+it against a real provider bill yet. No signup, no account:
+
+    curl -fsSL https://www.mesh-technology.com/install.sh | sh
+    mesh proxy
+
+(macOS, Linux, or inside WSL; `npm install -g @harrym1707/mesh` works too.
+Or read the source first: github.com/Harrym1707/Mesh — it's your API key
+going through it, you should.)
+
+Point your agent at it with one setting,
+`ANTHROPIC_BASE_URL=http://127.0.0.1:8787`. Out of the box it does three
+things, none of which changes the model's answer: it compacts tool schemas
+(decodes identically), removes exact duplicate context, and moves the
+per-request timestamp that silently breaks the provider cache. That's all a
+fresh install does. Placing cache_control for you is a lever that's off out
+of the box; you switch it on with one line in `~/.mesh/theo-policy.json`
+(`{ "lever": "cache-ttl-5m", "class": "lossless" }`). Anything that could
+change an answer stays off until it's been replayed on your own captured
+requests and you've said yes. Your key passes through and is never stored;
+your prompts go to Anthropic and nowhere else.
+
+The part I'm most proud of is also the embarrassing part. Every request
+writes one line to a hash-chained ledger on your disk, and `mesh verify`
+recomputes the total from that file — on your machine, no network. On an
+early live run that ledger caught one of our OWN levers losing money: the
+cache stamp, placed over a volatile prefix, paid the write premium every
+turn and got zero reads. It counted against us, we published it, and the
+guard that now refuses that placement is in the repo.
+
+Honest numbers, with what was switched on. 37.9% is the cache stamp alone,
+on versus off (SIMULATOR: same prompts both arms, modelled, not proven on a
+real bill), and the stamp is off out of the box. 18.2% net on a 30-request
+live basket, run 2026-10-26 (LIVE: real API traffic, but my own test agents,
+$0.0365 saved of $0.2010 spent by the ledger's arithmetic, not checked
+against an invoice), had the cache stamp and a tool-result cap switched on,
+and the three out-of-the-box changes are under half of it. I
+don't have a measured out-of-the-box percentage, so I'm not quoting one.
+Nobody else has run it yet. If your stack already caches well, it literally
+says "do not pay us" — that's a real verdict it produces.
+
+Happy to answer anything about cache_control placement — I've now stared at
+more cache-miss traces than I'd like to admit.
 
 ## Do not post
 

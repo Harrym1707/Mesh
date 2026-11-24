@@ -1,11 +1,11 @@
 # We shipped a cache-TTL heuristic, then killed it four hours later with a bigger dataset
 
 *(**Draft, not published.** Written 2026-11-02; the install path at the end
-was checked again on 2026-11-23 against MESH 0.2.5 and is unchanged.
+was checked again on 2026-11-23 against Mesh 0.2.5 and is unchanged.
 Publishing is the founder's act; retype it in your own words first.*
 
 *Three percentages remain in this draft: 27.6%, 39.2% and 60.8%. None is a
-MESH saving and none is in docs/NUMBERS.md. Each is a measurement on a public
+Mesh saving and none is in docs/NUMBERS.md. Each is a measurement on a public
 dataset, made on 2026-10-27, and is sourced where it appears. The scripts
 that produced them were kept in a scratch folder and are not in the
 repository, so they can be read in the two findings files but not re-run
@@ -40,7 +40,7 @@ p90 of 243 seconds; conversation turns showed p90 519 seconds. WildChat
 corroborated the shape: in a sample of 995 conversations from the public
 WildChat-1M dataset, 27.6% of the 1,767 gaps between turns were longer than
 300 seconds, so a 5-minute cache entry would have expired (a dataset
-measurement of 2026-10-27, not a MESH saving;
+measurement of 2026-10-27, not a Mesh saving;
 `docs/rnd/knowledge/2026-10-27-dataset-findings.md`, commit `bdd232d`). The
 rule we shipped: default to 5-minute caching, and
 promote a whole workload to 1-hour once its *realized gap p90* crosses 300
@@ -76,7 +76,7 @@ cacheworthy conversation blocks in the full Mooncake trace (blocks used at
 least twice), only 39.2% ever have a reuse gap that lands in the window
 where 1-hour helps (between 300 seconds and the trace's 1-hour horizon). The
 other 60.8% pay the 2.0× write tax with no reuse gap in that window. Both
-figures describe the public trace, measured on 2026-10-27; they are not MESH
+figures describe the public trace, measured on 2026-10-27; they are not Mesh
 savings (`docs/rnd/knowledge/2026-10-27-dataset-findings-run2.md`, commit
 `62e41cd`). A workload-level average gap, however carefully measured, can't see that split
 — it's a property of individual prefixes, not of the workload they came from.
@@ -116,10 +116,13 @@ analysis yourself — `docs/rnd/knowledge/2026-10-27-dataset-findings-run2.md`
 has the full breakdown, including the three other findings that *did* survive
 the larger sample.
 
-To run MESH on your own traffic (open to anyone, no signup): install with
+To run Mesh on your own agents (open to anyone, no signup): install with
 `curl -fsSL https://www.mesh-technology.com/install.sh | sh` (macOS, Linux,
 or inside WSL on Windows) or `npm install -g @harrym1707/mesh`; then
-`mesh start` for Claude Code, or `mesh proxy` for your own app with
+`mesh proxy` for your own app or agent with
 `ANTHROPIC_BASE_URL=http://127.0.0.1:8787` or
-`OPENAI_BASE_URL=http://127.0.0.1:8787/v1`; then `mesh verify`. Questions:
+`OPENAI_BASE_URL=http://127.0.0.1:8787/v1` (`mesh start` is the route for
+Claude Code); then `mesh verify`. Out of the box Mesh compacts tool schemas,
+removes exact duplicate context and keeps the cacheable prefix stable; the
+cache stamp, at either lifetime, is off until you switch it on. Questions:
 https://github.com/Harrym1707/Mesh/issues/new
