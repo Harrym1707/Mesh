@@ -19,6 +19,7 @@ import { cadenceSweep, sessionLengthSweep } from "./sweeps.js";
 import { guardStudy, liveResidual, liveSpoolsAvailable, stampStudy } from "./live-study.js";
 import { qualifyBrowsingShape } from "./browsing-shape.js";
 import { corpusAvailable, qualifyAgentTasks } from "./agent-tasks.js";
+import { qualifyCacheCompat } from "./cache-compat.js";
 import { fleetSavings } from "./workloads.js";
 import type { OptimisationRecord } from "./types.js";
 
@@ -393,6 +394,41 @@ switch (command) {
     console.log("Lab-only experiments: lab/experiments/tool-result-codecs.ts.");
     break;
   }
+  case "cache": {
+    if (!corpusAvailable()) {
+      console.log("The recorded tool outputs are missing. Record them with: bash lab/agent-tasks/capture.sh");
+      process.exitCode = 2;
+      break;
+    }
+    const signed = (value: number): string => `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`.padStart(7);
+    console.log("CACHE COMPATIBILITY — SIMULATOR. Does each lever keep a conversation cacheable, and what does it do");
+    console.log("to the BILLED input cost? Real recorded tool outputs, scripted multi-turn sessions, tokens ESTIMATED,");
+    console.log("documented cache rates, turns 20 s apart. No model ran and no provider was called.\n");
+    console.log("A  prefix stable: every reduced turn is still an exact prefix of the next, where the provider caches.");
+    console.log("B  caller bytes: sessions where the lever changes bytes inside a prefix the caller cached.");
+    console.log("C  bill: change in billed input cost on cached conversations; + is cheaper, - is DEARER.\n");
+    console.log(`${"lever".padEnd(40)}${"acted".padStart(6)}  ${"A stable".padEnd(9)}${"B touched".padStart(10)}${"C worst".padStart(9)}${"C best".padStart(8)}${"on mid-way".padStart(12)}`);
+    let failed = false;
+    for (const verdict of qualifyCacheCompat()) {
+      const forced = verdict.lever.endsWith(":forced");
+      if (!forced && !verdict.prefixStableWhereCached) failed = true;
+      console.log(
+        `${verdict.lever.padEnd(40)}${String(verdict.sessionsActedOn).padStart(6)}  ` +
+        `${(verdict.prefixStableWhereCached ? "yes" : `NO (${verdict.brokenCachedSessions.length})`).padEnd(9)}` +
+        `${String(verdict.callerPrefixTouchedIn.length).padStart(10)}` +
+        `${signed(verdict.worstCallerCachedBillChangePercent).padStart(9)}${signed(verdict.bestCallerCachedBillChangePercent).padStart(8)}` +
+        `${signed(verdict.worstMidSessionBillChangePercent).padStart(12)}` +
+        `${verdict.default ? "   default" : ""}${forced ? "   gate overridden, for comparison" : ""}`,
+      );
+    }
+    console.log("\n\"on mid-way\": the worst change when the lever is switched on halfway through a cached conversation.");
+    console.log("A lever that changes cached bytes the same way every turn costs one re-write there and nothing when on from the start.");
+    if (failed) {
+      console.log("\nFAILED: a lever as shipped breaks a cached prefix.");
+      process.exitCode = 1;
+    }
+    break;
+  }
   case "sweep": {
     // On demand: these re-run the cache simulation many times. --full adds the
     // 20-turn sessions, which take several minutes.
@@ -435,7 +471,7 @@ switch (command) {
   }
   default:
     console.log(
-      "Usage: lab <demo|run|watch|status|live|browse|tasks|sweep|verify> [--root <dir>]\n" +
+      "Usage: lab <demo|run|watch|status|live|browse|tasks|cache|sweep|verify> [--root <dir>]\n" +
         "  watch [--interval <ms>] [--idle <n>] [--ticks <n>] [--forever]\n" +
         "  sweep [--tasks <n>] [--full]",
     );
