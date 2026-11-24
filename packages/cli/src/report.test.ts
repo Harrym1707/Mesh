@@ -174,7 +174,7 @@ describe("the weekly report: each case, in plain words", () => {
       expect(report.case).toBe("no_requests");
       expect(report.theo).toBeNull();
       expect(reportHeadline(report)).toEqual([
-        "Mesh saw no requests this week (16 to 22 Nov), so it is not connected.",
+        "Mesh saw no requests last week (16 to 22 Nov), so it is not connected.",
         "Fix: mesh setup",
       ]);
       expect(reportOneLine(report)).toBe("Mesh saw no requests last week, so it is not connected. Fix: mesh setup");
@@ -192,7 +192,7 @@ describe("the weekly report: each case, in plain words", () => {
       expect(report[field], field).toBeNull();
     }
     expect(reportHeadline(report)).toEqual([
-      "Mesh could not verify your ledger this week (16 to 22 Nov), so there is no figure.",
+      "Mesh could not verify your ledger last week (16 to 22 Nov), so there is no figure.",
       "Run: mesh verify",
     ]);
     expect(reportOneLine(report)).toBe("Mesh could not verify your ledger last week, so there is no figure. Run: mesh verify");

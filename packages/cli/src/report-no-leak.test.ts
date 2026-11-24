@@ -389,7 +389,7 @@ describe("mesh report: the command, and nothing private in any output", () => {
     expect(broken.stdout).not.toContain("999");
     const text = run("broken-text");
     expect(text.status).toBe(1);
-    expect(text.stdout).toContain("Mesh could not verify your ledger this week");
+    expect(text.stdout).toContain("Mesh could not verify your ledger last week");
     expect(text.stdout).toContain("Run: mesh verify");
     expect(text.stdout).not.toMatch(/\$\d/);
     expect(run("broken-html").status).toBe(1);

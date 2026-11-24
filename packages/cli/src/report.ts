@@ -780,14 +780,18 @@ function unpricedLine(report: VerifiedReport): string[] {
  */
 export function reportHeadline(report: Report): string[] {
   const span = thisSpan(report);
-  const dates = report.period.label;
+  // These two have no title line above them, so they say which week
+  // themselves: "last week (16 to 22 Nov)", not a bare "this week".
+  const named = report.kind === "month"
+    ? (report.period.relative === "earlier" ? `in ${report.period.label}` : `${whenPhrase(report)} (${report.period.label})`)
+    : (report.period.relative === "earlier" ? whenPhrase(report) : `${whenPhrase(report)} (${report.period.label})`);
   if (!report.ledgerVerified) {
-    return [`Mesh could not verify your ledger ${span} (${dates}), so there is no figure.`, "Run: mesh verify"];
+    return [`Mesh could not verify your ledger ${named}, so there is no figure.`, "Run: mesh verify"];
   }
   if (report.case === "no_requests") {
     return report.period.finished
-      ? [`Mesh saw no requests ${span} (${dates}), so it is not connected.`, "Fix: mesh setup"]
-      : [`Mesh has seen no requests so far ${span} (${dates}).`, "If you have used your tools since then, it is not connected. Fix: mesh setup"];
+      ? [`Mesh saw no requests ${named}, so it is not connected.`, "Fix: mesh setup"]
+      : [`Mesh has seen no requests ${named}.`, "If you have used your tools since then, it is not connected. Fix: mesh setup"];
   }
   const tail = [`${requestsText(report.requests)}, ledger verified.`, ...unpricedLine(report)];
   const paid = `You paid your provider ${money(report.paidProviderUsd)}.`;
