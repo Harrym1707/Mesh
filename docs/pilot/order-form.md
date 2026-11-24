@@ -3,9 +3,9 @@
 > **DRAFT for the founder and a solicitor. Not legal advice. Not reviewed by
 > a lawyer. Not to be sent to anyone.** Written 2026-11-18 from
 > [pilot-agreement.md](./pilot-agreement.md) and the website's
-> [Terms of use](../site/terms.md); brought to release 0.2.4 and the Terms
-> as last updated 18 November 2026 on 2026-11-19. No customer has signed it
-> or been shown it.
+> [Terms of use](../site/terms.md) (last updated 18 November 2026); brought
+> to release 0.2.5, which adds the statement key, on 2026-11-23. No customer
+> has signed it or been shown it.
 >
 > Everything in [square brackets] is a blank for the founder or a solicitor
 > to fill. None of the blanks has a default. The list of them, and of what
@@ -41,9 +41,34 @@ of registration, if a company], of [customer's address].
 |---|---|---|
 | Contact for this order | [name] | [name] |
 | Email for statements, invoices and notices | [supplier contact email address] | [customer email address] |
-| Statement key fingerprint | | [applies from 0.2.5, not yet released: leave blank until then] |
+| Statement key fingerprint | | [the 64 hexadecimal characters `mesh statement --key` prints on the machine MESH runs on] |
 
 **Order date:** [date]. **First billing period:** [month and year].
+
+**Your statement key.** Your MESH install signs every statement it writes
+with a key that is created on your machine and never leaves it. This needs
+MESH 0.2.5 or later. On the machine MESH runs on:
+
+```bash
+mesh statement --key
+```
+
+It prints the key's fingerprint: 64 hexadecimal characters. The fingerprint
+is public and safe to share. You give it to us once, in the field above when
+this order is agreed. **We bill only from statements signed by that key**, so
+nobody else, including us, can produce a statement in your name.
+
+- **Never send the key file.** It is
+  `~/.mesh/identity/statement-key.json`, readable only by you. Only the
+  fingerprint is shared.
+- **If you reinstall MESH or move it to another machine, the fingerprint
+  changes.** You register the new one before your next statement, by [the
+  written channel for registering a new fingerprint, and who on the
+  customer's side may send it: founder to decide. It should not be the route
+  the monthly statement and ledger files arrive by].
+- **If you run MESH on several machines,** bring all their ledger files to
+  the machine whose key is registered and run `mesh statement` there over all
+  of them.
 
 ## 2. What MESH is and where it runs
 
@@ -127,9 +152,9 @@ mesh statement --period YYYY-MM
 ```
 
 It re-checks the ledger's hash chain, recomputes that month, prints the
-savings by lever, the fee and the verdict, and writes a statement file. It
-makes no network calls. It needs MESH 0.2.4 or later; `mesh version` says
-which you have.
+savings by lever, the fee and the verdict, and writes a statement file signed
+with your install's statement key. It makes no network calls. A statement we
+can bill from needs MESH 0.2.5 or later; `mesh version` says which you have.
 
 `mesh verify` re-checks the whole ledger and gives the total since install,
 not one month. The separate `@harrym1707/verify` package recomputes a ledger
@@ -144,7 +169,7 @@ an invoice already paid: founder and solicitor to decide.]
 ## 7. What you send us, and how
 
 After each billing period has ended, you run `mesh statement --period YYYY-MM`
-on the machine MESH runs on and send us:
+on the machine whose statement key you registered (section 1) and send us:
 
 1. **the statement file** it writes, `mesh-statement-YYYY-MM.json` in the
    folder you ran it from unless you pass `--out`; and
@@ -153,14 +178,17 @@ on the machine MESH runs on and send us:
    them are not needed.
 
 Run it after the month has ended. A statement made earlier says that the
-period has not ended yet and cannot be billed from.
+period has not ended yet and cannot be billed from. Nor can a statement that
+is unsigned (MESH 0.2.4 wrote those) or signed by a key other than the one
+you registered.
 
 A ledger file is not per period: it holds every request since it was started,
 so you send the same files each time, a little longer. The statement names
 the month's lines. Both hold usage numbers, lever names, model names and
 hashes, and never your prompts, your completions or your API key. You are
 welcome to open them before you send them, and `mesh statement --check <file>`
-tells you whether a statement file has been altered since it was written.
+tells you whether a statement file has been altered since it was written,
+whether its signature verifies, and which key signed it.
 
 You send them by [how the files reach us: founder to decide. There is no
 contact email address yet. The pricing page asks a customer to open a GitHub
@@ -226,7 +254,8 @@ on each side may give it.]
 | Version of the Terms incorporated; which document prevails | top | Solicitor |
 | Supplier contact email address | 1, 7, 11 | Founder |
 | Customer details, order date, first billing period | 1 | Per customer |
-| Statement key fingerprint (from 0.2.5, not yet released) | 1 | Per customer, once the release exists |
+| Statement key fingerprint | 1 | Per customer, at signing |
+| Channel for registering a new fingerprint, and who may send it | 1 | Founder |
 | Smallest invoice worth sending, and what happens to a fee below it | 3 | Founder |
 | Carry-forward of a negative period | 3 | Founder and solicitor |
 | VAT wording | 3 | Founder, with an accountant or solicitor |
@@ -251,7 +280,9 @@ owed for a `do_not_charge` month; the customer sends the statement file and
 the ledger files; no automatic payment, a statement and an invoice; fees
 exclude VAT; fees already earned remain payable. Liability, licence and
 governing law are incorporated and not restated. The Terms' Contact section
-gives a postal address only.
+gives a postal address only. The statement key (section 1) follows the
+pricing page's "Register your statement key" and "What happens each month";
+the Terms do not mention it.
 
 **Where this draft says more than the Terms, for review:**
 
@@ -262,9 +293,13 @@ gives a postal address only.
   Terms and the pricing page do not mention it.
 - Section 7 obliges the customer to send the statement file and the ledger
   files. The pricing page describes that; the Terms do not oblige it.
+- Sections 1 and 7 make a statement signed by the registered key a condition
+  of billing. The pricing page says "we only bill from statements signed by
+  that key"; the Terms' Fees section says nothing about a key or a signature.
 
-**What the tooling does today (release 0.2.4, checked 2026-11-19), so the
-blanks are filled knowingly:**
+**What the tooling does today (release 0.2.5, checked 2026-11-23; the
+rounding and verdict rows were checked on 0.2.4 on 2026-11-19), so the blanks
+are filled knowingly:**
 
 - **Rounding.** The fee is 1% of net verified savings rounded down to the
   whole cent, in one function (`feeCents` in
@@ -279,18 +314,25 @@ blanks are filled knowingly:**
   0.2.3 can print `(charge)` in `mesh verify` for a month in which nothing is
   owed; the invoice follows our recompute, not that line.
 - **The customer's statement.** `mesh statement --period YYYY-MM` exists from
-  0.2.4. Flags: `--ledger <dir>`, `--out <file>`, `--json`, `--check <file>`.
+  0.2.4 and signs its statements from 0.2.5. Flags: `--ledger <dir>`,
+  `--out <file>`, `--json`, `--check <file>`, `--key`.
   Run on 2026-11-19 on the website's 0.2.4 against a test ledger: it printed
   the period, the chain check, requests counted and excluded, savings by
   lever, totals, fee, verdict and price list, and wrote
   `mesh-statement-2026-11.json` with a sha256 seal. For a month that had not
   ended it printed `THIS PERIOD HAS NOT ENDED YET: these figures can still
   change`. `--check` passed on the file and failed on an edited copy. An
-  install on 0.2.3 has no `mesh statement` and must update first.
+  install on 0.2.3 has no `mesh statement`, and one on 0.2.4 writes unsigned
+  statements; both must update first.
 - **Our invoice tool** (`scripts/mesh-bill.ts`) needs `--period`, refuses a
   month that has not ended, and on a real run needs the customer's own
-  statement file (`--statement`) and checks it against the ledger files and
-  its own recompute; any mismatch is "do not bill". `--dry-run` reads no
+  statement file (`--statement`) and their fingerprint in the operator's
+  customer key registry (`scripts/mesh-customer-key.ts register`, on `main`
+  since 2026-11-23). It checks the statement against the ledger files and
+  its own recompute, that the signature verifies and is by exactly that
+  key, and that the statement was written after the key was registered; any
+  mismatch is "do not bill". So the fingerprint in section 1 has to be
+  registered before the customer writes the first statement. `--dry-run` reads no
   Stripe key and sends nothing. The procedure is
   `docs/ops/first-invoice-runbook.md`. That runbook records that none of its
   runs reached Stripe, in test or live mode, and no customer has been
@@ -304,15 +346,36 @@ blanks are filled knowingly:**
   and says that step has not been exercised.
 - **Currency.** Amounts are computed in US dollars and every invoice the tool
   drafts is in US dollars. Nothing converts currency.
-- **Statement key fingerprint.** Reported for release 0.2.5: the customer's
-  install signs its statement, and billing needs the customer's statement key
-  fingerprint, given once at onboarding through the agreed written channel
-  and registered again after a reinstall or a new machine. On 2026-11-19
-  there is no `--key` flag on `main` or on any branch of the repository, so
-  this draft has only the blank in section 1 and tells nobody to run a
-  command their install does not have. When 0.2.5 exists: add how the
-  customer reads the fingerprint, where it is recorded, and the re-register
-  rule.
+- **The statement key.** Run on 2026-11-23 on the website's 0.2.5 in a
+  throwaway home, with a test key. `mesh statement --key` created the key on
+  first use and printed a 64-character fingerprint, the same one on every
+  later run, with the path of the key file. The key file is
+  `~/.mesh/identity/statement-key.json` (folder readable only by the user,
+  file mode 0600); the algorithm is Ed25519. A statement for an ended month
+  printed `Signed by this install's statement key: <fingerprint>`, and its
+  file said `closed: true` and `validForBilling: true`.
+  `mesh statement --check` on it confirmed the seal and the signature and
+  named the key, and says plainly that it does not show whose key it is. On
+  altered copies it reported: a changed figure (seal does not match), a
+  removed signature (`NOT signed … MESH does not bill from an unsigned
+  statement`), and a changed signature (`does NOT verify`).
+- **A changed or damaged key.** With the key file moved aside,
+  `mesh statement --key` made a new key with a different fingerprint. With a
+  key file that could not be read, both `--key` and `--period` stopped with
+  an error and wrote nothing: MESH will not replace a key file for the
+  customer, because a new key means a new fingerprint to register.
+- **What our tool does with the fingerprint.** `scripts/mesh-bill.ts
+  --dry-run`, run on 2026-11-23: with the registered fingerprint it reported
+  `signed by the customer's registered statement key`; with a different
+  fingerprint, with an unsigned statement, with a statement signed by the
+  operator machine's own install, and with a statement written before the
+  key was registered, it reported `DO NOT BILL`. For a customer with no key
+  in the registry a dry run warns and a real run refuses.
+- **What the signature does not show.** It shows which install wrote the
+  statement. It does not show that the customer's ledger was complete, and it
+  is only as good as the channel the fingerprint was registered through. A
+  fingerprint that arrives in the same message as a statement is not a
+  registration (`docs/ops/first-invoice-runbook.md`).
 
 **Not covered in this draft:** confidentiality, service levels or support,
 assignment, notices beyond email, entire-agreement wording, anything about

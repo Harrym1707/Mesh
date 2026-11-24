@@ -10,7 +10,7 @@
 > second, the [Operator playbook](#operator-playbook--manual-billing), is the
 > founder's side: onboarding a partner, collecting and checking their ledger,
 > and drafting an invoice by hand. Setup follows the one path in
-> [onboarding.md](./onboarding.md). Current release: MESH 0.2.4 (2026-11-19).
+> [onboarding.md](./onboarding.md). Current release: MESH 0.2.5 (2026-11-23).
 > The fee and the monthly routine are explained for everyone on the
 > website's [Pricing and billing](../site/pricing.md) page.
 >
@@ -18,12 +18,16 @@
 > a customer's real traffic.
 
 **What MESH is.** A small program that runs on your own machine, between your
-app (or Claude Code) and your AI provider. It removes tokens you were about to
-pay for twice and writes one line per request into a hash-chained ledger that
-you hold. The fee is 1% of *verified* savings: what you spent is taken from
-your provider's own reported usage, the saving is recorded in that ledger, and
-you can recompute the figure on your own machine. If MESH saves you nothing,
-the verdict is **do_not_charge** and the invoice is $0.
+app (or Claude Code) and your AI provider. It does two things: it keeps your
+prompts cacheable, making only lossless changes to a request by default, and
+it writes one line per request into a hash-chained ledger that you hold. No
+fee is due unless billing has been agreed in writing; where it has, the fee
+is 1% of *verified* savings for the month: what you spent is taken from your
+provider's own reported usage, the saving is recorded in that ledger, and
+you can recompute the figure on your own machine. If the verdict for a month
+is **do_not_charge**, the invoice is $0. Nobody has measured MESH against a
+real provider bill yet, so this page promises no smaller bill; a pilot is how
+that gets measured.
 
 **What the pilot costs you.** One install, one command, one base URL setting
 (none for Claude Code), and two weeks of normal traffic. Your API key passes
@@ -65,6 +69,13 @@ that is the correct outcome.
    app or agent, with your client's base URL set to the address it prints.
 3. Check: `curl http://127.0.0.1:8787/mesh/health`, one request from your app,
    then `mesh verify`.
+4. Register your statement key, once, because a pilot ends in an invoice:
+   run `mesh statement --key` and send us the fingerprint it prints (64
+   hexadecimal characters) through the channel agreed in the pilot
+   agreement. The fingerprint is public and safe to share; the key itself
+   never leaves your machine, and you never send the key file. This needs
+   MESH 0.2.5 or later. Someone only trying MESH, with no billing agreed,
+   does not need this step.
 
 The [tester guide](./TESTER-GUIDE.md) has every step, what to expect and how
 to remove it. Only lossless levers are on by default: the request your
@@ -97,8 +108,8 @@ provider untouched.
 1. `mesh statement --period YYYY-MM` recomputes one calendar month (UTC) from
    your own ledger. It re-checks the hash chain, prints the saving by lever,
    the fee and the verdict, and writes a statement file,
-   `mesh-statement-YYYY-MM.json`. No network calls. It needs MESH 0.2.4 or
-   later.
+   `mesh-statement-YYYY-MM.json`, signed with your install's statement key.
+   No network calls. A statement we can bill from needs MESH 0.2.5 or later.
 2. `mesh verify` re-checks the whole ledger and gives the total since
    install, not a month. Tampering with any line is detected and the position
    named. For a recompute that does not use the installed `mesh` at all, run
@@ -111,9 +122,12 @@ provider untouched.
    fee is never more than 1% of the saving. If your recomputation disagrees
    with ours, yours wins.
 5. An invoice is drafted only after its month has ended: you run
-   `mesh statement` again then, and send the statement file and the ledger
-   files it was made from. Until then the statement says the period has not
-   ended and its figures can still change.
+   `mesh statement` again then, on the machine whose key you registered, and
+   send the statement file and the ledger files it was made from. Until then
+   the statement says the period has not ended and its figures can still
+   change. We bill only from a statement signed by the key you registered. If
+   you reinstall MESH or move machine, the fingerprint changes: register the
+   new one the same way before your next statement.
 
 ---
 
@@ -134,15 +148,27 @@ provider untouched.
 From [docs/NUMBERS.md](../NUMBERS.md) (last reconciled 2026-10-27), which is
 the only source for MESH savings figures:
 
-- **18.2% — LIVE.** Net saving on a mixed 30-request basket (coding, rag,
-  support, batch, lean) on claude-sonnet-5-5, run 2026-10-26. This is MESH's
-  own test basket against the real API, not a customer's traffic.
-- **25–73% — SIMULATOR.** What the simulator models suggest depending on
-  workload. Modelled on a harness and not yet proven on anyone's real bill.
+- **Out of the box, no figure yet.** A fresh install makes three lossless
+  changes: it compacts tool schemas, removes exact duplicate context and
+  repairs the order of a cacheable prefix. No percentage has been published
+  for that on its own. Every figure below needed more switched on.
+- **18.2% — LIVE, not out of the box.** Net saving on a mixed 30-request
+  basket (coding, rag, support, batch, lean) on claude-sonnet-5-5, run
+  2026-10-26 with the Anthropic cache stamp and a tool-result cap switched
+  on, both off in a fresh install; the three default changes account for
+  under half of it. This is MESH's own test basket against the real API, not
+  a customer's traffic.
+- **25–73% — SIMULATOR, not out of the box.** What the simulator models
+  suggest depending on workload, each with further levers switched on
+  (tool-description trimming, history compaction, output and tool-result
+  caps, and at the top of the range a discounted execution tier). Modelled on
+  a harness and not yet proven on anyone's real bill.
 
 **Your** number comes from your own ledger on day 14, and only that number is
 ever billed. It may be small, or zero: on traffic that is already lean MESH
-says `do not pay us`, and that is a real result.
+says `do not pay us`, and that is a real result. A pilot is aimed at a team
+running its own agents on the API; Claude Code on a fresh install should be
+expected to save little, because Claude Code already caches.
 
 ---
 
@@ -185,6 +211,20 @@ go-ahead. These steps are what turns that into a pilot.
 3. Create their Stripe **customer** in test mode and note the `cus_…` id. No
    payment method is needed to create and review a draft. This is the
    founder's step.
+4. **Register their statement key** (first-invoice runbook, "Register the
+   customer's statement key"). Agree in writing which channel the fingerprint
+   comes through and who may send it; it should not be the route the monthly
+   statement and ledger files will arrive by. The partner runs
+   `mesh statement --key` on the machine MESH runs on (0.2.5 or later) and
+   sends the 64-character fingerprint. Register it the same day in the
+   customer key registry on the operator's machine, which is the only place
+   `mesh-bill` reads it from:
+   `node --import tsx scripts/mesh-customer-key.ts register --customer cus_THEIR_ID --fingerprint <64 hex> --channel "<how it was received and confirmed>"`.
+   Copy the `registry entry` and `entry hash` lines it prints into the
+   operator log. They must not send the key file, and a fingerprint that
+   arrives in the same message as a statement is not a registration.
+   **Register before the first statement is written:** `mesh-bill` refuses a
+   statement written before its key was registered.
 
 ## 2. After the month has ended: ask for the statement and the ledger
 
@@ -196,9 +236,10 @@ decided.
 Ask the partner for three things (first-invoice runbook, step 1):
 
 1. **The statement file.** They run `mesh statement --period YYYY-MM` on the
-   machine MESH runs on, after the month has ended. It writes
-   `mesh-statement-YYYY-MM.json`. It needs 0.2.4 or later; if `mesh version`
-   prints 0.2.3 or earlier, they update first (`mesh update`).
+   machine whose key they registered, after the month has ended. It writes
+   `mesh-statement-YYYY-MM.json`, signed. It needs 0.2.5 or later; if
+   `mesh version` prints 0.2.4 or earlier, they update first (`mesh update`),
+   because 0.2.4 writes unsigned statements and `mesh-bill` refuses those.
 2. **The ledger files:** every `<application>-<provider>.jsonl` in
    `~/.mesh/ledger/` (`proxy-anthropic.jsonl`, `proxy-openai.jsonl`). The
    `.features.jsonl` files beside them are not needed.
@@ -206,7 +247,15 @@ Ask the partner for three things (first-invoice runbook, step 1):
 
 None of these holds prompts, answers or keys; see
 [data-handling.md](./data-handling.md). Never produce the statement yourself
-from the files you received: it must be the partner's own.
+from the files you received: it must be the partner's own, and `mesh-bill`
+refuses a statement signed by the operator machine's own install.
+
+**Look at who signed it.** `mesh statement --check <file>` confirms the seal
+and the signature and prints `Signed by statement key: <fingerprint>`. It
+does not show whose key that is. `mesh-bill` makes that comparison itself,
+against the registry (`scripts/mesh-customer-key.ts show --customer cus_THEIR_ID`
+prints the registered key). If they differ, stop: never register a new
+fingerprint because it arrived with a statement.
 
 For an independent check of each ledger file, `mesh-verify` is the
 MIT-licensed, zero-dependency recompute tool. It reads one file per run and
@@ -229,7 +278,11 @@ be invoiced.
 
 `--dry-run` reads no Stripe key and sends nothing. It verifies each chain,
 recomputes the month, checks the partner's statement against the ledger files
-and against its own recompute, and prints exactly what would be created.
+and against its own recompute, checks that the statement is signed by the
+key registered for this customer in the registry and was written after that
+registration, and prints exactly what would be created. The registry is
+`~/.config/mesh/customer-keys.jsonl` unless `--registry <file>` or
+`$MESH_CUSTOMER_KEYS` says otherwise.
 
 ```bash
 node --import tsx scripts/mesh-bill.ts --dry-run \
@@ -246,7 +299,8 @@ Read the output before doing anything else:
 Mode: DRY RUN (no Stripe key read, nothing sent)  ·  period: 2026-11  ·  fee: 1%  ·  spools read: <N>
 Events in period: <N>  ·  billed: <N>  ·  marked unpriced: <N>
 Net verified savings: $<X>
-Statement: statement matched: <N> spools, <N> records (<N> in 2026-11), net verified savings $<X>, fee <N> cents.
+Statement: statement matched: <N> spools, <N> records (<N> in 2026-11), net verified savings $<X>, fee <N> cents, signed by the customer's registered statement key <fingerprint>, registered <time> (registry entry seq <N>).
+Customer key registry: <file> · <N> entries · head <hash>
 ```
 
 **The honesty checks — respect every one:**
@@ -257,6 +311,13 @@ Statement: statement matched: <N> spools, <N> records (<N> in 2026-11), net veri
 - **`DO NOT BILL`, statement and ledger disagree** → the files passed are not
   the ones the statement was made from, or the figures differ. Do not work
   around it; go back to the partner.
+- **`DO NOT BILL`, the signature** → the statement is unsigned, its signature
+  does not verify, it is signed by a key other than the registered one, it
+  was written before the key was registered, or it was written on the
+  operator's own machine. Do not bill. A real run refuses a customer with no
+  key in the registry; a dry run for such a customer only warns, and is not
+  the check before billing. (`--customer-key` exists for a dry run on a
+  customer not yet in the registry; it is a comparison, not the check.)
 - **`CHAIN BROKEN`** → a file failed verification. Do not bill, and do not
   "fix" a file; ask the partner to send it again.
 - **`--period` is required,** and a real run refuses a month that has not
@@ -290,7 +351,8 @@ What the partner is then sent, and how they pay, is agreed with them by hand.
 - Test mode only; `--live` is not used, and no assistant handles a Stripe
   key.
 - A broken or unverified chain is a hard stop. So is a statement that does
-  not match the ledger files.
+  not match the ledger files, and one not signed by the partner's registered
+  key.
 - No prompt content is read or sent — only usage-derived totals.
 - No automatic charge of any kind during the pilot. Dry run, then a draft,
   then a person reviews it, every time.

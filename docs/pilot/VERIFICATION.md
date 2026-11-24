@@ -20,7 +20,9 @@
 >   installed 0.2.3 build,
 >   [Checks run on 2026-11-18](#checks-run-on-2026-11-18), and on the
 >   installed 0.2.4 build,
->   [Checks run on 2026-11-19](#checks-run-on-2026-11-19), at the end of this
+>   [Checks run on 2026-11-19](#checks-run-on-2026-11-19), and on the
+>   installed 0.2.5 build (the statement key),
+>   [Checks run on 2026-11-23](#checks-run-on-2026-11-23), at the end of this
 >   file.
 >
 > Statements in the 2026-11-07 record about which path is canonical, the
@@ -28,6 +30,9 @@
 > today. The 2026-11-16 and 2026-11-18 records describe 0.2.3 and earlier:
 > since 0.2.4 the fee is rounded down to the cent, `mesh statement` exists,
 > and `scripts/mesh-bill.ts` needs a period and the customer's statement.
+> The 2026-11-19 record says there is no `--key` flag; that was true of 0.2.4
+> and is superseded: release 0.2.5 has `mesh statement --key` and signs every
+> statement (see the 2026-11-23 record).
 
 # Record of 2026-11-07
 
@@ -231,4 +236,91 @@ of the repository found none.
 run, anything at Stripe in any mode, a statement for a month that has ended,
 a ledger with more than one file or more than one month, and `mesh statement`
 on Linux or under WSL.
+
+---
+
+# Checks run on 2026-11-23
+
+Run on **MESH 0.2.5**, for the statement key. A separate record; nothing
+above was re-run or rewritten. **It supersedes one line of the 2026-11-19
+record:** that record says `mesh statement` has no `--key` flag, which was
+true of 0.2.4. Release 0.2.5 has it.
+
+**Setup.** A throwaway `HOME`. MESH installed from the live website
+(`mesh 0.2.5 (build 59363e8)`). A stand-in provider on `127.0.0.1`. No real
+provider was called and no real provider key was used. The statement key in
+these runs is a test key made in the throwaway home; no private key material
+is copied here, and the fingerprints are written as `<fingerprint>`.
+`scripts/mesh-bill.ts` was run from source at `main` (`932bcd0`) with
+`--dry-run` only, which reads no Stripe key and sends nothing. Dollar amounts
+are artefacts of test requests; they are not savings figures.
+
+**The past-month ledger is synthetic.** A statement can only be closed for a
+month that has ended, and nothing has run through MESH in an earlier month.
+So twelve test events were made by copying the three events the proxy had
+just written, re-stamping them into October 2026 and chaining them with the
+product's own `chainLedgerRecord`. It is a test fixture, not traffic.
+
+| Step | Result |
+|---|---|
+| Versions | Website manifest: build `59363e8`. `packages/cli` and `packages/sdk-js` on `main`: 0.2.5. npm: `@harrym1707/mesh` and `@harrym1707/sdk` 0.2.5, published during these checks (tag `v0.2.5` at `932bcd0`; npm still said 0.2.4 for `mesh` a few minutes earlier); `@harrym1707/verify` 0.1.0. `npx -y @harrym1707/mesh version` prints `mesh 0.2.5 (build 932bcd0)`. |
+| `mesh statement --help` | As on `main`: `--period`, `--ledger`, `--out`, `--json`, `--check <file>` (seal and signature), `--key`, `--help`, and a closing paragraph saying the statement is signed with the install's key in `~/.mesh/identity/statement-key.json`. |
+| `mesh statement --key`, first run | `Statement key fingerprint for this MESH install (key created just now):` then 64 hexadecimal characters, then that it is sent to MESH once through the channel agreed in writing, is public, and changes on a reinstall or a move; then `Key file (private, do not share): ~/.mesh/identity/statement-key.json`. |
+| `mesh statement --key`, again | The same fingerprint, without "(key created just now)". |
+| Where the key lives | `~/.mesh/identity/` is mode 0700 and `statement-key.json` mode 0600. Its fields are `schema`, `note`, `algorithm`, `createdAt`, `fingerprint`, `publicKey`, `privateKey`; the algorithm is Ed25519. Before the first `--key` or statement there is no `identity` folder. |
+| `mesh statement --period 2026-10 --ledger <test ledger>` | A statement for an ended month: no "not ended" line; chain verified, `12 in this period`; `Costs re-derived from reported usage 12 matched`; verdict `do_not_charge` (the fee is below one cent); the sha256 seal; and `Signed by this install's statement key: <fingerprint>`. The file has `period.closed: true`, `validForBilling: true` and a `signature` with `algorithm`, `publicKey`, `fingerprint`, `signs`, `value`. |
+| `mesh statement --check` on that file | `matches its sha256 seal`; `Its signature verifies against the statement key named in the file`; `Signed by statement key: <fingerprint>`; and that this does not show whose key it is. |
+| `--check` on a copy with one figure changed | `does NOT match its sha256 seal: it was edited or damaged after it was written.` |
+| `--check` on a copy with the signature removed | Seal matches; `It is NOT signed, although it was written by a MESH build that signs every statement … MESH does not bill from an unsigned statement.` |
+| `--check` on a copy with the signature changed | Seal matches; `Its signature does NOT verify`. |
+| Key file moved aside, then `mesh statement --key` | A new key, `(key created just now)`, with a different fingerprint. `--check` on the earlier statement still verifies and still names the earlier fingerprint. |
+| Key file replaced with unreadable text | `mesh statement --key` and `mesh statement --period` both stop: the key file `exists but is not a usable statement key … MESH will not replace it for you`. No statement file is written. |
+| `mesh-bill --dry-run --statement … --customer-key <the registered fingerprint>` | `Statement: statement matched: 1 spool, 12 records (12 in 2026-10), net verified savings $0.0015, fee 0 cents, signed by the customer's registered statement key <fingerprint>.` then `DO NOT BILL — do_not_charge`. |
+| The same with a different fingerprint | `DO NOT BILL — the statement is signed by statement key …, which is not the customer's registered key …`. |
+| The same with no `--customer-key` | Two warnings (a real run will refuse; who wrote the statement was not checked) and `signed by statement key … (not compared with a registered key)`. |
+| The same with the unsigned copy | `DO NOT BILL — the statement is not signed …`. |
+| The same, run with the `HOME` whose own key signed the statement | `DO NOT BILL — this statement was written on this machine, not by the customer`. |
+
+**Read, not run:** `packages/cli/src/statement.ts` and `statement-key.ts`,
+`scripts/mesh-bill.ts`, `docs/site/pricing.md` ("Register your statement
+key", "What happens each month"), `docs/site/terms.md` (Fees, which does not
+mention the key), `docs/ops/first-invoice-runbook.md` ("Register the
+customer's statement key"). The release runbook
+(`docs/ops/release-0.2.0-runbook.md`) has no section for 0.2.4 or 0.2.5.
+
+**Not checked:** a real provider, real traffic, a real (non-dry) `mesh-bill`
+run, anything at Stripe in any mode, a real past month's ledger, a ledger
+spread over several machines, the key file's protection on Windows (the code
+says the mode bits mean little there), and a statement written by 0.2.4 read
+by 0.2.5.
+
+## Later on 2026-11-23: the customer key registry, and the levers behind the figures
+
+Run after `main` moved to `e20a187`, which changed how `mesh-bill` learns the
+customer's key. The table above describes `932bcd0`, where the fingerprint
+was passed with `--customer-key`; on `e20a187` a real run reads it from a
+registry and `--customer-key` is for a dry run only.
+
+| Step | Result |
+|---|---|
+| `scripts/mesh-customer-key.ts register --registry <throwaway file> --customer cus_PLACEHOLDER --fingerprint <test fingerprint> --channel "…"` | Creates the registry and prints the entry (`seq 0`, a time, an entry hash) and that `mesh-bill` now accepts a statement from that customer only if it is signed by this key and was written after that time. |
+| `mesh-bill --dry-run --registry … --statement <the statement written earlier that day>` | `DO NOT BILL`: the key was registered after the statement was written. |
+| A new statement written after registration, then the same dry run | `signed by the customer's registered statement key <fingerprint>, registered <time> (registry entry seq 0)` and a line naming the registry file, its entry count and head hash. |
+| The dry run for a customer not in the registry | A warning that the customer has no current key in the registry, and that who wrote the statement was not checked. |
+| `scripts/mesh-customer-key.ts verify --registry …` | `OK … 1 entry, chain verified.` |
+
+**The levers behind the published figures (read and summed, not a product
+run).** The default policy in `packages/sdk-js/src/theo-policy.ts` has three
+levers: tool-schema compaction, duplicate-context removal and cache-prefix
+repair. The `levers` rows of the spools in `evals/live-exports-2026-10-26/`
+were summed: the LIVE run had the Anthropic cache stamp and a gate-approved
+tool-result cap on, and those two together earned more than the default
+levers did. `evals/run-live-agents.ts` shows the same configuration. The
+simulator arms in `evals/run-agent-ab.ts` use description trimming, history
+compaction, an output cap, a tool-result cap, a discounted execution tier
+and a 1-hour cache stamp in various combinations; none is a fresh install.
+`packages/sdk-js/src/theo-agent.ts` shows that Theo can prove and propose
+three levers (description trimming, stale-history compaction, a lower output
+effort) and not the cache stamp or the tool-result cap. No fresh-install
+percentage was measured here, and none is in `docs/NUMBERS.md`.
 

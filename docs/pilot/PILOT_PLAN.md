@@ -1,6 +1,6 @@
 # MESH pilot — plan
 
-> **Draft, updated 2026-11-19. Current release: MESH 0.2.4.** No partner has
+> **Draft, updated 2026-11-23. Current release: MESH 0.2.5.** No partner has
 > been approached or signed. Setup follows the one path in
 > [onboarding.md](./onboarding.md).
 >
@@ -29,11 +29,17 @@ measured and billed end-to-end, is worth more than any further synthetic harness
 ## Who a pilot suits
 
 This is who a hands-on pilot is expected to suit, and who outreach is aimed
-at. It is not a condition of using MESH. Teams already spending enough on LLM
-APIs to care, who can change one base URL without a committee:
+at. It is not a condition of using MESH. Teams that run their own agents on
+the API, already spend enough on it to care, and can change one base URL
+without a committee:
 
-- **Primary:** small/mid AI product teams running agent or RAG workloads on
-  Anthropic and/or OpenAI, **$5k–$100k/mo** of API spend, no dedicated FinOps.
+- **Primary:** agentic AI startups and application-layer businesses that
+  call the API constantly from their own agents (coding, browsing, support,
+  RAG, multi-agent) on Anthropic and/or OpenAI, **$5k–$100k/mo** of API
+  spend, no dedicated FinOps.
+- **Not the target:** someone who only uses Claude Code. That path is
+  supported, but Claude Code already caches, and a fresh install should be
+  expected to save such a user little.
 - **Signal they're a fit:** multi-turn agents that don't use prompt caching;
   large tool schemas resent every turn; latency-tolerant batch/classification
   jobs; "our LLM bill is scary and nobody owns it."
@@ -74,7 +80,7 @@ over the pilot window.
 | Net verified savings ($ and %) | the partner's `mesh statement --period YYYY-MM` for the month; `mesh-bill` on the statement and ledger files they send. `mesh verify` and `mesh-verify` give the total since install, not a month |
 | Savings by lever (cache stamp, schema compaction, dup removal, tier arbitrage) | invoice line items |
 | `do_not_charge` events and why | invoice verdict + reasons |
-| Did the partner recompute and agree? | their `mesh statement` for the month, which `mesh-bill` compares with its own recompute |
+| Did the partner recompute and agree? | their signed `mesh statement` for the month, which `mesh-bill` compares with its own recompute and with the key they registered |
 | Time to onboard; any request-path incident | kickoff notes (target: minutes; incidents: zero) |
 | Objections raised (esp. data / security) | engagement notes → feeds the real DPA |
 
@@ -87,8 +93,10 @@ it make a pilot about four weeks end to end.
 - **Week 0 — kickoff.** Send the [pilot agreement](./pilot-agreement.md) and
   get a "yes". The yes is for the measuring window and any invoice; the team
   does not need it to install or use MESH and may already be running it. Set
-  up or confirm onboarding ([onboarding.md](./onboarding.md)); optional day-0
-  quote from a gateway export.
+  up or confirm onboarding ([onboarding.md](./onboarding.md)), including
+  the partner registering their statement key fingerprint
+  (`mesh statement --key`, 0.2.5 or later); optional day-0 quote from a
+  gateway export.
 - **Weeks 1–2 — measure (14 days).** Normal traffic through the proxy, ledger
   in `~/.mesh/ledger/` on the partner's machine. Lossless levers on. Theo
   stays on his default autonomy, `recommend`, and is never set to `optimise`
@@ -121,17 +129,33 @@ net verified savings**, by calendar month, rounded down to the cent;
   drafts, and there is no DPA.
 - **Compliance.** No SOC 2 / ISO yet; the architecture (no prompt data leaves the
   partner's machines) is the current answer, not a certificate.
-- **Savings figures are not yet from customer traffic.** The one LIVE figure is
-  18.2% on MESH's own mixed 30-request test basket (run 2026-10-26); every
-  other figure is SIMULATOR. All of them are in
-  [docs/NUMBERS.md](../NUMBERS.md), and this pilot exists to replace them with
-  real-traffic numbers.
+- **Savings figures are not yet from customer traffic, and none is what a
+  fresh install gives.** The one LIVE figure is 18.2% on MESH's own mixed
+  30-request test basket (run 2026-10-26), measured with the Anthropic cache
+  stamp and a tool-result cap switched on, both off in a fresh install; the
+  three default levers account for under half of it. Every other figure is
+  SIMULATOR, modelled with further levers on. All of them are in
+  [docs/NUMBERS.md](../NUMBERS.md), which has no default-install figure yet,
+  and this pilot exists to replace them with real-traffic numbers.
+- **What a fresh install does is less than what was measured.** A partner on
+  a fresh install gets the three lossless levers. Theo, on `recommend`, can
+  prove and propose three more (tool-description trimming, stale-history
+  compaction, a lower output effort). He does not propose the cache stamp or
+  the tool-result cap, the two levers behind most of the LIVE figure, and
+  the configure guide gives no steps for turning them on in the installed
+  `mesh`. So a pilot measures the defaults plus whatever the partner accepts,
+  not the tuned configuration.
 - **Billing outside a pilot.** The website states the price (1% of verified
   savings, monthly, nothing else) and that no fee is due unless billing is
   agreed in writing. The draft [order form](./order-form.md) is that
   agreement in outline; it is unreviewed and leaves the contact address,
   smallest invoice, currency, VAT wording and payment route blank. There are
   no accounts, no self-serve signup and no automatic billing.
+- **The statement key rests on its channel.** From 0.2.5 a statement is
+  signed and we bill only from one signed by the partner's registered key.
+  That shows which install wrote the statement; it is only as good as the
+  channel the fingerprint came through, and that channel is not yet fixed
+  (there is still no contact email address).
 - **Months and small invoices.** Release 0.2.4 settled two things: the fee
   is rounded down to the cent, and `mesh statement --period YYYY-MM` gives a
   partner one month's figure. Still open: the smallest invoice worth sending

@@ -2,15 +2,18 @@
 
 For anyone running MESH on their own traffic. MESH is open to everyone: no
 signup, no account, no waiting list, and nobody to ask before you start.
-Written 2026-11-16 and checked again on 2026-11-19 against MESH 0.2.4, the
+Written 2026-11-16 and checked again on 2026-11-23 against MESH 0.2.5, the
 current release. It takes about five minutes to set up.
 
 ## What you are testing
 
 MESH is a small program that runs on your own machine, between your app (or
-Claude Code) and your AI provider. It removes tokens you were about to pay for
-twice, and writes one line per request into a ledger file you hold, so the
-saving can be checked by you and not only by us.
+Claude Code) and your AI provider. It does two things: it keeps your prompts
+cacheable, making only lossless changes to a request by default, and it
+writes one line per request into a ledger file you hold, so every figure can
+be checked by you and not only by us. Nobody has measured MESH against a real
+provider bill yet, so we promise no smaller bill; what you see on your own
+traffic is the point of testing.
 
 - Your API key passes through to your provider. MESH does not store it.
 - Your prompts and answers stay on your machine. The ledger holds usage
@@ -38,7 +41,7 @@ Then check it:
 mesh version
 ```
 
-It should print `mesh 0.2.4` or later. If the command is not found, open a new
+It should print `mesh 0.2.5` or later. If the command is not found, open a new
 terminal window and try again, or run it by its full path:
 `~/.mesh/bin/mesh version`. `mesh doctor` checks the rest of the setup.
 
@@ -99,9 +102,27 @@ the base URL setting has not reached it. `mesh doctor` checks the rest.
   lists, batches and file uploads, is passed to your provider untouched. If a
   call that worked before fails through MESH, that is a bug we want to hear
   about the same day.
+- **What a fresh install does.** Out of the box MESH makes three lossless
+  changes and nothing else: it compacts tool schemas, removes exact duplicate
+  context and repairs the order of a cacheable prefix. Our published figures
+  were not measured that way. The one figure from real API traffic, 18.2%
+  (LIVE, our own test basket, run 2026-10-26), had the Anthropic cache stamp
+  and a tool-result cap switched on, both off in a fresh install; the three
+  default changes account for under half of it. We have no figure yet for a
+  fresh install on its own.
 - **The first number may be small, or zero.** The default levers are the safe
   ones. On traffic that is already lean, MESH says so in plain words:
   `nothing to bill yet — do not pay us`. That is a real result, not a fault.
+  Expect the most from your own agents calling the API (coding, browsing,
+  support, RAG, multi-agent). If you only use Claude Code, expect little from
+  the defaults: Claude Code already caches.
+- **How more gets switched on.** Theo can prove a few further changes on your
+  own traffic and propose them (next point); you say yes or no. One more
+  lever, JSON tool-result compaction, can be added by hand: the
+  [configure guide](../guide/configure.md#optional-compact-json-tool-results)
+  says how, and when not to. The cache stamp and the tool-result cap behind
+  our live figure are not something a fresh install or Theo's proposals turn
+  on today.
 - **Theo will suggest more.** Theo is the part of MESH that studies your
   traffic. When he finds a saving that changes what is sent, he proposes it in
   the MESH window and waits for your yes. Please leave his autonomy at the
@@ -119,9 +140,17 @@ the base URL setting has not reached it. `mesh doctor` checks the rest.
 | `mesh status` | Requests seen and savings since install |
 | `mesh dashboard` | A live page on your own machine |
 | `mesh verify` | Re-checks the whole ledger and recomputes the total since install, with no network calls |
-| `mesh statement --period YYYY-MM` | One calendar month (UTC): savings by lever, the fee and the verdict, and a statement file you can share. Needs 0.2.4 or later |
+| `mesh statement --period YYYY-MM` | One calendar month (UTC): savings by lever, the fee and the verdict, and a statement file you can share. The file is signed with a key that is created on your machine the first time and never leaves it |
 
 The ledger is in `~/.mesh/ledger/`. It is yours.
+
+**You do not need to register anything to test.** Nothing here asks for an
+account, a key or a payment. Only if you later agree billing with us do you
+give us one thing: the fingerprint that `mesh statement --key` prints, so that
+we bill only from statements your own install signed. The fingerprint is
+public; the key file, `~/.mesh/identity/statement-key.json`, stays on your
+machine and is never sent. [Pricing and billing](../site/pricing.md) has the
+steps.
 
 ## What we would like back
 
@@ -146,8 +175,10 @@ you share it.
 - If the MESH window was killed and Claude Code cannot connect: `mesh restore`.
 - Always-on mode (macOS), if you turned it on with `mesh install`:
   `mesh uninstall` stops it and restores Claude Code.
-- Remove everything: delete the `~/.mesh` folder (the launcher, the runtime and
-  your ledger live there, so copy the ledger out first if you want to keep it)
+- Remove everything: delete the `~/.mesh` folder (the launcher, the runtime,
+  your ledger and your statement key live there, so copy the ledger out first
+  if you want to keep it; if you have agreed billing with us, a new install
+  has a new key fingerprint to register)
   and the `# MESH` line the installer added to your shell profile. For your own
   app, take the base URL setting back out.
 
