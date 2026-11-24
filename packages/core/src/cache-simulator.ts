@@ -39,6 +39,19 @@ export type CachePolicy = {
   incrementTokens: number;
   /** Entry is dropped after this long without being used. */
   ttlSeconds: number;
+  /**
+   * Seconds between a write STARTING and the entry becoming visible to a
+   * concurrent request with the same prefix. The provider does not create a
+   * cache entry until the write's response begins, so two requests fired at
+   * the same instant both miss and both write — the entry one "sees" is not
+   * the other's write but the first chunk of its own response arriving.
+   * Omitted (or 0) keeps every existing simulation's behaviour unchanged: an
+   * entry is visible to a request at the same timestamp that wrote it, which
+   * is correct for traffic that isn't truly concurrent. Set this only to
+   * model genuine same-instant fan-out (see `fanOutPrefixHash` /
+   * `FanOutLatch` in the SDK, and `evals/run-fanout-latch.ts`).
+   */
+  writeAvailabilityDelaySeconds?: number;
   /** Charge for writing a prefix, as a multiple of the base input rate. */
   writeMultiplier: number;
   /** Charge for reading a cached prefix, as a multiple of the base input rate. */
@@ -110,7 +123,7 @@ export type SimulatedCall = {
   outputTokens: number;
   costUsd: number;
   /** Why nothing was cached, when nothing was. */
-  missReason?: "below-minimum" | "no-matching-prefix" | "expired" | "first-request";
+  missReason?: "below-minimum" | "no-matching-prefix" | "expired" | "first-request" | "not-yet-available";
 };
 
 export type SimulationResult = {
@@ -129,7 +142,7 @@ export type SimulationResult = {
   missReasons: Record<string, number>;
 };
 
-type Entry = { prompt: string; lastUsedAt: number };
+type Entry = { prompt: string; lastUsedAt: number; availableAt: number };
 
 function commonPrefixLength(left: string, right: string): number {
   const limit = Math.min(left.length, right.length);
@@ -182,13 +195,24 @@ export function simulateCache(
     let cachedInputTokens = 0;
     let missReason: SimulatedCall["missReason"] | undefined;
 
-    if (entries.length === 0) {
-      missReason = calls.length === 0 ? "first-request" : "expired";
+    // Entries not yet visible (same-instant fan-out racing the write that
+    // created them) cannot be matched: the provider has not finished
+    // committing that write. With no `writeAvailabilityDelaySeconds` every
+    // entry is visible the instant it is written, so this never excludes
+    // anything existing callers relied on.
+    const visibleEntries = entries.filter((entry) => entry.availableAt <= request.atSeconds);
+
+    if (visibleEntries.length === 0) {
+      missReason = calls.length === 0
+        ? "first-request"
+        : entries.length > 0
+          ? "not-yet-available"
+          : "expired";
     } else {
       // Longest exact prefix across live entries, as the providers describe.
       let bestChars = 0;
       let bestEntry: Entry | undefined;
-      for (const entry of entries) {
+      for (const entry of visibleEntries) {
         const shared = commonPrefixLength(entry.prompt, request.prompt);
         if (shared > bestChars) {
           bestChars = shared;
@@ -232,7 +256,11 @@ export function simulateCache(
       ...(missReason === undefined ? {} : { missReason }),
     });
 
-    entries.push({ prompt: request.prompt, lastUsedAt: request.atSeconds });
+    entries.push({
+      prompt: request.prompt,
+      lastUsedAt: request.atSeconds,
+      availableAt: request.atSeconds + (policy.writeAvailabilityDelaySeconds ?? 0),
+    });
     // Providers keep a bounded cache; holding every prompt forever would
     // overstate hit rates on long runs.
     if (entries.length > 64) entries.shift();

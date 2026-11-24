@@ -55,6 +55,19 @@ Ranking = honest expected impact × confidence in the measurement path. Three ad
 
 ### P5. Shared-prefix fan-out serialization (cache race-loss repair)
 
+- **STATUS (2026-11-24): partially shipped, PR open.** Built independently seven
+  times across unmerged nightly branches (2026-10-27, 2026-11-06, 2026-11-08,
+  2026-11-12, 2026-11-18, 2026-11-21, 2026-11-23) because this backlog file —
+  the thing every night reads before planning — was never updated by any of
+  them; see `docs/rnd/2026-11-24-NOTES.md`. Tonight rebased
+  `rnd/fanout-latch-2026-11-21` (`FanOutLatch` + `writeAvailabilityDelaySeconds`
+  simulator fix) onto current `main`: zero conflicts, 1296/1298 green, all
+  published headline numbers byte-identical before/after. Opened as a PR rather
+  than merged — this file still says "PURSUE, ranked" below because the code
+  has not had an independent review pass yet, only a mergeability check. If
+  this PR has merged by the time you read this and the line above still says
+  "partially shipped," update it; if it is still open, triage it before
+  building an eighth P5 branch.
 - **Mechanism**: Provider rule: a cache entry exists only after the first response *starts*, so simultaneous same-prefix fan-outs all pay 1.25x writes. The proxy holds same-prefix-hash arrivals behind an in-flight latch until the first response's headers arrive, converting N−1 writes into N−1 reads. Bytes untouched; only send timing moves — the most genuinely lossless lever in the portfolio.
 - **Shapes**: multi-agent fan-out exclusively; high-QPS RAG/batch bursts secondarily.
 - **Class**: lossless.
