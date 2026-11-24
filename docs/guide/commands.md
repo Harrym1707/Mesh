@@ -80,6 +80,100 @@ ledger (your hash-chain verifies), and determinism (the invoice recomputes to th
 identical number twice). Exits non-zero if any check fails, so it is safe in CI or
 a hook.
 
+## `mesh report`
+
+What Mesh did for you last week, in money, in a few short sentences. Read from
+your own ledger; nothing leaves the machine. The plain-language guide is
+[the weekly report](weekly-report.md).
+
+```sh
+mesh report
+```
+
+```
+  Mesh, your week (16 to 22 Nov).
+  You paid your provider $412.10.
+  Without Mesh: $498.30.
+  Mesh saved you $86.20.
+  Mesh's fee on that: $0.86.
+  You keep $85.34.
+  1,204 requests, ledger verified.
+
+  Theo, your token engineer, checked your traffic 9 times this week and found nothing more worth changing.
+
+  This month so far (November): saved $86.20, fee so far $0.86.
+  Details: mesh report --detail
+```
+
+| Option | Meaning |
+|---|---|
+| (none) | The last full week: Monday 00:00 to the next Monday 00:00 in your own time zone. |
+| `--week YYYY-MM-DD` | The week that date falls in. |
+| `--this-week` | This week so far. Labelled as not finished: it can still change. |
+| `--month [YYYY-MM]` | A billing month in the same plain style. Default: this month. For a finished month it also names your statement (`mesh statement --period YYYY-MM`). |
+| `--detail` | Add the breakdown below the plain part: per lever, per model, the request counts and the notes. |
+| `--json` | Print one JSON object (schema `mesh-report/1`) instead of text. |
+| `--html [path]` | Write the report as one self-contained HTML page (no external files, no scripts). Default `~/.mesh/reports/<week start>.html`. |
+| `--open` | Write that page and open it. Only in a terminal; anywhere else the path is printed and nothing is opened. |
+| `--off` / `--on` | Switch the weekly notification and the once-a-week terminal line off or on. |
+| `--deliver` | Run the weekly check now, as the background service does hourly: write the page and show the notification if one is due. |
+| `--ledger <dir>` | Ledger to read. Default `~/.mesh/ledger`. |
+
+**Where the figures come from.** They are the bill's own arithmetic: the week's
+requests are picked by the time they started and put through the same
+calculation `mesh statement` runs. "You paid your provider" is the price-list
+cost of the week's priced requests, from your provider's own reported usage.
+"Mesh saved you" is net verified savings. "Without Mesh" is worked out, not
+measured: what you paid plus what Mesh saved, the same way the statement works
+out its baseline. The fee is 1% of the week's saving, rounded down to the cent.
+
+**The weekly fee is a guide; the invoice is the monthly statement.** A billing
+month is a calendar month in UTC, and the invoice rounds the fee down once, on
+the month's total. Each weekly fee is rounded down on its own, so the weekly
+fees can add up to a few cents less than the invoice. A week where Mesh cost
+you money counts against the same month's savings, so the invoice can also come
+to less than the weekly fees added up. It is never more than 1% of the month's
+verified saving. Split any month into the parts of each week that fall inside
+it and the savings add up to that month's statement; a week that crosses a
+month end is counted in two parts, shown under `--detail`.
+
+**What can change a past week.** If a task fails, the savings on all its
+requests in that billing month stop counting, as on the statement, so an
+earlier week's figure can go down. Requests on models that are not in the price
+list are not in the cost lines; the report says how many there were.
+
+**The cases.** Saved nothing: "Mesh saved you $0.00 this week, so you owe
+nothing." Mesh cost more than it saved: the report says how much, that it
+counts against Mesh's fee, and that nothing is owed. A fee under one cent: the
+saving is stated and nothing is owed for it. No requests: "Mesh saw no requests
+last week, so it is not connected. Fix: mesh setup". A ledger whose hash chain
+does not verify: no figure at all, "Run: mesh verify", and the command exits 1
+(the same with `--json`); every other case exits 0.
+
+**Theo's lines.** Under the money, one or two lines say what Theo did that
+week, read from his own records: a change that needs your OK
+(`mesh theo --proposals`), a change you accepted that is now earning (the
+ledger's figure for it, already inside the saved total), a change he held back
+or switched off, or that he looked and found nothing. A proposal is never a
+saving: it is not added to the saved total, the fee, "you keep" or the month so
+far. No lever is named in these lines.
+
+**`--json`.** One object: `schema`, `ok`, `mesh { version, build }`, `kind`
+(`week` or `month`), `case` (`saved`, `saved_nothing`, `cost_more`,
+`no_requests`, `not_verified`), `period { kind, id, startDate, endDate,
+timeZone, startsAt, endsBefore, finished, relative, label }`, `currency`,
+`ledgerVerified`, `requests`, `paidProviderUsd`, `withoutMeshUsd`, `savedUsd`,
+`feePercent`, `feeCents`, `feeUsd`, `feeBelowOneCent`, `keepUsd`,
+`unpricedRequests`, `monthToDate { period, requests, savedUsd, feeCents,
+feeUsd, verdict }`, `theo`, `detail { levers, models, requests, alreadyYoursUsd,
+pieces, notes }`, the words already made from it (`headline`, `monthLine`,
+`oneLine`) and `notifications` (`on` or `off`). When the ledger does not verify,
+`ok` is false and every money field is `null`.
+
+**What a report holds.** Money, counts and dates; lever names and model ids in
+the detail only. Never a prompt, a tool argument, a request id, an application
+name, a file name from your ledger, or a key.
+
 ## `mesh statement`
 
 Your statement for one billing period, recomputed on your own machine from your
