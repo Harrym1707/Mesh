@@ -32,6 +32,7 @@ The measurement harnesses, each printing its own basis label:
 ```bash
 pnpm lab:live      # where the bill still sits after Mesh, on the LIVE run's usage
 pnpm lab:tasks     # agent sessions by kind of task, on real recorded tool outputs
+pnpm lab:cache     # does each lever keep a conversation cacheable, and what does it do to the bill
 pnpm lab:browse    # browsing agents (synthetic pages)
 pnpm lab:sweep     # session length and turn cadence
 ```

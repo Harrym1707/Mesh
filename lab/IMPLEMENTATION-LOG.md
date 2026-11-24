@@ -67,6 +67,76 @@ log it here · commit locally only when green · do not push (left for review).
    tokens, idempotent, preserves fenced code, byte-identical on clean input.
 7. README + floorplan refresh; final report at 24h.
 
+### Iteration 9 — 2026-11-24 · cache compatibility: which levers can raise a bill
+
+**Why.** A published study of Claude Code (arXiv 2607.12161, read by the
+release session, not by this one) found that cutting tool-output tokens raised
+the billed cost, and that another local proxy raised it by about half. The
+mechanism is the prompt cache: an agent's history is a prefix it re-sends every
+turn and a caching client pays a tenth of the input rate for it. A proxy that
+changes that prefix differently on two turns turns reads into writes at 1.25x.
+Mesh had never been checked for this.
+
+**What was built.** `pnpm lab:cache` (`lab/cache-compat.ts`, pricing in
+`lab/cache-stream.ts`). 22 multi-turn sessions (the five recorded agent tasks,
+a browsing agent, five chat shapes; each with a client that does not cache,
+one that places breakpoints, and one that uses automatic caching) against each
+lever alone. Three checks: A, every reduced turn is still an exact prefix of
+the next where the provider caches; B, are the bytes inside a caller-cached
+prefix unchanged; C, the stream priced under the cache rules, raw against
+reduced, with the lever on from the first turn and switched on halfway.
+
+**Basis: SIMULATOR.** Real recorded tool outputs, scripted sessions, estimated
+tokens, documented cache rates (write 1.25x, read 0.1x, 5-minute lifetime,
+1,024-token minimum), turns 20 s apart. No model ran; no provider was called.
+
+**Found.**
+
+| Lever | A: prefix stable where cached | C: billed input, cached conversations | Switched on halfway |
+|---|---|---|---|
+| Tool-schema compaction (default) | yes | +5.0% cheaper | -40.8% (dearer) |
+| Duplicate-context removal (default) | yes | +7.8% | -5.8% |
+| Cache-prefix repair (default) | yes | 0.0% | 0.0% |
+| JSON tool-result compaction | yes | +7.9% | -34.9% |
+| Cache stamp | yes | n/a (defers to the caller) | n/a |
+| Tool description trim (lossy) | yes | +0.2% to +10.4% | -45.0% |
+| Fresh tool-result cap (lossy) | yes | +53.6% to +89.6% | +25.5% |
+| Cross-turn memory dedup (lossy) | yes | +11.9% to +40.7% | -0.8% |
+| **Stale-history compaction (lossy), before this iteration** | **NO: 4 cached sessions** | **-80.6% to +12.3%** | -79.0% |
+| Stale-history compaction, gated | yes | does not act | does not act |
+
+1. **One lever could do what the study measured: stale-history compaction.**
+   On conversations a client was caching it removed 7.2% to 34.2% of the input
+   tokens and RAISED the billed input cost by 7.1% to 80.6%. It moves its
+   boundary every two turns by default, and every move re-writes the history.
+   The same happened under Mesh's own cache stamp: on four chat shapes the
+   stamp alone saved 75.3% to 85.7% of the input bill and the stamp plus
+   compaction 52.7% to 81.7%.
+2. **It is now gated in the product** (`packages/sdk-js/src/reduce-request.ts`):
+   compaction is withheld on a request whose history is under a cache
+   breakpoint (the caller placed one in the conversation, the caller uses
+   automatic caching, or Mesh's stamp will place one on the newest message)
+   and a `stale-history-compaction-suppressed` record says why.
+   `historyCompaction: { allowUnderCache: true }` overrides it. Where nothing
+   caches the history it still runs: +7.2% to +34.2% there, and +32.7% on top
+   of the stamp for a conversation whose instructions open with a clock (the
+   stamp places no breakpoint on that history).
+3. **Every other lever keeps the prefix stable.** Each is a pure function of
+   the bytes it changes, so it changes them the same way on every turn.
+4. **They do change bytes the caller cached, and that has a price once.**
+   Switched on halfway through a cached conversation, tool-schema compaction
+   costs that conversation 40.8% more input, description trim 45.0%, JSON
+   compaction 34.9%: the prefix is re-written one time. On from the first turn
+   they cost nothing. Mesh reloads its policy at any moment, so this is what a
+   lever Theo applies mid-conversation, or a proxy started under a running
+   client, costs. Not fixed here: the fix is to hold a policy change until a
+   conversation starts.
+
+**Limits.** Sessions are scripted; a 20-second turn gap means nothing expires;
+the pricer has no 20-block lookback and no provider-side rounding; the
+automatic-caching client is modelled as one breakpoint on the last block.
+Output cost is left out of check C on purpose (no lever here changes it).
+
 ### Iteration 8 — 2026-11-16 · agent tasks: where the tokens go, and what Mesh can take out
 
 Harry (relayed by the release-staging session): "I also want the engineering
