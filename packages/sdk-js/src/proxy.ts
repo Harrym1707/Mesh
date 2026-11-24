@@ -838,8 +838,10 @@ export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
       resolve({
         port,
         url: `http://127.0.0.1:${port}`,
-        close: () => new Promise<void>((done, fail) =>
-          server.close((err) => (err ? fail(err) : done()))),
+        close: () => new Promise<void>((done, fail) => {
+          policyPins?.flush(); // so a restart finds the conversations in flight
+          server.close((err) => (err ? fail(err) : done()));
+        }),
       });
     });
   });

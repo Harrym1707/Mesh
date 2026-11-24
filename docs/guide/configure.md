@@ -67,8 +67,9 @@ and so is everything that is not tool output.
 Turn it on per workload.
 
 With the proxy (`mesh start` / `mesh install`), add the lever to the `levers`
-list in `~/.mesh/theo-policy.json`. A running proxy picks the change up on its
-next request:
+list in `~/.mesh/theo-policy.json`. A running proxy applies the change to
+conversations that start after it; one already in flight keeps the policy it
+started with:
 
 ```json
 { "lever": "tool-result-json-compaction", "class": "lossless" }

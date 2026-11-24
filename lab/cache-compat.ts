@@ -27,7 +27,9 @@
  */
 
 import { approximateTokenCount } from "../packages/core/src/token-reduction.js";
-import type { MeshTokenReductionConfig } from "../packages/sdk-js/src/reduce-request.js";
+import { CachePrefixVolatilityGuard } from "../packages/sdk-js/src/cache-volatility-guard.js";
+import { ConversationPolicyPins } from "../packages/sdk-js/src/conversation-policy-pins.js";
+import { reduceRequest, type MeshTokenReductionConfig } from "../packages/sdk-js/src/reduce-request.js";
 import { agentSessions, corpusAvailable } from "./agent-tasks.js";
 import { browsingSession } from "./browsing-shape.js";
 import { layout, priceStream, reduceStream, type AnyObject, type TimedRequest } from "./cache-stream.js";
@@ -227,6 +229,30 @@ function computePrefixCarry(requests: readonly TimedRequest[]): { held: number; 
   return out;
 }
 
+/** No lever at all (two default to on when unset). */
+const NO_LEVERS: MeshTokenReductionConfig = { toolSchemas: false, duplicateContext: false };
+const SESSION_START_MS = Date.parse("2026-11-24T09:00:00.000Z");
+
+/**
+ * The stream as the PROXY would send it when the policy changes from `before`
+ * to `after` at request `changeAt`: every request asks the conversation pins
+ * which policy it gets, as the proxy does.
+ */
+function reduceAcrossPolicyChange(
+  requests: readonly TimedRequest[],
+  before: MeshTokenReductionConfig,
+  after: MeshTokenReductionConfig,
+  changeAt: number,
+): TimedRequest[] {
+  const pins = new ConversationPolicyPins();
+  const guard = new CachePrefixVolatilityGuard();
+  return requests.map((timedRequest, index) => {
+    const { config } = pins.resolve(timedRequest.request, index < changeAt ? before : after, SESSION_START_MS + timedRequest.atSeconds * 1000);
+    const guarded = config.cacheTtl === undefined ? config : { ...config, cacheVolatilityGuard: guard };
+    return { ...timedRequest, request: reduceRequest(timedRequest.request, guarded).request as AnyObject };
+  });
+}
+
 export type CompatRow = {
   session: string;
   callerCache: CompatSession["callerCache"];
@@ -252,8 +278,18 @@ export type CompatRow = {
   callerPrefixUntouched?: boolean;
   /** Check C: change to the billed INPUT cost with the lever on from the first turn. Positive = cheaper. */
   billChangePercent: number;
-  /** The same with the lever switched on halfway through the conversation. */
+  /** The same with the lever switched on halfway through the conversation, applied to the very next request (no pinning). */
   midSessionBillChangePercent: number;
+  /**
+   * The lever published halfway through, as the proxy handles it: the
+   * conversation keeps the policy it started with. Zero means it cost nothing.
+   */
+  midSessionPinnedBillChangePercent: number;
+  /**
+   * Lossy levers only: on from the first turn, then WITHDRAWN halfway (a
+   * rollback). The proxy drops it at once and accepts the re-write.
+   */
+  withdrawnMidSessionBillChangePercent?: number;
   /** Change in input TOKENS sent, for comparison with the bill. Positive = fewer tokens. */
   tokenChangePercent: number;
 };
@@ -284,6 +320,8 @@ export function checkCompat(session: CompatSession, lever: CompatLever): CompatR
     });
   }
 
+  const changed = raw.some(({ request }, index) => layout(request).content !== layout(reduced[index]!.request).content ||
+    JSON.stringify(request) !== JSON.stringify(reduced[index]!.request));
   const half = Math.floor(raw.length / 2);
   const switchedOnHalfway = raw.map((timedRequest, index) => (index < half ? timedRequest : reduced[index]!));
   const rawPriced = priced(raw);
@@ -294,8 +332,7 @@ export function checkCompat(session: CompatSession, lever: CompatLever): CompatR
     lever: lever.id,
     turns: raw.length,
     cached,
-    acted: raw.some(({ request }, index) => layout(request).content !== layout(reduced[index]!.request).content ||
-      JSON.stringify(request) !== JSON.stringify(reduced[index]!.request)),
+    acted: changed,
     rawWholePairs,
     brokenPairs,
     prefixStable: brokenPairs === 0,
@@ -304,6 +341,12 @@ export function checkCompat(session: CompatSession, lever: CompatLever): CompatR
     ...(callerPrefixUntouched === undefined ? {} : { callerPrefixUntouched }),
     billChangePercent: percent(rawPriced.inputUnits, reducedPriced.inputUnits),
     midSessionBillChangePercent: percent(rawPriced.inputUnits, priceStream(switchedOnHalfway).inputUnits),
+    midSessionPinnedBillChangePercent: lever.against !== undefined || !changed ? 0
+      : percent(rawPriced.inputUnits, priceStream(reduceAcrossPolicyChange(session.requests, NO_LEVERS, lever.config, half)).inputUnits),
+    ...(lever.lossless || lever.against !== undefined || !changed ? {} : {
+      withdrawnMidSessionBillChangePercent:
+        percent(rawPriced.inputUnits, priceStream(reduceAcrossPolicyChange(session.requests, lever.config, NO_LEVERS, half)).inputUnits),
+    }),
     tokenChangePercent: percent(rawPriced.inputTokens, reducedPriced.inputTokens),
   };
 }
@@ -327,6 +370,10 @@ export type LeverVerdict = {
   bestCallerCachedBillChangePercent: number;
   /** The worst bill change when the lever is switched on halfway through a cached conversation. */
   worstMidSessionBillChangePercent: number;
+  /** The same as the proxy handles it, with the conversation keeping the policy it started with. */
+  worstMidSessionPinnedBillChangePercent: number;
+  /** Lossy levers: the worst bill change when the lever is withdrawn halfway through a cached conversation. */
+  worstWithdrawnMidSessionBillChangePercent?: number;
   rows: CompatRow[];
 };
 
@@ -352,6 +399,11 @@ export function qualifyCacheCompat(): LeverVerdict[] {
       worstCallerCachedBillChangePercent: of(callerCached.map((row) => row.billChangePercent), Math.min),
       bestCallerCachedBillChangePercent: of(callerCached.map((row) => row.billChangePercent), Math.max),
       worstMidSessionBillChangePercent: of(callerCached.map((row) => row.midSessionBillChangePercent), Math.min),
+      worstMidSessionPinnedBillChangePercent: of(callerCached.map((row) => row.midSessionPinnedBillChangePercent), Math.min),
+      ...(lever.lossless ? {} : {
+        worstWithdrawnMidSessionBillChangePercent:
+          of(callerCached.flatMap((row) => (row.withdrawnMidSessionBillChangePercent === undefined ? [] : [row.withdrawnMidSessionBillChangePercent])), Math.min),
+      }),
       rows,
     };
   });

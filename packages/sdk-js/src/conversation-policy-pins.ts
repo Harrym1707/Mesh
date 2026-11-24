@@ -20,6 +20,11 @@ import type { MeshTokenReductionConfig } from "./reduce-request.js";
  *
  *   - A conversation seen before keeps the policy it was first given, for as
  *     long as a provider cache could still hold it.
+ *   - A request that STARTS a conversation (the model has not answered in it
+ *     yet, or it is no longer than when the conversation was first seen)
+ *     takes the current policy, even if an earlier conversation opened with
+ *     the same message. One-shot calls are always starts, so they are never
+ *     held on an old policy.
  *   - Once it has been idle longer than any cache lives, nothing is cached any
  *     more and a change is free: it takes the current policy.
  *   - A conversation MESH did not see the start of, whose caller is caching
@@ -88,12 +93,34 @@ function withoutWithdrawnLossy(pinned: PinnedPolicy, current: MeshTokenReduction
   return (next as PinnedPolicy | undefined) ?? pinned;
 }
 
+/**
+ * A message as it identifies a conversation: without cache markers, and with a
+ * plain-string body written as the one text block it is equivalent to. A
+ * caching client moves its `cache_control` marker to the newest block every
+ * turn, so the FIRST message carries a marker on turn one and none afterwards;
+ * its identity must not change with that.
+ */
+function withoutCacheMarkers(value: unknown, depth = 0): unknown {
+  if (depth > 64 || typeof value !== "object" || value === null) return value;
+  if (Array.isArray(value)) return value.map((item) => withoutCacheMarkers(item, depth + 1));
+  const out: Record<string, unknown> = {};
+  for (const [key, inner] of Object.entries(value)) {
+    if (key === "cache_control") continue;
+    out[key] = depth === 0 && key === "content" && typeof inner === "string"
+      ? [{ type: "text", text: inner }]
+      : withoutCacheMarkers(inner, depth + 1);
+  }
+  return out;
+}
+
 type Entry = {
   policy: PinnedPolicy;
   firstSeenMs: number;
   lastSeenMs: number;
   /** MESH did not see this conversation start and its caller is caching it: nothing is changed. */
   untouched: boolean;
+  /** How many messages the request carried when the pin was made. A later request no longer than this is a new start. */
+  messagesAtStart: number;
 };
 
 export type PinDecision =
@@ -159,6 +186,15 @@ export class ConversationPolicyPins {
 
     let decision: PinDecision;
     let entry = this.entries.get(conversation.key);
+    // A start: the model has not answered yet, or the conversation is back to
+    // (or under) the length it had when first seen - the same opening message
+    // used again. An untouched conversation is only restarted by a strictly
+    // shorter request, so a retry of the turn it was joined at changes nothing.
+    if (entry !== undefined && (!conversation.inFlight ||
+        (entry.untouched ? conversation.messageCount < entry.messagesAtStart : conversation.messageCount <= entry.messagesAtStart))) {
+      this.entries.delete(conversation.key);
+      entry = undefined;
+    }
     if (entry !== undefined) {
       const idle = nowMs - entry.lastSeenMs > this.cacheLifetimeMs;
       // An untouched conversation is left alone for one cache lifetime from
@@ -188,6 +224,7 @@ export class ConversationPolicyPins {
         firstSeenMs: nowMs,
         lastSeenMs: nowMs,
         untouched,
+        messagesAtStart: conversation.messageCount,
       };
       decision = untouched ? "untouched" : "started";
       this.entries.set(conversation.key, entry);
@@ -216,7 +253,7 @@ export class ConversationPolicyPins {
     this.save(nowMs);
   }
 
-  private conversationOf(request: unknown): { key: string; inFlight: boolean; callerCaches: boolean } | undefined {
+  private conversationOf(request: unknown): { key: string; inFlight: boolean; callerCaches: boolean; messageCount: number } | undefined {
     if (!isPlainObject(request)) return undefined;
     const messages = Array.isArray(request.messages) ? request.messages
       : Array.isArray(request.input) ? request.input : undefined;
@@ -224,7 +261,7 @@ export class ConversationPolicyPins {
     const model = typeof request.model === "string" ? request.model : "";
     let first: string;
     try {
-      first = JSON.stringify(messages[0]) ?? "";
+      first = JSON.stringify(withoutCacheMarkers(messages[0])) ?? "";
     } catch {
       return undefined;
     }
@@ -238,7 +275,7 @@ export class ConversationPolicyPins {
     } catch {
       callerCaches = false;
     }
-    return { key, inFlight, callerCaches };
+    return { key, inFlight, callerCaches, messageCount: messages.length };
   }
 
   private load(): void {
@@ -255,6 +292,7 @@ export class ConversationPolicyPins {
           firstSeenMs: entry.firstSeenMs,
           lastSeenMs: entry.lastSeenMs,
           untouched: entry.untouched === true,
+          messagesAtStart: typeof entry.messagesAtStart === "number" ? entry.messagesAtStart : 1,
         });
       }
     } catch {
