@@ -15,6 +15,8 @@ Usage: mesh <command> [options]
 
   (nothing)  Just \`mesh\`: is it working, the one thing to fix if not, and this
              month so far in money.
+  setup      Connect MESH: Claude Code or your own app, always-on or in a
+             terminal. Says plainly whether it is connected when it is done.
   start      Start the MESH proxy, point Claude Code at it, and run Theo
              alongside you. One command; reverts cleanly on exit.
   proxy      Start the MESH proxy for any app or agent: point its base URL at
@@ -64,6 +66,8 @@ async function main(): Promise<void> {
     await (await import("./daemon.js")).runStatus(["--json"]);
   } else if (sub === "--help" || sub === "-h" || sub === "help") {
     console.log(TOP_USAGE);
+  } else if (sub === "setup") {
+    await (await import("./setup.js")).runSetup(process.argv.slice(3));
   } else if (sub === "start") {
     await (await import("./start.js")).runStart(process.argv.slice(3));
   } else if (sub === "proxy") {

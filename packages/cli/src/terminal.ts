@@ -6,7 +6,9 @@
  *   - No ANSI colour or cursor codes unless `colourEnabled()` says so. Styled
  *     text goes through `style()`; nothing else in packages/cli/src may write
  *     an escape sequence (terminal.test.ts scans the sources for one).
- *   - Nothing reads stdin. A command that would need an answer takes it as a
+ *   - Nothing reads stdin, with one exception: `mesh setup` asks its questions
+ *     when `isInteractive()`. Everywhere else, and in `mesh setup` under an
+ *     unattended caller, a command that would need an answer takes it as a
  *     flag and fails with a plain message naming the flag.
  *   - Nothing opens a browser, a pager or an editor unless `isInteractive()`.
  */

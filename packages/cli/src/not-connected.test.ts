@@ -149,6 +149,7 @@ describe("installed, never connected", () => {
           const result = runMeshProcess(fake, [flag], { entry });
           expect(result.status, flag).toBe(0);
           expect(result.stdout, flag).toContain("Usage: mesh <command>");
+          expect(result.stdout, flag).toContain("  setup ");
           expect(result.stdout, flag).not.toContain("Fix: mesh setup");
         }
       });

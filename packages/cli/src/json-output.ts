@@ -44,6 +44,8 @@ export function meshIdentity(): MeshIdentity {
  *   statement_not_valid    a statement file failed its seal or signature check
  *   unsupported_platform   the command is not available on this platform
  *   claude_settings_invalid  ~/.claude/settings.json is not valid JSON
+ *   claude_pointed_elsewhere Claude Code's base URL points somewhere that is not MESH's to replace
+ *   not_connected          `mesh setup` finished and requests still cannot reach MESH
  *   network                a download or update check could not reach its host
  *   unexpected             anything else; the message says what
  */
@@ -57,6 +59,8 @@ export type MeshErrorCode =
   | "statement_not_valid"
   | "unsupported_platform"
   | "claude_settings_invalid"
+  | "claude_pointed_elsewhere"
+  | "not_connected"
   | "network"
   | "unexpected";
 
