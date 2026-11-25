@@ -14,6 +14,15 @@
  *     value instead of the dead proxy's address, and `mesh restore` /
  *     `mesh doctor` use it to repair Claude Code without starting anything.
  *
+ * Tool search. Claude Code turns its tool search off whenever
+ * ANTHROPIC_BASE_URL is not Anthropic's own address, and then sends every tool
+ * definition in full on every request: measured on 2026-11-25 with Claude Code
+ * 2.1.160, 51,602 input tokens through a local address against 33,156 direct.
+ * MESH passes tool search through unchanged, so wiring also sets
+ * ENABLE_TOOL_SEARCH=true, which restores the request Claude Code sends
+ * directly. A value the user already set is theirs and is never changed, and
+ * the undo removes only a value MESH itself wrote.
+ *
  * Paths are passed in, never read from the environment here, so this is
  * testable without a subprocess.
  */
@@ -37,8 +46,29 @@ export type WiringState = {
   priorBaseUrl: string | null;
   /** Whether ~/.claude/settings.json existed before the session. */
   hadFile: boolean;
+  /** Whether this session wrote ENABLE_TOOL_SEARCH (false: the user had their own value). */
+  setToolSearch: boolean;
   at: string;
 };
+
+/** The value MESH writes so Claude Code keeps tool search on behind the proxy. */
+export const TOOL_SEARCH_KEY = "ENABLE_TOOL_SEARCH";
+export const TOOL_SEARCH_VALUE = "true";
+
+/**
+ * Turn tool search on in a Claude Code `env` block unless the user chose a
+ * value. Mutates `env`; returns whether MESH wrote the value (and so owns it).
+ */
+export function applyToolSearch(env: Record<string, string>): boolean {
+  if (env[TOOL_SEARCH_KEY] !== undefined) return false;
+  env[TOOL_SEARCH_KEY] = TOOL_SEARCH_VALUE;
+  return true;
+}
+
+/** Remove the value `applyToolSearch` wrote, unless it was changed since. Mutates `env`. */
+export function removeToolSearch(env: Record<string, string>, meshWroteIt: boolean): void {
+  if (meshWroteIt && env[TOOL_SEARCH_KEY] === TOOL_SEARCH_VALUE) delete env[TOOL_SEARCH_KEY];
+}
 
 type Settings = Record<string, unknown>;
 
@@ -63,6 +93,7 @@ export function readWiringState(statePath: string): WiringState | undefined {
       proxyUrl: parsed.proxyUrl,
       priorBaseUrl: typeof parsed.priorBaseUrl === "string" ? parsed.priorBaseUrl : null,
       hadFile: parsed.hadFile === true,
+      setToolSearch: parsed.setToolSearch === true,
       at: typeof parsed.at === "string" ? parsed.at : "",
     };
   } catch {
@@ -81,16 +112,24 @@ function envOf(settings: Settings): Record<string, string> {
 /**
  * Put ANTHROPIC_BASE_URL back to `priorBaseUrl` (or remove it), but only if it
  * still holds `proxyUrl`: a value the user or another tool set meanwhile is
- * theirs and is left alone. Removes a settings file this session created and
+ * theirs and is left alone. Takes ENABLE_TOOL_SEARCH out with it when this
+ * session wrote it and it has not been changed since. Removes a settings file this session created and
  * that would otherwise be left empty. Returns whether anything was changed.
  */
-function undoWiring(settingsPath: string, proxyUrl: string, priorBaseUrl: string | null, hadFile: boolean): boolean {
+function undoWiring(
+  settingsPath: string,
+  proxyUrl: string,
+  priorBaseUrl: string | null,
+  hadFile: boolean,
+  setToolSearch: boolean,
+): boolean {
   if (!existsSync(settingsPath)) return false;
   const now = readSettings(settingsPath);
   const env = envOf(now);
   if (env.ANTHROPIC_BASE_URL !== proxyUrl) return false;
   if (priorBaseUrl === null) delete env.ANTHROPIC_BASE_URL;
   else env.ANTHROPIC_BASE_URL = priorBaseUrl;
+  removeToolSearch(env, setToolSearch);
   const next: Settings = { ...now, env };
   if (Object.keys(env).length === 0) delete next.env;
   if (!hadFile && Object.keys(next).length === 0) {
@@ -128,6 +167,8 @@ export function wireClaudeCode(
   }
   const env = envOf(settings);
   let priorBaseUrl: string | null = env.ANTHROPIC_BASE_URL ?? null;
+  // Whether a tool-search value already in the settings was written by MESH.
+  let inheritedToolSearch = false;
 
   // A record left by an earlier session means that session never restored.
   let ownsRecord = true;
@@ -135,16 +176,19 @@ export function wireClaudeCode(
   if (earlier !== undefined) {
     if (earlier.pid !== pid && isAlive(earlier.pid)) {
       // Another `mesh start` is running and owns the record. Stack on top of it:
-      // our "before" is its proxy, which is what we restore to on exit.
+      // our "before" is its proxy, which is what we restore to on exit. Its
+      // tool-search value stays its own to remove.
       ownsRecord = false;
     } else if (priorBaseUrl === earlier.proxyUrl) {
       // The earlier session died without restoring, so the settings still hold
       // ITS proxy address. The user's real previous value is the one it recorded.
       priorBaseUrl = earlier.priorBaseUrl;
       hadFile = earlier.hadFile;
+      inheritedToolSearch = earlier.setToolSearch && env[TOOL_SEARCH_KEY] === TOOL_SEARCH_VALUE;
     }
     // Otherwise the user changed the value since; what is there now stands.
   }
+  const setToolSearch = ownsRecord && (applyToolSearch(env) || inheritedToolSearch);
 
   if (ownsRecord) {
     // Record first, so a kill between the two writes cannot leave Claude Code
@@ -154,6 +198,7 @@ export function wireClaudeCode(
       proxyUrl,
       priorBaseUrl,
       hadFile,
+      setToolSearch,
       at: (options.now ?? (() => new Date().toISOString()))(),
     };
     mkdirSync(dirname(paths.statePath), { recursive: true });
@@ -167,7 +212,7 @@ export function wireClaudeCode(
     if (restored) return;
     restored = true;
     try {
-      undoWiring(paths.settingsPath, proxyUrl, priorBaseUrl, hadFile);
+      undoWiring(paths.settingsPath, proxyUrl, priorBaseUrl, hadFile, setToolSearch);
     } catch {
       /* best-effort; never crash on shutdown */
     }
@@ -245,7 +290,7 @@ export async function repairWiring(
   }
   if (health.status === "stranded") {
     const { state } = health;
-    undoWiring(paths.settingsPath, state.proxyUrl, state.priorBaseUrl, state.hadFile);
+    undoWiring(paths.settingsPath, state.proxyUrl, state.priorBaseUrl, state.hadFile, state.setToolSearch);
     rmSync(paths.statePath, { force: true });
     return {
       changed: true,
@@ -255,7 +300,7 @@ export async function repairWiring(
     };
   }
   if (health.status === "dead-local") {
-    undoWiring(paths.settingsPath, health.baseUrl, null, true);
+    undoWiring(paths.settingsPath, health.baseUrl, null, true, false);
     return { changed: true, message: `Claude Code restored: removed ${health.baseUrl}, where nothing was listening.` };
   }
   // A leftover record whose settings no longer point at it is just litter.

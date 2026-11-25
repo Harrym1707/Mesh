@@ -502,7 +502,9 @@ export async function runStart(argv: string[]): Promise<void> {
     console.log(`           OpenAI-style        OPENAI_BASE_URL=${proxy.url}/v1`);
     console.log(`           Keep your own API key. Calls MESH does not reduce (embeddings, token`);
     console.log(`           counting, uploads) pass straight through to your provider.`);
-    console.log(`  claude   left alone (Claude Code's settings were not touched)`);
+    console.log(`  claude   left alone (Claude Code's settings were not touched). To send Claude Code`);
+    console.log(`           here by hand, also set ENABLE_TOOL_SEARCH=true: without it Claude Code`);
+    console.log(`           sends every tool definition in full to any address that is not Anthropic's.`);
   }
   if (args.openaiUpstream) console.log(`  upstream OpenAI-style traffic → ${args.openaiUpstream}`);
   if (args.anthropicUpstream) console.log(`  upstream Anthropic traffic → ${args.anthropicUpstream}`);
