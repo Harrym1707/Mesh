@@ -82,7 +82,7 @@ switched on. A quote comes from your own export and names your shape; a vendor
 quoting everyone one number is wrong for most of them. Sometimes the verdict
 is `doNotPayUs`.
 
-## Is the 57.7% async figure real?
+## Is the async figure real?
 
 It is 57.7% net (SIMULATOR, verified 2026-10-13; needed the J lever stack, defined on the [evidence](evidence.md) page, plus
 the provider's discounted flex tier, which a fresh install does not switch

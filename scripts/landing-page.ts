@@ -79,10 +79,10 @@ export function renderLanding(origin: string, repoUrl: string): string {
     ["support-chat", 0.05225], ["already-lean", 0.00529],
   ] as const;
   const SAVED = [
-    ["coding-agent: tool-result cap and cache stamp (both off by default), schemas", 0.02254],
-    ["rag-docqa: duplicate excerpt removed (on by default)", 0.00861],
-    ["support-chat: tool-schema compaction, as measured before 2026-10-29", 0.00537],
-    ["batch-classifier: cache stamp withheld, nothing billed", 0.0],
+    ["coding-agent: opt-in cap + stamp, schemas", 0.02254],
+    ["rag-docqa: default duplicate removal", 0.00861],
+    ["support-chat: schemas (pre-correction)", 0.00537],
+    ["batch-classifier: stamp withheld", 0.0],
     ["already-lean: nothing to remove", 0.0],
   ] as const;
   const spendTotal = SPEND.reduce((s, [, v]) => s + v, 0);
@@ -651,8 +651,8 @@ section h2::after{content:"";position:absolute;left:50%;transform:translateX(-50
 <div class="hero-wrap">
 <header class="hero">
   <div class="col">
-    <h1 class="rise">A local proxy for your agents&rsquo; LLM API calls<span class="dot">.</span></h1>
-    <p class="sub rise">${MESH_DESCRIPTION} ${MESH_FEE}</p>
+    <h1 class="rise">A local LLM proxy for your agents<span class="dot">.</span></h1>
+    <p class="sub rise">${MESH_DESCRIPTION}</p>
     <div class="actions rise">
       <a class="btn-download" href="#install"><svg class="arrow" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3v11m0 0l-4.5-4.5M12 14l4.5-4.5M5 20h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Install Mesh</a>
       <a class="arrowlink" href="evidence.html">See the evidence</a>
@@ -721,7 +721,7 @@ section h2::after{content:"";position:absolute;left:50%;transform:translateX(-50
 
 <section aria-label="The reduction, performed" class="demo-sect">
   <div class="axis-col-wide">
-  <div class="sec-head"><h2>Watch a request lose its waste.</h2><span class="sec-tag">counts built from the sample</span></div>
+  <div class="sec-head"><h2>Which part of a request each lever touches.</h2><span class="sec-tag">counts built from the sample</span></div>
   <div data-ui id="reducer" class="rise">
     <div class="bar"><span>reducer &mdash; a busy agent&rsquo;s turn 5</span>
       <span class="pill"><span id="tok-count">${beforeTokens}</span> tokens &middot; $<span id="cost-count">${beforeCost}</span></span></div>
@@ -851,7 +851,7 @@ The ledger is yours; this command recomputes the invoice from it with no network
       <details name="faq"><summary>Why a range and not one number?<span class="plus"></span></summary><div class="answer-wrap"><div class="answer">Savings depend on the shape of your traffic and on which levers are switched on. The quote comes from your own export and names your shape; sometimes the verdict is do not pay us. <a href="segments.html">The figures by shape, with the levers each needed</a></div></div></details>
       <details name="faq"><summary>How can you bill for money I didn&rsquo;t spend?<span class="plus"></span></summary><div class="answer-wrap"><div class="answer">The way energy performance contracts have done it since 1995: a defined baseline, measurements, an agreed adjustment method. What you paid is the provider&rsquo;s own reading; what you would have paid is worked out by Mesh and labelled an estimated baseline. Every request writes an append-only hash-chained event; the invoice is a pure function over those events. <a href="methodology.html">Methodology</a></div></div></details>
       <details name="faq"><summary>What do you do with my prompts?<span class="plus"></span></summary><div class="answer-wrap"><div class="answer">Analysis runs locally; prompts never leave your machine. The ledger records usage numbers, lever names and hashes &mdash; not content. Your API key passes through the proxy verbatim and is never stored.</div></div></details>
-      <details name="faq"><summary>Where does Mesh lose?<span class="plus"></span></summary><div class="answer-wrap"><div class="answer">A fresh install makes three lossless changes and nothing more, and a Claude Code user gains little from them. Busy interactive agents reach 25.9&ndash;29.4% on the harness (SIMULATOR, verified 2026-10-13) only with six levers switched on, four of them off by default. Already-optimised stacks get 0&ndash;5% (SIMULATOR, fixture) and a do-not-pay-us verdict. A free trimmer may be all you need if you don&rsquo;t need the saving verified. <a href="comparison.html">The comparison, including where Mesh loses</a></div></div></details>
+      <details name="faq"><summary>Where does Mesh lose?<span class="plus"></span></summary><div class="answer-wrap"><div class="answer">A fresh install makes three lossless changes and nothing more, and a Claude Code user gains little from them. Busy interactive agents reach 25.9&ndash;29.4% on the harness (SIMULATOR, verified 2026-10-13) only with six levers switched on, four of them off by default. Already-optimised stacks get 0&ndash;5% (SIMULATOR, fixture, 2026-10-11) and a do-not-pay-us verdict. A free trimmer may be all you need if you don&rsquo;t need the saving verified. <a href="comparison.html">The comparison, including where Mesh loses</a></div></div></details>
       <details name="faq"><summary>What does a fresh install save?<span class="plus"></span></summary><div class="answer-wrap"><div class="answer">Out of the box Mesh makes three lossless changes. On our own test basket (LIVE, run 2026-10-26) they account for under half of the ${savedPct.toFixed(1)}% recorded with a cache stamp and a tool-result cap switched on. The larger figures on this page are SIMULATOR figures with named levers switched on, and none is from a customer&rsquo;s bill. Every figure traces to a command, a date and its levers. <a href="evidence.html">Evidence</a></div></div></details>
     </div>
   </div>

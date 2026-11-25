@@ -47,7 +47,7 @@ that it is: no measurement of Mesh on a customer's provider bill exists yet.
    on unfavourable traffic; that case has a unit test.
 5. **The provider's existing contribution is never claimed.** On busy agent
    traffic, the provider's cache alone saves 35–40% on the harness before Mesh
-   does anything (SIMULATOR). That figure is printed separately and excluded
+   does anything (SIMULATOR, harness re-run 2026-11-24). That figure is printed separately and excluded
    from every Mesh claim.
 6. **Tier savings are billed at the tier actually served.** Discounted-tier
    requests can be bounced back to full price under load; the published async

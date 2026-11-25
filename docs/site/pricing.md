@@ -11,8 +11,8 @@ Last updated: 2026-11-24.
 
 ## What it costs
 
-The fee is 1% of the net verified savings in a calendar month. You keep the
-other 99%.
+Savings are counted net over the calendar month: a lever that lost money is
+set against the ones that saved it. You keep the other 99%.
 
 These rows are arithmetic to show the scale of the fee, not results:
 

@@ -45,7 +45,7 @@ are off in a fresh install. [How these numbers are made](methodology.md)
 | One-shot calls on a shared template | **45.5%**, up to **72.8%** where the work can wait | SIMULATOR, verified 2026-10-13 | Cache-prefix repair, which is on by default and carries most of the 45.5% on a provider that caches automatically, plus description trimming, history compaction and an output cap; the 72.8% adds the flex tier |
 | Interactive agents, sparse traffic | **34.3%** | SIMULATOR, verified 2026-10-22 | The J stack plus the 1-hour Anthropic cache stamp; the stamp and four of the J levers are off by default; may overstate on some models |
 | Interactive agents, busy traffic | **25.9–29.4%** | SIMULATOR, verified 2026-10-13 | The J stack. The three defaults alone move this simulated bill very little |
-| Stacks that are already optimised | **0–5%: do not pay us** | SIMULATOR, fixture | None. Mesh says so and no fee is due |
+| Stacks that are already optimised | **0–5%: do not pay us** | SIMULATOR, fixture, 2026-10-11 | None. Mesh says so and no fee is due |
 
 Savings depend on the shape of your traffic and on which levers are switched
 on. The only way to know yours is to run Mesh on your own requests and read

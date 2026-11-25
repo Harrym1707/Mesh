@@ -49,12 +49,12 @@ of those six are off in a fresh install.
 | One-shot calls on a shared template | **45.5%**, up to **72.8%** where the work can wait | SIMULATOR, verified 2026-10-13 | Cache-prefix repair (on by default, carries most of the 45.5% on a provider that caches automatically) plus description trimming, history compaction and an output cap; the 72.8% adds the flex tier |
 | Sparse interactive agents | **34.3%** | SIMULATOR, verified 2026-10-22 | The J stack plus the 1-hour Anthropic cache stamp, off by default |
 | Busy interactive agents | **25.9–29.4%** | SIMULATOR, verified 2026-10-13 | The J stack; the three defaults alone move this simulated bill very little |
-| Stacks that are already optimised | **0–5%** | SIMULATOR, fixture | Nothing to switch on; Mesh tells you not to pay |
+| Stacks that are already optimised | **0–5%** | SIMULATOR, fixture, 2026-10-11 | Nothing to switch on; Mesh tells you not to pay |
 
 Every figure traces to a command, a date and its levers:
-[docs/site/evidence.md](docs/site/evidence.md). The 18.2% run predates a
-correction of 2026-10-29 to how tool-schema compaction is measured; the
-evidence page explains what that changes.
+[docs/site/evidence.md](docs/site/evidence.md). The 18.2% (LIVE, run 2026-10-26, with a cache stamp and a tool-result cap
+switched on) predates a correction of 2026-10-29 to how tool-schema
+compaction is measured; the evidence page explains what that changes.
 
 ## Quick start (no code changes)
 

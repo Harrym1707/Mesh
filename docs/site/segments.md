@@ -71,7 +71,8 @@ overstate on some models because per-model cache minimums are not in the
 simulator).
 
 **Mechanism:** on busy agent traffic the provider's own cache already takes
-35–40% off before Mesh does anything (SIMULATOR; never claimed by Mesh). What
+35–40% off before Mesh does anything
+(SIMULATOR, harness re-run 2026-11-24; never claimed by Mesh). What
 is left is the tokens billed at the full rate the first time they appear.
 The lever that reaches those is the cap on oversized fresh tool results: it
 keeps the headline, error lines and file paths, and the replay gate approved
@@ -124,11 +125,12 @@ the same public trajectories tool results reached 2,500–10,000 tokens at the
 24% of output tokens repeated text already in the context; Mesh's ledger can
 show your own figures for those. None of that is billed.
 
-## Stacks that are already optimised: 0–5%, do not pay us
+## Stacks that are already optimised: do not pay us
 
 **Mechanism:** none, and that is the point. If your input already arrives
 largely cached, or your gateway's response cache already answers a large
-share of requests, Mesh's quote says so and its verdict is `doNotPayUs`
-(SIMULATOR, fixture; no levers needed, nothing to switch on). A vendor paid on
+share of requests, Mesh's quote says so and its verdict is `doNotPayUs`. The
+band for such stacks is 0–5% (SIMULATOR, fixture, 2026-10-11; no levers
+needed, nothing to switch on). A vendor paid on
 savings that charges for savings you already had is buying a dispute; Mesh
 declines up front.

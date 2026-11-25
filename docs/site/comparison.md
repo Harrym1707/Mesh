@@ -65,10 +65,10 @@ levers that you or Theo switch on: [how](start.md), [which](evidence.md).
   caches, and its tools leave the default changes little to remove.
 - **Busy interactive agents: 25.9–29.4%** (SIMULATOR, verified 2026-10-13;
   needed the J lever stack, four of whose six levers are off by default). The
-  provider's cache already delivers 35–40% there (SIMULATOR; never claimed by
-  Mesh).
-- **Already-optimised stacks: 0–5%** (SIMULATOR, fixture; nothing to switch
-  on). Mesh's quote will tell you not to buy.
+  provider's cache already delivers 35–40% there
+  (SIMULATOR, harness re-run 2026-11-24; never claimed by Mesh).
+- **Already-optimised stacks: 0–5%** (SIMULATOR, fixture, 2026-10-11; nothing
+  to switch on). Mesh's quote will tell you not to buy.
 - **A free trimmer may be all you need** if your waste is one obvious thing and
   you do not need the saving verified. What Mesh adds is a bill you can
   recompute; if you do not need that, rtk is free.

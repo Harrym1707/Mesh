@@ -29,7 +29,7 @@ off in a fresh install.
 - 72.8%, the same where the work can wait: SIMULATOR, verified 2026-10-13; needed the above plus the flex tier.
 - 34.3%, sparse interactive agents: SIMULATOR, verified 2026-10-22; needed the J stack plus the 1-hour Anthropic cache stamp, off by default; may overstate on some models.
 - 25.9–29.4%, busy interactive agents: SIMULATOR, verified 2026-10-13; needed the J stack; the three defaults alone move this simulated bill very little.
-- 0–5%, stacks that are already optimised: SIMULATOR, fixture; nothing to switch on; the verdict is "do not pay us".
+- 0–5%, stacks that are already optimised: SIMULATOR, fixture, 2026-10-11; nothing to switch on; the verdict is "do not pay us".
 
 ## Switching on more than the defaults
 Nothing beyond the three default changes is automatic. Theo, the agent that
