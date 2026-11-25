@@ -17,6 +17,8 @@ export * from "./experiments/page-snapshots.js";
 export * from "./browsing-shape.js";
 export * from "./experiments/tool-result-codecs.js";
 export * from "./agent-tasks.js";
+export * from "./cache-stream.js";
+export * from "./cache-compat.js";
 export * from "./numbers.js";
 export * from "./ledger.js";
 export * from "./orchestrator.js";

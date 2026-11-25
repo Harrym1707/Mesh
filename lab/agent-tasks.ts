@@ -548,9 +548,9 @@ export const agentTask = (result: AgentTasksResult, id: AgentTaskId): AgentTaskR
 export const agentArm = (task: AgentTaskResult, id: AgentArmId): AgentArm => task.arms.find((arm) => arm.id === id)!;
 
 /** The sessions themselves, for tests that need the requests. */
-export function agentSessions(): Array<{ id: AgentTaskId; session: AgentSession; cachedSession: AgentSession }> {
+export function agentSessions(options: AgentTaskOptions = {}): Array<{ id: AgentTaskId; session: AgentSession; cachedSession: AgentSession }> {
   return scripts().map((script) => {
-    const session = buildSession(script);
+    const session = buildSession(script, options);
     return { id: script.id, session, cachedSession: { ...session, requests: session.requests.map(withClientCache) } };
   });
 }
