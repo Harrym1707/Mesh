@@ -92,8 +92,8 @@ const USAGE = `Usage: mesh theo [options]
                         30s, 1h) until you stop it with Ctrl-C — Theo never stops.
   --max-ticks <n>     In --watch mode, stop after n cycles (default: unlimited).
   --apply             Write Theo's decided policy to ~/.mesh/theo-policy.json,
-                        the proxy's control file. A running proxy picks it up on
-                        its next request; no restart needed.
+                        the proxy's control file. A running proxy applies it to
+                        conversations that start from then on; no restart needed.
   --proposals         List the proven levers waiting for your answer, and stop.
   --accept <lever>    Say yes to a proposal: the lever goes live in the policy
                         and Theo watches it for drift. Refused if its proof no
@@ -570,7 +570,7 @@ export async function runTheoOnce(args: TheoRunOptions): Promise<TheoCycleResult
   if (args.apply) {
     const { policyPath, kept } = applyPolicyToProxy(result.memory.policy, args.route, args.policyPath);
     const where = args.route ? `route '${args.route}'` : "the default route";
-    say(`Applied policy to ${where} in ${policyPath} — a running proxy picks it up on its next request.`);
+    say(`Applied policy to ${where} in ${policyPath} — a running proxy applies it to conversations that start from now on.`);
     if (kept.length > 0) say(keptLeversLine(kept));
   }
   return result;
@@ -599,7 +599,7 @@ function renderProposals(memory: TheoMemory): string {
  * Carry out the customer's answer to a proposal (`--accept`, `--reject`,
  * `--reconsider`) or list what is open (`--proposals`). No cycle runs and no
  * provider is called. Accepting writes the policy file, so a running proxy
- * enforces the lever from its next request. Throws with the reason when the
+ * enforces the lever on conversations that start from then on. Throws with the reason when the
  * answer cannot be carried out.
  */
 export function runTheoDecision(args: TheoRunOptions): void {
@@ -630,7 +630,7 @@ export function runTheoDecision(args: TheoRunOptions): void {
   if (args.accept !== undefined) {
     const { policyPath, kept } = applyPolicyToProxy(decision.memory.policy, args.route, args.policyPath);
     const where = args.route ? `route '${args.route}'` : "the default route";
-    console.log(`Live on ${where} via ${policyPath} — a running proxy picks it up on its next request.`);
+    console.log(`Live on ${where} via ${policyPath} — a running proxy applies it to conversations that start from now on.`);
     if (kept.length > 0) console.log(keptLeversLine(kept));
   }
 }
