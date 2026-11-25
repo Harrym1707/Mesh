@@ -43,6 +43,7 @@ export function meshIdentity(): MeshIdentity {
  *   ledger_not_verified    the ledger's hash chain does not verify
  *   statement_not_valid    a statement file failed its seal or signature check
  *   unsupported_platform   the command is not available on this platform
+ *   service_disabled       MESH_NO_SERVICE is set, so the background service is not touched
  *   claude_settings_invalid  ~/.claude/settings.json is not valid JSON
  *   claude_pointed_elsewhere Claude Code's base URL points somewhere that is not MESH's to replace
  *   not_connected          `mesh setup` finished and requests still cannot reach MESH
@@ -58,6 +59,7 @@ export type MeshErrorCode =
   | "ledger_not_verified"
   | "statement_not_valid"
   | "unsupported_platform"
+  | "service_disabled"
   | "claude_settings_invalid"
   | "claude_pointed_elsewhere"
   | "not_connected"
@@ -166,7 +168,8 @@ export function schemaFor(command: string | undefined): string {
 export function reportFatal(error: unknown, argv: readonly string[] = process.argv.slice(2)): void {
   const [command, ...rest] = argv;
   if (wantsJson(rest) || command === "--json") {
-    const failure = jsonFailure(schemaFor(command), error);
+    const unknown = error instanceof CliError && error.code === "unknown_command";
+    const failure = jsonFailure(unknown ? "mesh-error/1" : schemaFor(command), error);
     process.stdout.write(`${JSON.stringify(failure)}\n`, () => process.exit(1));
     return;
   }

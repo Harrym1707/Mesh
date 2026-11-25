@@ -1153,8 +1153,11 @@ describe("mesh statement — what the bill's own check (mesh-bill --statement) m
 describe("mesh statement — reachable from both entry points", () => {
   it.each(["main.ts", "mesh-runtime.ts"])("%s dispatches and lists the command", (entry) => {
     const source = readFileSync(fileURLToPath(new URL(`./${entry}`, import.meta.url)), "utf8");
-    expect(source).toContain("sub === \"statement\"");
-    expect(source).toContain("runStatement(process.argv.slice(3))");
+    // Both entry points run commands through the one dispatcher (dispatch.ts),
+    // which maps `statement` to runStatement; each lists it in its own usage text.
+    expect(source).toContain("await import(\"./dispatch.js\")");
+    const dispatcher = readFileSync(fileURLToPath(new URL("./dispatch.ts", import.meta.url)), "utf8");
+    expect(dispatcher).toContain("case \"statement\": await (await import(\"./statement.js\")).runStatement(rest); break;");
     expect(source).toMatch(/^ {2}statement {2}Your statement for one billing period/m);
   });
 });

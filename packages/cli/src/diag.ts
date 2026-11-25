@@ -7,7 +7,6 @@
  *            wiring, the background service, and the ledger — each ✓ / ⚠ / ✗
  *            with a one-line fix. Exits non-zero if any check is a hard failure.
  */
-import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { connect } from "node:net";
 import { homedir, platform } from "node:os";
@@ -19,11 +18,12 @@ import { collectStatus } from "./daemon.js";
 import { flowLines } from "./flow.js";
 import { VERSION } from "./build-info.js";
 
+import { serviceLoaded as serviceRegistered, type ServiceRunner } from "./machine.js";
+
 const WIRING_PATHS = { settingsPath: CLAUDE_SETTINGS, statePath: WIRING_STATE };
 
 // Defined in build-info.ts (a leaf module) and re-exported for existing importers.
 export { VERSION };
-const LAUNCHD_LABEL = "dev.meshtoken.mesh";
 
 const nodeMajor = (): number => Number.parseInt(process.versions.node.split(".")[0] ?? "0", 10);
 
@@ -38,10 +38,8 @@ function portUp(port: number, timeoutMs = 700): Promise<boolean> {
   });
 }
 
-function serviceLoaded(): boolean {
-  if (platform() !== "darwin") return false;
-  try { execFileSync("launchctl", ["list", LAUNCHD_LABEL], { stdio: "pipe" }); return true; } catch { return false; }
-}
+/** Is the background service registered? One implementation, in machine.ts. */
+const serviceLoaded = (runner?: ServiceRunner): boolean => serviceRegistered(runner);
 
 export function runVersion(argv: string[]): void {
   const info = { version: VERSION, build: BUILD_COMMIT, node: process.versions.node, platform: `${platform()}-${process.arch}` };
@@ -140,7 +138,14 @@ export async function runDoctor(argv: string[]): Promise<void> {
  * cover: a hard kill, a crash of the machine, a session from an older build.
  * Changes nothing when Claude Code's configuration is working.
  */
-export async function runRestore(argv: string[]): Promise<void> {
+/** What `mesh restore` works on. The default is this user's own settings; tests pass temporary paths. */
+export type RestoreOptions = {
+  paths?: { settingsPath: string; statePath: string };
+  runner?: ServiceRunner;
+};
+
+export async function runRestore(argv: string[], options: RestoreOptions = {}): Promise<void> {
+  const paths = options.paths ?? WIRING_PATHS;
   if (argv.includes("--help") || argv.includes("-h")) {
     console.log(
       "Usage: mesh restore\n\n" +
@@ -150,8 +155,8 @@ export async function runRestore(argv: string[]): Promise<void> {
     );
     return;
   }
-  const health = await checkWiring(WIRING_PATHS, { portUp });
-  if (health.status === "dead-local" && platform() === "darwin" && serviceLoaded()) {
+  const health = await checkWiring(paths, { portUp });
+  if (health.status === "dead-local" && platform() === "darwin" && serviceLoaded(options.runner)) {
     // The always-on service owns this address and launchd restarts it; removing
     // the address would silently turn MESH off.
     console.log(
@@ -160,7 +165,7 @@ export async function runRestore(argv: string[]): Promise<void> {
     );
     return;
   }
-  const result = await repairWiring(WIRING_PATHS, { portUp });
+  const result = await repairWiring(paths, { portUp });
   console.log(result.message);
   if (result.changed) console.log("Open a new Claude Code session for it to take effect.");
 }

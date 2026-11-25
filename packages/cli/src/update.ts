@@ -83,6 +83,16 @@ function rollback(): void {
 }
 
 export async function runUpdate(argv: string[]): Promise<void> {
+  if (argv.includes("--help") || argv.includes("-h")) {
+    console.log(
+      "Usage: mesh update [--rollback]\n\n" +
+      "  Check for a newer runtime now and, if there is one, download it, verify its\n" +
+      "  checksum and switch to it, keeping the current one as a rollback point.\n\n" +
+      "  --rollback   Go back to the previous runtime.\n" +
+      "  --help       Show this message. Checks nothing and changes nothing.",
+    );
+    return;
+  }
   if (argv.includes("--rollback")) { rollback(); return; }
 
   mkdirSync(DIR, { recursive: true });

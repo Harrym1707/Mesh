@@ -126,7 +126,8 @@ Your API key never leaves Claude Code. Build: ${commit}.
 // Smoke tests run in an empty temporary HOME, so they read no real ledger,
 // no real Claude Code settings, and write nothing outside it.
 const smokeHome = mkdtempSync(path.join(tmpdir(), "mesh-build-smoke-"));
-const smokeEnv = { ...process.env, HOME: smokeHome, USERPROFILE: smokeHome, MESH_NO_AUTO_UPDATE: "1" };
+// MESH_NO_SERVICE: the runtime under test never runs `launchctl`, whatever it is asked.
+const smokeEnv = { ...process.env, HOME: smokeHome, USERPROFILE: smokeHome, MESH_NO_AUTO_UPDATE: "1", MESH_NO_SERVICE: "1", MESH_NO_NOTIFY: "1" };
 process.on("exit", () => rmSync(smokeHome, { recursive: true, force: true }));
 
 // Smoke test: the runtime must run and pass its own self-checks.

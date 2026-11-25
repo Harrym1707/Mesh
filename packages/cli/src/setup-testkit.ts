@@ -227,6 +227,8 @@ export function runMeshProcess(
         PATH: `${fake.binDir}:${process.env.PATH ?? ""}`,
         MESH_NO_NOTIFY: "1",
         MESH_NO_AUTO_UPDATE: "1",
+        // The process never runs `launchctl`, whatever it is asked (machine.ts).
+        MESH_NO_SERVICE: "1",
         ...options.env,
       },
       encoding: "utf8",

@@ -19,25 +19,31 @@ import { defaultTheoMemoryPath, loadTheoMemory } from "../../sdk-js/src/theo-age
 import type { TheoAutonomyLevel } from "../../sdk-js/src/theo-agent.js";
 import { MESH_SIGNUP_URL } from "../../sdk-js/src/cta.js";
 import type { VerdictReasonCode } from "./bill-verdict.js";
-import { checkWiring, loopbackPort } from "./claude-wiring.js";
+import { loopbackPort } from "./claude-wiring.js";
 import { detectFlow, flowLines, type Flow } from "./flow.js";
 import { CliError, meshIdentity, parseFlags, parsePortFlag, writeJson, type MeshIdentity } from "./json-output.js";
 import {
+  claudeCodeStatus,
   LAUNCHD_LABEL as LABEL,
   LAUNCHD_PLIST as PLIST,
   portOpen as portUp,
   probeProxy,
   proxyUrls,
   resolvePort,
+  serviceDisabledError,
   serviceLoaded,
+  serviceManagerDisabled,
   systemServiceRunner,
+  type ClaudeCodeState,
+  type ClaudeCodeStatus,
   type PortSource,
-  type ProxyProbe,
   type ServiceRunner,
 } from "./machine.js";
 
+// Worked out in machine.ts, so `mesh start` can ask the same question without importing this module.
+export type { ClaudeCodeState, ClaudeCodeStatus };
+
 const DAEMON_LOG = join(MESH_HOME, "daemon.log");
-const STABLE_BIN = join(MESH_HOME, "bin", "mesh");
 const DEFAULT_LEDGER = join(MESH_HOME, "ledger");
 
 function requireMac(action: string): void {
@@ -90,6 +96,16 @@ type ResolvedTarget = {
   ledgerDir: string;
   daemonLog: string;
 };
+
+/**
+ * For the three calls that change the machine. With MESH_NO_SERVICE set, the
+ * real service manager is refused before a single file is written.
+ */
+function resolveForChange(target: ServiceTarget = {}): ResolvedTarget {
+  const resolved = resolveTarget(target);
+  if (resolved.runner === systemServiceRunner && serviceManagerDisabled()) throw serviceDisabledError();
+  return resolved;
+}
 
 function resolveTarget(target: ServiceTarget = {}): ResolvedTarget {
   const meshHome = target.meshHome ?? MESH_HOME;
@@ -230,7 +246,7 @@ export type InstallServiceResult = {
  * changing Claude Code's settings if that file is not valid JSON.
  */
 export async function installService(options: InstallServiceOptions): Promise<InstallServiceResult> {
-  const target = resolveTarget(options);
+  const target = resolveForChange(options);
   const pointClaudeCode = options.pointClaudeCode !== false;
   // Refuse before anything is written, not after the service is loaded.
   if (pointClaudeCode && existsSync(target.claudeSettingsPath)) {
@@ -280,7 +296,7 @@ export type RemoveServiceResult = {
 
 /** Stop and remove the service and take its address out of Claude Code's settings. The ledger is kept. */
 export function uninstallService(target: ServiceTarget = {}): RemoveServiceResult {
-  const resolved = resolveTarget(target);
+  const resolved = resolveForChange(target);
   const wasLoaded = serviceLoaded(resolved.runner, "darwin");
   resolved.runner.launchctl(["unload", "-w", resolved.plistPath]);
   const removedDefinition = existsSync(resolved.plistPath);
@@ -291,7 +307,7 @@ export function uninstallService(target: ServiceTarget = {}): RemoveServiceResul
 
 /** Stop the service but keep its definition. Changes nothing when it is not registered. */
 export function stopService(target: ServiceTarget = {}): RemoveServiceResult {
-  const resolved = resolveTarget(target);
+  const resolved = resolveForChange(target);
   if (!serviceLoaded(resolved.runner, "darwin")) {
     return { wasLoaded: false, removedDefinition: false, restoredClaudeCode: false, ledgerDir: resolved.ledgerDir };
   }
@@ -300,43 +316,87 @@ export function stopService(target: ServiceTarget = {}): RemoveServiceResult {
   return { wasLoaded: true, removedDefinition: false, restoredClaudeCode, ledgerDir: resolved.ledgerDir };
 }
 
-export async function runInstall(argv: string[]): Promise<void> {
+const wantsHelp = (argv: readonly string[]): boolean => argv.includes("--help") || argv.includes("-h");
+
+const INSTALL_USAGE = `Usage: mesh install [options]
+
+Always-on (macOS): run MESH as a background service that starts at login and
+restarts if it stops, and point Claude Code at it. Writes
+~/Library/LaunchAgents/${LABEL}.plist, copies the launcher to ~/.mesh/bin/mesh
+and sets env.ANTHROPIC_BASE_URL in ~/.claude/settings.json. Undo: mesh uninstall.
+For a guided version that says whether it ended connected: mesh setup.
+
+  --port <n>              Port for the service's proxy. Default ${DEFAULT_PORT}.
+  --capture <file>        Record your own requests to <file> so Theo can prove
+                          lossy levers on real traffic (see mesh start --help).
+  --gate-key-file <path>  Provider key file for the unattended gate (the path
+                          only is stored).
+  --autonomy <level>      Theo's autonomy: observe | recommend | test | optimise.
+  --theo-interval <dur>   How often Theo runs a cycle (15m, 1h).
+  --no-theo               Do not run Theo alongside the proxy.
+  --help                  Show this message. Changes nothing.`;
+
+const UNINSTALL_USAGE = `Usage: mesh uninstall
+
+Stop and remove the background service (macOS) and take MESH's address back
+out of ~/.claude/settings.json. A base URL that points somewhere other than a
+local address is left as it is. Your ledger is kept.
+
+  --help   Show this message. Changes nothing.`;
+
+const STOP_USAGE = `Usage: mesh stop
+
+Stop the background service (macOS) without removing it, and take MESH's
+address back out of ~/.claude/settings.json so Claude Code never points at a
+stopped proxy. Resume with: mesh install. Your ledger is untouched.
+
+  --help   Show this message. Changes nothing.`;
+
+/**
+ * `target` is where the service lives and who registers it; the default is
+ * this user's own machine. The dispatcher's tests pass temporary paths and a
+ * fake runner. `--help` is answered before anything else is looked at.
+ */
+export async function runInstall(argv: string[], target: ServiceTarget = {}): Promise<void> {
+  if (wantsHelp(argv)) { console.log(INSTALL_USAGE); return; }
   requireMac("install");
   const port = parsePort(argv);
-  const { up } = await installService({ port, serveArgs: theoServeArgs(argv) });
+  const { up, ledgerDir, logPath } = await installService({ ...target, port, serveArgs: theoServeArgs(argv) });
 
   console.log("");
   if (up) {
     console.log(`  ⬢ theo — MESH is now always on.  build ${BUILD_COMMIT}`);
     console.log(`  service  launchd ${LABEL} (starts at login, restarts if it stops)`);
-    console.log(`  proxy    http://127.0.0.1:${port}  ·  ledger ${DEFAULT_LEDGER}`);
+    console.log(`  proxy    http://127.0.0.1:${port}  ·  ledger ${ledgerDir}`);
     console.log(`  claude   pointed at MESH permanently via ~/.claude/settings.json`);
-    console.log(`  log      ${DAEMON_LOG}`);
+    console.log(`  log      ${logPath}`);
     console.log("");
     console.log(`  Just use Claude Code — every session is optimised. Check savings with: mesh status`);
     console.log(`  Turn it off any time with: mesh uninstall`);
   } else {
     console.log(`  ⚠ The service was installed but the proxy didn't answer on port ${port}.`);
-    console.log(`  Check ${DAEMON_LOG}, then re-run \`mesh install\`, or use \`mesh start\` instead.`);
+    console.log(`  Check ${logPath}, then re-run \`mesh install\`, or use \`mesh start\` instead.`);
     process.exitCode = 1;
   }
   console.log("");
 }
 
-export function runUninstall(_argv: string[]): void {
+export function runUninstall(argv: string[], target: ServiceTarget = {}): void {
+  if (wantsHelp(argv)) { console.log(UNINSTALL_USAGE); return; }
   requireMac("uninstall");
-  uninstallService();
+  const { ledgerDir } = uninstallService(target);
   console.log("");
   console.log(`  ⬢ theo — always-on removed. The service is stopped and Claude Code is back to normal.`);
-  console.log(`  Your ledger is kept at ${DEFAULT_LEDGER} — recompute any time with: mesh verify`);
+  console.log(`  Your ledger is kept at ${ledgerDir} — recompute any time with: mesh verify`);
   console.log("");
 }
 
 /** Stop the background service without removing it. Claude Code reverts to
  *  normal; the service definition stays so `mesh install` resumes it. */
-export function runStop(_argv: string[]): void {
+export function runStop(argv: string[], target: ServiceTarget = {}): void {
+  if (wantsHelp(argv)) { console.log(STOP_USAGE); return; }
   requireMac("stop");
-  if (!stopService().wasLoaded) {
+  if (!stopService(target).wasLoaded) {
     console.log("");
     console.log(`  No MESH background service is running.`);
     console.log(`  (A foreground \`mesh start\` is stopped with Ctrl+C.)`);
@@ -353,25 +413,6 @@ export function runStop(_argv: string[]): void {
 // ---------------------------------------------------------------------------
 // mesh status
 // ---------------------------------------------------------------------------
-
-/**
- * Where Claude Code's own settings point, as far as files and one local
- * health request can tell:
- *
- *   pointed_at_mesh           ANTHROPIC_BASE_URL is a local address and MESH answers there
- *   pointed_at_stopped_proxy  it is a local address nothing answers on (a MESH session that
- *                             ended without restoring, or a service that is down): Claude Code
- *                             cannot reach its API until `mesh restore` or the proxy is back
- *   pointed_elsewhere         it is set to something that is not a MESH proxy
- *   not_pointed               no ~/.claude/settings.json, or no ANTHROPIC_BASE_URL in it
- *   settings_invalid          the file is not valid JSON, so nothing can be said
- */
-export type ClaudeCodeState =
-  | "pointed_at_mesh"
-  | "pointed_at_stopped_proxy"
-  | "pointed_elsewhere"
-  | "not_pointed"
-  | "settings_invalid";
 
 export type StatusResult = {
   schema: "mesh-status/1";
@@ -410,16 +451,7 @@ export type StatusResult = {
     baseUrls: { anthropic: string; openai: string };
     health: string;
   };
-  claudeCode: {
-    state: ClaudeCodeState;
-    pointedAtMesh: boolean | "unknown";
-    /** The local port its ANTHROPIC_BASE_URL names, when it names one. The URL itself is never repeated. */
-    port: number | null;
-    /** A `mesh start` session that is still running recorded that it pointed Claude Code at itself. */
-    startSessionRunning: boolean;
-    /** How the state was worked out. Fixed wording. */
-    detectedBy: string;
-  };
+  claudeCode: ClaudeCodeStatus;
   /** The base-URL variables in the environment this command was run from. Values are never repeated. */
   callerEnvironment: {
     anthropicBaseUrlPointsAtMesh: boolean;
@@ -502,49 +534,6 @@ type StatusParts = {
   summary: LedgerSummary;
   coverage: PolicyCoverage;
 };
-
-const CLAUDE_DETECTED_BY =
-  "env.ANTHROPIC_BASE_URL in ~/.claude/settings.json, the session record ~/.mesh/claude-wiring.json, " +
-  "and a health request to the local address it names";
-
-async function claudeCodeStatus(
-  paths: { settingsPath: string; statePath: string },
-  proxy: { port: number; probe: ProxyProbe },
-): Promise<StatusResult["claudeCode"]> {
-  const report = (
-    state: ClaudeCodeState,
-    pointedAtMesh: boolean | "unknown",
-    port: number | null = null,
-    startSessionRunning = false,
-  ): StatusResult["claudeCode"] => ({ state, pointedAtMesh, port, startSessionRunning, detectedBy: CLAUDE_DETECTED_BY });
-  const health = await checkWiring(paths, { portUp });
-  if (health.status === "invalid") return report("settings_invalid", "unknown");
-
-  let baseUrl: unknown;
-  try {
-    baseUrl = existsSync(paths.settingsPath)
-      ? (JSON.parse(readFileSync(paths.settingsPath, "utf8")) as { env?: Record<string, unknown> }).env?.ANTHROPIC_BASE_URL
-      : undefined;
-  } catch {
-    return report("settings_invalid", "unknown");
-  }
-  if (typeof baseUrl !== "string") return report("not_pointed", false);
-
-  const port = loopbackPort(baseUrl) ?? null;
-  if (health.status === "stranded" || health.status === "dead-local") return report("pointed_at_stopped_proxy", false, port);
-  if (port === null) return report("pointed_elsewhere", false);
-  // A local address something answers on: ask it whether it is MESH.
-  const probe = port === proxy.port ? proxy.probe : await probeProxy(port);
-  // checkWiring found no dead session behind this address, so a record that
-  // names it belongs to a `mesh start` that is still running.
-  const record = resolvePort(undefined, { plistPath: "", wiringStatePath: paths.statePath });
-  return report(
-    probe.isMesh ? "pointed_at_mesh" : "pointed_elsewhere",
-    probe.isMesh,
-    port,
-    record.source === "start-session" && record.port === port,
-  );
-}
 
 async function gatherStatus(options: StatusOptions = {}): Promise<StatusParts> {
   const meshHome = options.meshHome ?? MESH_HOME;

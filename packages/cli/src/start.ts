@@ -43,7 +43,7 @@ import { MESH_SIGNUP_URL, savingsBadge, type SavingsSnapshot } from "../../sdk-j
 import { billVerdict, recomputeBillInvoice, verdictNote, type BillVerdict } from "./bill-verdict.js";
 import { pullNewerRuntime } from "./update.js";
 import { BUILD_COMMIT } from "./build-info.js";
-import { DEFAULT_PORT } from "./machine.js";
+import { claudeCodeStatus, DEFAULT_PORT, probeProxy } from "./machine.js";
 
 // Defined in leaf modules (build-info.ts, machine.ts) so the JSON conventions
 // and the read-only commands can use them without importing the proxy.
@@ -387,29 +387,51 @@ export async function startProxyWithPolicy(
 }
 
 /**
- * What to tell someone whose port is taken. The usual reason is that MESH is
- * already running there (the always-on service, or another terminal), in which
- * case nothing needs starting; otherwise another program has the port.
+ * What to tell someone whose port is taken, saying only what is known: either
+ * a MESH proxy answers there, or another program has the port. Whether Claude
+ * Code is using that proxy is read from its settings (the same detection
+ * `mesh status` uses), never assumed: a copy left running by an old session
+ * can hold the port while Claude Code is connected to nothing.
  */
-export async function portInUseMessage(port: number): Promise<string> {
-  let isMesh = false;
-  try {
-    const response = await fetch(`http://127.0.0.1:${port}/mesh/health`, { signal: AbortSignal.timeout(1500) });
-    const text = await response.text();
-    // A current build answers its health check; a build from before the health
-    // check answers 404 with its own "MESH proxy ..." sentence. Both are MESH.
-    isMesh = text.includes('"mesh-proxy"') || text.includes("MESH proxy");
-  } catch {
-    isMesh = false;
-  }
+export async function portInUseMessage(
+  port: number,
+  paths: { settingsPath: string; statePath: string } = { settingsPath: CLAUDE_SETTINGS, statePath: WIRING_STATE },
+): Promise<string> {
+  // A current build answers its health check; a build from before the health
+  // check answers 404 with its own "MESH proxy ..." sentence. Both are MESH.
+  const probe = await probeProxy(port);
   // A port to suggest that the option parser will accept.
   const other = port < 65535 ? port + 1 : port - 1;
-  return isMesh
-    ? `MESH is already running on port ${port} (see: mesh status). If that is the always-on service, ` +
-      `Claude Code is already using it; an app can use it at http://127.0.0.1:${port}. ` +
-      `Otherwise stop the other copy first, or run this one beside it: add --port ${other}.`
-    : `Port ${port} is in use by another program. Start MESH on a free port instead: add --port ${other} ` +
+  if (!probe.isMesh) {
+    return `Port ${port} is in use by another program. Start MESH on a free port instead: add --port ${other} ` +
       `(and use that port in your base URL).`;
+  }
+  let claude = "Whether Claude Code is using it is not known.";
+  try {
+    const status = await claudeCodeStatus(paths, { port, probe });
+    claude = status.state === "pointed_at_mesh" && status.port === port
+      ? "Claude Code's settings point at it."
+      : status.state === "settings_invalid"
+        ? "Whether Claude Code is using it is not known: its settings file cannot be read as JSON."
+        : "Claude Code's settings do not point at it, so Claude Code is not using it.";
+  } catch { /* keep "not known" */ }
+  return `A MESH proxy is already answering on port ${port} (see: mesh status). ${claude} ` +
+    `An app can use it at http://127.0.0.1:${port}. To run this copy too, stop the other one first, or add --port ${other}.`;
+}
+
+/**
+ * A shutdown that can be asked for more than once. Only the first call runs
+ * `stop`; every later one returns at once and never rejects. A service is
+ * routinely told to stop twice (launchd, a supervisor, a second Ctrl+C), and
+ * closing an HTTP server that is already closing rejects.
+ */
+export function onlyOnce(stop: () => Promise<void>): () => Promise<void> {
+  let started = false;
+  return async () => {
+    if (started) return;
+    started = true;
+    await stop();
+  };
 }
 
 /**
@@ -485,14 +507,16 @@ export async function runServe(argv: string[]): Promise<void> {
     } catch { /* an update check must never take the proxy down */ }
   })(); }, UPDATE_CHECK_MS) : undefined;
 
-  const shutdown = async (): Promise<void> => {
+  // A second SIGTERM or SIGINT while the first is still closing must do
+  // nothing: closing the proxy twice rejects (the same guard `mesh start` has).
+  const shutdown = onlyOnce(async (): Promise<void> => {
     clearInterval(monitor);
     if (updateTimer) clearInterval(updateTimer);
     stopWeeklyReport();
     stopTheo?.();
-    await proxy.close();
+    await proxy.close().catch(() => undefined);
     process.exit(0);
-  };
+  });
   process.on("SIGTERM", () => { void shutdown(); });
   process.on("SIGINT", () => { void shutdown(); });
   await new Promise<void>(() => {});
