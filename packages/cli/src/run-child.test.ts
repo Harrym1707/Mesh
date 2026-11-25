@@ -53,13 +53,17 @@ async function start(runtimeBody: string, stdinIsTerminal: boolean): Promise<{ o
   return { output: () => out, ended };
 }
 
+// The handlers are installed BEFORE the pid is printed: the tests signal as
+// soon as they see the pid, and a signal that lands before the handler exists
+// kills the stand-in by default action instead of being reported (this made
+// the first version of the test fail one CI run in two).
 const GRACEFUL = `
-console.log("pid=" + process.pid);
 const stop = (name) => () => { console.log("runtime got " + name); setTimeout(() => process.exit(0), 50); };
 process.on("SIGTERM", stop("SIGTERM"));
 process.on("SIGINT", stop("SIGINT"));
 process.on("SIGHUP", stop("SIGHUP"));
 setInterval(() => {}, 1000);
+console.log("pid=" + process.pid);
 `;
 
 beforeEach(() => { dir = mkdtempSync(path.join(tmpdir(), "mesh-run-child-")); });
