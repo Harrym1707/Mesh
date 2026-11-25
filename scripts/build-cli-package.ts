@@ -17,7 +17,7 @@
  * Nothing here contacts a registry; it smoke-tests the runtime by running
  * `mesh-runtime verify`.
  */
-import { execSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
@@ -168,6 +168,28 @@ if (!bareText.includes("Fix: mesh setup") || !bareText.includes("mesh --help for
   process.exit(1);
 }
 
+// `mesh setup` is what the report, the flow detector and the installer all
+// point at, so it must exist in the download. Two runs that change nothing:
+// a dry run prints its plan and says so, and with no terminal and no flags it
+// fails at once naming the flags instead of waiting for an answer. A stand-in
+// `launchctl` is first on PATH for both, so the real service manager is never
+// asked anything even if setup went wrong.
+const fakeBin = path.join(smokeHome, "fake-bin");
+mkdirSync(fakeBin, { recursive: true });
+writeFileSync(path.join(fakeBin, "launchctl"), "#!/bin/sh\nexit 1\n");
+chmodSync(path.join(fakeBin, "launchctl"), 0o755);
+const setupEnv = { ...smokeEnv, PATH: `${fakeBin}${path.delimiter}${process.env.PATH ?? ""}` };
+const setupDryRun = spawnSync(process.execPath, [runtimeFile, "setup", "--dry-run"], { cwd: root, env: setupEnv, stdio: ["ignore", "pipe", "pipe"], encoding: "utf8", timeout: 30_000 });
+if (setupDryRun.status !== 0 || !setupDryRun.stdout.includes("mesh setup:") || !setupDryRun.stdout.includes("Dry run: nothing was changed.")) {
+  console.error("Smoke test FAILED — `setup --dry-run` did not print its plan and that nothing was changed:\n" + setupDryRun.stdout + setupDryRun.stderr);
+  process.exit(1);
+}
+const setupNoTerminal = spawnSync(process.execPath, [runtimeFile, "setup"], { cwd: root, env: setupEnv, stdio: ["ignore", "pipe", "pipe"], encoding: "utf8", timeout: 30_000 });
+if (setupNoTerminal.status !== 1 || setupNoTerminal.stdout !== "" || !setupNoTerminal.stderr.includes("--client claude-code or --client app")) {
+  console.error("Smoke test FAILED — `setup` with no terminal and no flags did not fail fast naming the flags:\n" + setupNoTerminal.stdout + setupNoTerminal.stderr);
+  process.exit(1);
+}
+
 // The download must expose what an agent reads: `status`, `verify`, `connect`
 // and `report` each print exactly one JSON object with their schema. A command
 // that went missing from the runtime prints the usage text instead and fails here.
@@ -191,5 +213,6 @@ console.log(`  smoke test: mesh-runtime theo --help — command present`);
 console.log(`  smoke test: mesh-runtime statement --help — command present`);
 console.log(`  smoke test: mesh-runtime report — the weekly report in words`);
 console.log(`  smoke test: mesh-runtime (no command) — the summary and the next step`);
+console.log(`  smoke test: mesh-runtime setup --dry-run — the plan, nothing changed; setup with no terminal fails fast`);
 console.log(`  smoke test: mesh-runtime status|verify|connect|report --json — one JSON object each`);
 console.log(`  publish npm with:  (cd ${path.relative(root, outDir)} && npm publish --access public)`);
