@@ -2,6 +2,8 @@
 
 > Mesh is a local proxy for LLM API traffic, for teams running their own agents on the Anthropic or OpenAI API: out of the box it makes three lossless changes to each request and records every saving in a hash-chained ledger on your own machine, so you can recompute the bill yourself.
 > The fee is 1% of verified savings for the month, rounded down to the cent, and nothing else; no fee is due unless billing has been agreed in writing.
+> It is built for products that call an LLM API constantly: agents, coding, support, RAG and multi-agent systems. You can recompute any invoice yourself with `mesh verify`.
+> Mesh has no customers yet, has not run on any customer's traffic, and has not been measured on a real provider bill.
 
 ## What a fresh install does today
 The three default changes are tool-schema compaction, exact-duplicate removal
@@ -10,18 +12,20 @@ basket (LIVE, run 2026-10-26 on claude-sonnet-5-5, not a customer's traffic)
 those three account for under half of the 18.2% of spend recorded; the rest
 came from two levers that are off by default, a 5-minute Anthropic cache
 stamp and a gate-approved cap on oversized tool results. A Claude Code user
-gains little on the defaults. Mesh has no customers yet and has not been
-measured on a customer's provider bill. No default-install percentage has
-been published.
+gains little on the defaults. That basket is one small run on requests Mesh
+wrote, not a measurement of any customer's bill. No default-install
+percentage has been published.
 
 ## Figures, each with its label, date and the levers it needed
+Every figure below is from docs/NUMBERS.md in the repository (last reconciled
+2026-10-27); a number that is not in that file is not a Mesh number.
 LIVE means real API calls on a test basket Mesh wrote. SIMULATOR means
 modelled on a harness at the providers' published prices; it is not a
 measurement of anyone's bill. The "J stack" is tool-description trimming,
 exact-duplicate removal, cache-prefix repair, a cap on oversized tool
 results, stale-history compaction and an output cap; four of those six are
 off in a fresh install.
-- 18.2% of real spend: LIVE, run 2026-10-26, Mesh's own test basket; needed the three defaults plus a 5-minute cache stamp and a tool-result cap, both off by default. Spools: evals/live-exports-2026-10-26/.
+- 18.2% of real spend ($0.0365 saved of $0.2010 spent, 30 requests on claude-sonnet-5-5): LIVE, run 2026-10-26, Mesh's own test basket; needed the three defaults plus a 5-minute cache stamp and a tool-result cap, both off by default. Spools: evals/live-exports-2026-10-26/.
 - 37.9%, multi-turn Claude that places no cache breakpoints: SIMULATOR, verified 2026-10-22; needed the 5-minute Anthropic cache stamp alone, off by default.
 - 57.3% lower simulated cost with 5 points lower clean-task quality: SIMULATOR, verified 2026-10-22; needed the J stack plus the cache stamp; fails the quality limit and is not a qualified saving.
 - 57.7% net (64.3% ceiling), work that can wait: SIMULATOR, verified 2026-10-13; needed the J stack plus the provider's flex tier, not on by default.
