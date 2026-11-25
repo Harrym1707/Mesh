@@ -441,13 +441,21 @@ function canonicalSegments(value: string): string[] {
     .filter((segment) => segment !== "");
 }
 
-/** Whether `key` appears as a contiguous run of segments inside `id`. */
+/**
+ * Whether `key` is the END of `id`'s segments: a vendor prefix may come before
+ * it ("claude-", "anthropic."), nothing may come after.
+ *
+ * Anything after the published name names a different model, and often a
+ * different price: a later version ("claude-fable-5-3" is not "Fable 5",
+ * "gpt-5.3" is not "gpt-5"), a size ("gpt-5-mini") or a tier
+ * ("claude-opus-5-5-fast"). Release dates and "-latest" are already stripped by
+ * canonicalSegments, so they do not count as a suffix. An id that carries one
+ * stays unresolved until it has its own entry or an explicit alias.
+ */
 function containsSegments(id: string[], key: string[]): boolean {
   if (key.length === 0 || key.length > id.length) return false;
-  for (let offset = 0; offset + key.length <= id.length; offset += 1) {
-    if (key.every((segment, index) => id[offset + index] === segment)) return true;
-  }
-  return false;
+  const offset = id.length - key.length;
+  return key.every((segment, index) => id[offset + index] === segment);
 }
 
 /**
