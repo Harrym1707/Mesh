@@ -181,8 +181,9 @@ mesh theo --accept <lever>
 **The Anthropic cache stamp.** This is the lever behind the largest figures
 on this site, and Theo does not propose it today. To switch it on with
 `mesh start` or `mesh proxy`, add it to the `levers` list in
-`~/.mesh/theo-policy.json`; a running proxy picks the change up on its next
-request:
+`~/.mesh/theo-policy.json`; a running proxy applies the change to
+conversations that start after it, and one already in flight keeps the policy
+it started with:
 
 ```json
 { "lever": "cache-ttl-5m", "class": "lossless" }
@@ -193,9 +194,9 @@ Anthropic prompt, withholds it where the prefix changes between turns or is
 under the provider's minimum, and leaves your request alone if you already
 place `cache_control` yourself. A cache write costs more than an ordinary
 read, so a stamp that is never read back loses money; that loss is recorded
-in your ledger and counts against the fee. Checked on 2026-11-24 against a
+in your ledger and counts against the fee. Checked on 2026-11-25 against a
 stand-in provider: a fresh install sends no cache breakpoint, and with this
-line added it does.
+line added the next conversation carries one.
 
 **The SDK.** `withMesh(client, { tokenReduction: { ... } })` takes each lever
 as an option, including `cacheTtl: "5m"` and the cap on oversized tool
