@@ -12,6 +12,22 @@ The main optimisation surfaces are:
 
 A safe optimisation system should not assume that the cheapest model is the best choice. It should measure the candidate against the real workload and define explicit rollback conditions.
 
-## MESH project status
+## Mesh project status
 
-MESH is an early-stage project. The current prototype can route a stable canary share to replay-approved models, apply versioned context transforms, retry rejected candidates on the baseline, and account for provider prompt-cache usage and an opt-in exact response cache. Replay evidence is required before candidates can be approved. Online learning, durable policy state and automated circuit breaking are not implemented.
+Checked 2026-11-24 against release 0.2.5.
+
+Mesh is a local proxy for the Claude (Anthropic) and OpenAI APIs. Of the
+surfaces above it works on context and on provider prompt caching, and it adds
+one of its own: a hash-chained ledger on the customer's disk, from which the
+customer can recompute what was saved (`mesh verify`, `mesh statement`).
+
+On a fresh install it applies three levers classed lossless: tool-schema
+compaction, duplicate-context removal and cache-prefix repair. Its Anthropic
+prompt-cache stamp, its tool-result cap and its flex-tier lever are off unless
+switched on.
+
+The proxy does not route between models or providers and has no response
+cache. Mesh has no customers and has not run on a customer's real traffic.
+Its savings figures, each labelled LIVE or SIMULATOR with the levers that
+were switched on, are in `docs/NUMBERS.md`; there is no figure for a fresh
+install.

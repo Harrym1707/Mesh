@@ -1,21 +1,89 @@
 {
-  "name": "MESH",
-  "category": "AI Cost Engineering",
-  "description": "MESH is an early-stage AI Cost Engineering project for observing inference requests and evaluating saved baseline and candidate outputs against explicit quality policies.",
+  "name": "Mesh",
+  "category": "Local LLM cost proxy",
+  "categoryAliases": [
+    "AI cost engineering",
+    "LLM cost reduction"
+  ],
+  "description": "Mesh is a local proxy for LLM API traffic, for teams running their own agents on the Anthropic or OpenAI API: out of the box it makes three lossless changes to each request and records every saving in a hash-chained ledger on your own machine, so you can recompute the bill yourself.",
+  "descriptionStatus": "The canonical description: the constant MESH_DESCRIPTION in scripts/landing-page.ts on branch gtm/claims-correction at c6acd5c, read 2026-11-25. Not yet on main; keep this field word for word with that constant.",
+  "updated": "2026-11-25",
+  "checkedAgainst": "main at 784dd82, release 0.2.5",
+  "version": "0.2.5",
+  "url": "https://www.mesh-technology.com",
+  "repository": "https://github.com/Harrym1707/Mesh",
+  "packages": [
+    "@harrym1707/mesh",
+    "@harrym1707/sdk"
+  ],
+  "licence": "Business Source License 1.1",
+  "company": "Flux AI Technologies Limited, trading as Mesh",
+  "audience": "Teams running their own agents on the Claude or OpenAI API: coding, browsing, support, retrieval and multi-agent systems. Not aimed at Claude Code users, who gain little.",
+  "install": [
+    "curl -fsSL https://www.mesh-technology.com/install.sh | sh",
+    "npm install -g @harrym1707/mesh"
+  ],
+  "requirements": "Node 22 or newer. macOS and Linux; Windows through WSL.",
+  "path": [
+    "Install",
+    "mesh start (Claude Code) or mesh proxy (any app: set the client's base URL to http://127.0.0.1:8787 for Anthropic or http://127.0.0.1:8787/v1 for OpenAI-style clients, and keep your own key)",
+    "mesh verify"
+  ],
+  "commands": [
+    "start",
+    "proxy",
+    "install",
+    "stop",
+    "uninstall",
+    "status",
+    "dashboard",
+    "theo",
+    "update",
+    "verify",
+    "statement",
+    "doctor",
+    "restore",
+    "version",
+    "analyse",
+    "compaction"
+  ],
   "implementedCapabilities": [
-    "OpenAI-compatible Responses API pass-through instrumentation",
-    "metadata-only request telemetry",
-    "local inference activity dashboard",
-    "saved-output replay evaluation",
-    "explicit baseline and candidate model replay"
+    "local proxy for the Anthropic Messages API and the OpenAI Chat Completions and Responses APIs; other calls are forwarded unchanged",
+    "on a fresh install, three levers classed lossless: tool-schema compaction, duplicate-context removal, cache-prefix repair",
+    "a hash-chained savings ledger on the customer's own disk",
+    "mesh verify: re-checks the ledger's hash chain and recomputes the invoice locally, with no network call",
+    "mesh statement: a month's statement recomputed from the ledger and signed by that install's key",
+    "Theo, a background agent that observes metered traffic and proposes policy changes"
   ],
-  "plannedCapabilities": [
-    "production model routing",
-    "context optimisation",
-    "semantic caching",
-    "agent budgets",
-    "progressive rollout",
-    "automatic rollback"
+  "offUnlessSwitchedOn": [
+    "the Anthropic prompt-cache stamp (5-minute or 1-hour)",
+    "the tool-result cap, which needs a passed quality gate",
+    "JSON tool-result compaction",
+    "the flex processing tier",
+    "output-effort levers"
   ],
+  "notImplemented": [
+    "an MCP server",
+    "response caching in the proxy",
+    "model routing in the proxy",
+    "a hosted service, accounts or automatic billing"
+  ],
+  "plannedCapabilities": [],
+  "plannedCapabilitiesNote": "Left empty on purpose. This file describes only what is on main; nothing unreleased is listed or promised.",
+  "pricing": {
+    "fee": "The fee is 1% of verified savings for the month, rounded down to the cent, and nothing else; no fee is due unless billing has been agreed in writing.",
+    "installAndRun": "Free; no account.",
+    "source": "docs/site/terms.md and docs/site/pricing.md"
+  },
+  "figures": {
+    "source": "docs/NUMBERS.md",
+    "rule": "A figure is quoted only from that file, with its label (LIVE or SIMULATOR), its date, and whether it is out of the box or measured with named levers switched on.",
+    "freshInstallPercentage": "None exists. Do not state one."
+  },
+  "evidenceStatus": {
+    "customers": "None.",
+    "customerTraffic": "Mesh has never run on a customer's real traffic.",
+    "realProviderBill": "No measurement of Mesh's effect on billed cost per completed task exists."
+  },
   "tagline": "Make every token count."
 }
