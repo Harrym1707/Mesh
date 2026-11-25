@@ -67,6 +67,92 @@ log it here · commit locally only when green · do not push (left for review).
    tokens, idempotent, preserves fenced code, byte-identical on clean input.
 7. README + floorplan refresh; final report at 24h.
 
+### Iteration 10 — 2026-11-24 · a conversation keeps the policy it started with
+
+**Why.** Iteration 9 found that every lever except history compaction keeps a
+cached prefix stable, but only while the SAME levers act on every turn. The
+proxy re-reads its policy on every request. A lever Theo publishes, a policy
+file edited by hand, or a proxy started under a client that is already
+mid-conversation changes the bytes of the prefix from that turn on, and the
+provider writes the whole history again at 1.25x instead of reading it at a
+tenth.
+
+**What was built.** `packages/sdk-js/src/conversation-policy-pins.ts`
+(`ConversationPolicyPins`), used by the proxy on every request and on by
+default (`conversationPolicyPins: false` restores the old behaviour). The rules:
+
+- A conversation is its model plus its first message, keyed with an HMAC, with
+  cache markers stripped and a plain-string body treated as the one text block
+  it equals.
+- A conversation in flight keeps the policy it was first given.
+- A request that STARTS a conversation takes the current policy: the model has
+  not answered in it yet, or it is no longer than when the conversation was
+  first seen. One-shot calls are always starts, so they are never held on an
+  old policy.
+- Idle for longer than one hour (the longest cache lifetime offered), nothing
+  can still be cached, so the conversation is re-pinned to the current policy.
+- A conversation the proxy did not see the start of, whose caller is caching
+  it, is left untouched (no lever at all) for one hour from when it was first
+  seen, then joins the current policy.
+- The exception: a LOSSY lever the current policy no longer has is dropped at
+  once, cache or no cache. Theo withdraws a lossy lever when quality drifts,
+  and that outranks one re-write.
+- With `blindFeaturesKey` set the pins are kept across restarts in
+  `<ledgerDirectory>/conversation-pins.json`: keyed hashes and lever settings,
+  never content.
+
+`pnpm lab:cache` gained two columns: "pinned" (the lever published halfway
+through a conversation, as the proxy now handles it) and "withdrawn" (a lossy
+lever on from the first turn, removed halfway).
+
+**Basis: SIMULATOR.** `corepack pnpm lab:cache`, as iteration 9: real recorded
+tool outputs, scripted sessions, estimated tokens, documented cache rates,
+turns 20 s apart. No model ran; no provider was called. Figures are the worst
+change in billed input cost among cached conversations; minus is dearer.
+
+| Lever | Published halfway, applied to the next request | Published halfway, pinned | Lossy lever withdrawn halfway |
+|---|---|---|---|
+| Tool-schema compaction (default) | -40.8% | +0.0% | n/a |
+| Duplicate-context removal (default) | -5.8% | +0.0% | n/a |
+| Cache-prefix repair (default) | +0.0% | +0.0% | n/a |
+| JSON tool-result compaction | -34.9% | +0.0% | n/a |
+| Tool description trim (lossy) | -45.0% | +0.0% | -45.1% |
+| Fresh tool-result cap (lossy) | +25.5% | +0.0% | -12.6% |
+| Cross-turn memory dedup (lossy) | -0.8% | +0.0% | -7.3% |
+
+1. **Pinned, a policy change costs a conversation in flight nothing**: +0.0%
+   for every lever. The lever reaches conversations that start after it.
+2. **A lossy withdrawal still costs a re-write, by design**: up to 45.1% more
+   input for that conversation (description trim).
+3. **The lab check caught a bug in the first version.** It keyed a
+   conversation on its raw first message. A client that moves its
+   `cache_control` marker to the newest block every turn (Claude Code does)
+   sends the first message with a marker on turn one and without it on turn
+   two, so turn two looked like a new conversation joined mid-flight and was
+   left untouched. The "withdrawn" column showed it: description trim read
+   -32.2% and the overridden compaction +0.0%, against -45.1% and -26.6% once
+   fixed.
+   The unit tests had only put markers on the system prompt and did not see
+   it. Fixed by stripping cache markers from the identity; a test now covers a
+   moving marker.
+
+**Also checked, at the release session's request.** `historyCompaction: true`
+does nothing on an Anthropic tool loop that has one user message: 9 steps of
+assistant `tool_use` and user `tool_result` blocks, 80,345 bytes of history in
+and 80,345 out, no lever recorded. It counts a turn only at a real user
+message, tool-result carriers are not turns, and it starts at 3 turns, so a
+single-task tool loop never has a stale turn. It does digest tool results once
+user text turns separate them (81,219 to 29,323 bytes with one between each
+step), and plain-text assistant turns (5,177 to 2,087 bytes over 9 turns).
+Checked with a throwaway script against `reduceRequest`; not changed.
+
+**Limits.** Two conversations open at once with the same model and an
+identical first message share one pin. An untouched conversation joins the
+current policy one hour after it was first seen, which is one re-write if it
+runs that long. The check measures a policy change at the halfway turn only.
+The pin applies in the proxy; `withMesh` takes a fixed configuration and needs
+none.
+
 ### Iteration 9 — 2026-11-24 · cache compatibility: which levers can raise a bill
 
 **Why.** A published study of Claude Code (arXiv 2607.12161, read by the

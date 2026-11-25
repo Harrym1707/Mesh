@@ -67,8 +67,9 @@ and so is everything that is not tool output.
 Turn it on per workload.
 
 With the proxy (`mesh start` / `mesh install`), add the lever to the `levers`
-list in `~/.mesh/theo-policy.json`. A running proxy picks the change up on its
-next request:
+list in `~/.mesh/theo-policy.json`. A running proxy applies the change to
+conversations that start after it; one already in flight keeps the policy it
+started with:
 
 ```json
 { "lever": "tool-result-json-compaction", "class": "lossless" }
@@ -89,10 +90,13 @@ Two things to know before you turn it on:
   through a tool (for example `cat config.json`) and then edits that file by
   matching text exactly, it no longer sees the file's own layout. Leave the
   lever off for that workload.
-- **Change it between conversations, not during one.** Switching it on or off
-  mid-conversation changes tool results already in the history once, so a
-  client that uses prompt caching (Claude Code does) re-writes its cached
-  prefix one time.
+- **A change takes effect between conversations, not during one.** Switching
+  it on or off mid-conversation would change tool results already in the
+  history, and a client that uses prompt caching (Claude Code does) would
+  re-write its cached prefix. The proxy prevents that by itself: a changed
+  policy applies to conversations that start after it, and one already in
+  flight keeps the policy it started with. With the SDK the option is fixed
+  for the life of the client you wrapped.
 
 Theo keeps a lever you add by hand. He writes his own policy to the same file,
 in the background of `mesh start` and whenever you accept one of his
