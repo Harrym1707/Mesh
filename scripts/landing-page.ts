@@ -79,11 +79,11 @@ export function renderLanding(origin: string, repoUrl: string): string {
     ["support-chat", 0.05225], ["already-lean", 0.00529],
   ] as const;
   const SAVED = [
-    ["coding-agent: opt-in cap + stamp, schemas", 0.02254],
-    ["rag-docqa: default duplicate removal", 0.00861],
-    ["support-chat: schemas (pre-correction)", 0.00537],
-    ["batch-classifier: stamp withheld", 0.0],
-    ["already-lean: nothing to remove", 0.0],
+    ["coding: opt-in cap + stamp", 0.02254],
+    ["rag: duplicates (default)", 0.00861],
+    ["support: schemas (pre-fix)", 0.00537],
+    ["batch: stamp withheld", 0.0],
+    ["lean: nothing to remove", 0.0],
   ] as const;
   const spendTotal = SPEND.reduce((s, [, v]) => s + v, 0);
   const savedTotal = SAVED.reduce((s, [, v]) => s + v, 0);
@@ -797,7 +797,7 @@ The ledger is yours; this command recomputes the invoice from it with no network
       <h2>Our one live run, line by line.</h2>
       <p class="note">This is the only live figure Mesh has. We ran real requests on a test basket we wrote, published every line, and the rows add up to the total. It is not a customer&rsquo;s bill: Mesh has no customers yet.</p>
       <div class="figure">${savedPct.toFixed(1)}%</div>
-      <p class="cap">of spend on our own 30-request test basket (LIVE, run 2026-10-26), with a 5-minute cache stamp and a gate-approved tool-result cap switched on. A fresh install does not switch those on; its three lossless changes account for under half of this total. The tool-schema rows were measured before a correction of 2026-10-29 and would not be recorded today. The cache stamp alone is 37.9% on the harness (SIMULATOR, verified 2026-10-22; off by default) &rarr; <a href="evidence.html">evidence</a>.</p>
+      <p class="cap">of spend on our own 30-request test basket (LIVE, run 2026-10-26), with a 5-minute cache stamp and a gate-approved tool-result cap switched on. A fresh install does not switch those on; its three lossless changes account for under half of this total. The tool-schema savings in it (part of the coding row, all of the support row) were measured before a correction of 2026-10-29 and would not be recorded today. The cache stamp alone is 37.9% on the harness (SIMULATOR, verified 2026-10-22; off by default) &rarr; <a href="evidence.html">evidence</a>.</p>
     </div>
     <div class="slip rise in-self" aria-label="The export, row by row">
       <h3>mesh &mdash; LIVE EXPORT</h3>
