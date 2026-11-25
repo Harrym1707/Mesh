@@ -15,6 +15,8 @@ Everything MESH writes lives under `~/.mesh/`:
 | `~/.mesh/blind.key` | A per-user HMAC key (32 random bytes, file mode `0600`) for Theo's blind feature stream. Local only; never leaves your machine. |
 | `~/.mesh/runtime/` | The cached, checksum-verified runtime the bootstrap fetches. |
 | `~/.mesh/daemon.log` | Output of the always-on service, if installed. |
+| `~/.mesh/reports/` | Your weekly report as a small HTML page, one per week, the last 12 kept. Written on this machine from your own ledger; sent nowhere. See [the weekly report](weekly-report.md). |
+| `~/.mesh/report-state.json` | Which week's report has been shown on this machine, and whether the weekly notification is on. Dates and a switch; no figures. |
 
 ### The ledger is yours
 

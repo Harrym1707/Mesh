@@ -39,3 +39,35 @@ export function verdictNote(invoice: Invoice): string {
   }
   return invoice.verdict;
 }
+
+/** Why nothing is charged. Stable codes for machine readers; the sentence is for people. */
+export type VerdictReasonCode = "no_requests" | "fee_below_one_cent" | "savings_not_positive";
+
+/**
+ * The bill's decision as data, for JSON output and in-process callers. Every
+ * figure is read off the invoice recompute; nothing is worked out here.
+ */
+export type BillVerdict = {
+  verdict: "charge" | "do_not_charge";
+  /** Present when the verdict is do_not_charge. */
+  reasonCode?: VerdictReasonCode;
+  reason?: string;
+  feePercent: number;
+  /** The fee as billed: whole cents, rounded down. Zero whenever nothing is charged. */
+  feeCents: number;
+  feeUsd: number;
+};
+
+export function billVerdict(invoice: Invoice): BillVerdict {
+  const feePercent = invoice.feePercent ?? CONTRACTED_FEE_PERCENT;
+  if (invoice.verdict === "charge") {
+    const feeCents = invoice.amountDueCents ?? 0;
+    return { verdict: "charge", feePercent, feeCents, feeUsd: feeCents / 100 };
+  }
+  if (invoice.eventsConsidered === 0) {
+    return { verdict: "do_not_charge", reasonCode: "no_requests", reason: "no requests are recorded", feePercent, feeCents: 0, feeUsd: 0 };
+  }
+  return feeIsBelowOneCent(invoice)
+    ? { verdict: "do_not_charge", reasonCode: "fee_below_one_cent", reason: `the ${feePercent}% fee is below one cent`, feePercent, feeCents: 0, feeUsd: 0 }
+    : { verdict: "do_not_charge", reasonCode: "savings_not_positive", reason: "net verified savings are not positive", feePercent, feeCents: 0, feeUsd: 0 };
+}

@@ -22,12 +22,16 @@ Usage: mesh <command> [options]
   stop       Stop the background service (kept, resume with install); restore Claude Code.
   uninstall  Stop and remove the background service; restore Claude Code.
   status     Is the service up, and what has Theo saved so far?
+  connect    How a client reaches MESH on this machine: the base URLs to set
+             and whether the proxy is answering. Reads no key, changes nothing.
   dashboard  Open a live local web view of your savings and what Theo is doing.
   theo       Run Theo once (or --watch), answer his proposals (--proposals,
              --accept, --reject), or prove levers on your own capture (--gate).
   update     Update the runtime now (--rollback to revert to the previous one).
   verify     Re-prove MESH's claims on this machine: the build's provenance,
              your ledger's hash-chain, and a deterministic invoice recompute.
+  report     What Mesh did for you last week, in plain money: paid, saved, the
+             fee, what you keep. --detail for the breakdown, --open for a page.
   statement  Your statement for one billing period (--period YYYY-MM): verified
              savings per lever and the 1% fee, recomputed from your own
              ledger, with a file to share. A statement, not an invoice.
@@ -43,6 +47,13 @@ Run "mesh <command> --help" for command options.`;
 
 async function main(): Promise<void> {
   const sub = process.argv[2];
+  // Once a week, and only in a terminal: last week's report in one line on
+  // stderr, before the command's own output (report-delivery.ts).
+  if (process.stdout.isTTY === true && process.stderr.isTTY === true) {
+    try {
+      (await import("./report-delivery.js")).announceInTerminal(process.argv.slice(2));
+    } catch { /* never in the way of the command */ }
+  }
   if (sub === "start") {
     await (await import("./start.js")).runStart(process.argv.slice(3));
   } else if (sub === "proxy") {
@@ -62,6 +73,10 @@ async function main(): Promise<void> {
     await (await import("./update.js")).runUpdate(process.argv.slice(3));
   } else if (sub === "verify") {
     await (await import("./verify.js")).runVerify(process.argv.slice(3));
+  } else if (sub === "connect") {
+    await (await import("./connect.js")).runConnect(process.argv.slice(3));
+  } else if (sub === "report") {
+    await (await import("./report-command.js")).runReport(process.argv.slice(3));
   } else if (sub === "statement") {
     await (await import("./statement.js")).runStatement(process.argv.slice(3));
   } else if (sub === "doctor") {
@@ -81,7 +96,8 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
+// A command that throws: the message on stderr, or with --json one failure
+// object on stdout. Exit 1 either way (json-output.ts).
+main().catch(async (error: unknown) => {
+  (await import("./json-output.js")).reportFatal(error);
 });

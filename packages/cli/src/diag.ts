@@ -15,11 +15,12 @@ import { join } from "node:path";
 
 import { BUILD_COMMIT, CLAUDE_SETTINGS, DEFAULT_PORT, MESH_HOME, WIRING_STATE, summariseLedger } from "./start.js";
 import { checkWiring, repairWiring } from "./claude-wiring.js";
+import { VERSION } from "./build-info.js";
 
 const WIRING_PATHS = { settingsPath: CLAUDE_SETTINGS, statePath: WIRING_STATE };
 
-declare const __MESH_VERSION__: string | undefined;
-export const VERSION = typeof __MESH_VERSION__ !== "undefined" ? __MESH_VERSION__ : (process.env.MESH_VERSION ?? "0.0.0");
+// Defined in build-info.ts (a leaf module) and re-exported for existing importers.
+export { VERSION };
 const LAUNCHD_LABEL = "dev.meshtoken.mesh";
 
 const nodeMajor = (): number => Number.parseInt(process.versions.node.split(".")[0] ?? "0", 10);

@@ -89,5 +89,6 @@ says so honestly.
 ## Next
 
 - [Configure](configure.md) — providers and other clients (Cline, Aider, Zed…).
+- [The weekly report](weekly-report.md) — what MESH tells you each week, and where the numbers come from.
 - [Commands](commands.md) — every command and its options.
 - [Data and privacy](data-and-privacy.md) — what's stored, and your key's path.
