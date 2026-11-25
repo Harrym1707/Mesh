@@ -198,7 +198,7 @@ export function decideTerminalLine(input: {
  * machine: a fresh install is not "not connected" for the week before it.
  */
 export function worthAnnouncing(report: Report, state: ReportState): boolean {
-  if (report.case !== "no_requests") return true;
+  if (report.case !== "no_requests" && report.case !== "no_requests_then") return true;
   return state.firstSeenAt !== undefined && state.firstSeenAt < report.period.endsBefore;
 }
 
@@ -471,7 +471,7 @@ export function startBannerLine(options: TerminalOptions = {}): string | undefin
     if (state.notifications === "off") return undefined;
     const week = weekPeriod("last", now, timeZone);
     const report = buildWeek(options, meshHome, now, timeZone, week);
-    if (report.case === "no_requests") return undefined;
+    if (report.case === "no_requests" || report.case === "no_requests_then") return undefined;
     if (stdout.isTTY === true && (state.terminalWeek === undefined || state.terminalWeek < week.id)) {
       updateReportState(meshHome, now, (current) => {
         current.terminalWeek = week.id;

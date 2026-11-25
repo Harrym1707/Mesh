@@ -71,6 +71,7 @@ function leadSentence(report: Report): string {
   if (!report.ledgerVerified) return "Mesh could not verify your ledger, so there is no figure.";
   const span = `this ${report.kind}`;
   if (report.case === "no_requests") return `Mesh saw no requests ${span}.`;
+  if (report.case === "no_requests_then") return report.since!.first ? `Mesh was not running yet ${span}.` : `Mesh saw no requests ${span}.`;
   if (report.case === "saved_nothing") return `Mesh saved you <span class="n">$0.00</span> ${span}.`;
   if (report.case === "cost_more") return `Mesh cost you <span class="n">${esc(money(Math.abs(report.savedUsd)))}</span> ${span}.`;
   return `Mesh saved you <span class="n">${esc(money(report.savedUsd))}</span> ${span}.`;
@@ -97,7 +98,7 @@ function moneyRows(report: VerifiedReport): string {
 const usd4 = (amount: number): string => money(amount, 4);
 
 function detailSection(report: Report): string {
-  if (!report.ledgerVerified || report.case === "no_requests") return "";
+  if (!report.ledgerVerified || report.case === "no_requests" || report.case === "no_requests_then") return "";
   const detail = report.detail;
   const parts: string[] = [];
   parts.push(`<h2>The detail</h2>`);
@@ -160,7 +161,11 @@ export function renderReportHtml(report: Report): string {
   const main: string[] = [];
   main.push(`<p class="eyebrow">${esc(eyebrow)}</p>`);
   main.push(`<h1>${leadSentence(report)}</h1>`);
-  if (!report.ledgerVerified || report.case === "no_requests") {
+  if (report.ledgerVerified && report.case === "no_requests_then") {
+    // Not a connection problem: requests arrived after this span. Say where they are.
+    if (!report.since!.first) main.push(`<p>It has seen requests since.</p>`);
+    for (const line of headline.slice(1)) main.push(`<p>${withCommand(line)}</p>`);
+  } else if (!report.ledgerVerified || report.case === "no_requests") {
     // The whole message is the two headline sentences; the first is the lead above.
     for (const line of headline.slice(1)) main.push(`<p>${withCommand(line)}</p>`);
     if (report.ledgerVerified && report.period.finished) {

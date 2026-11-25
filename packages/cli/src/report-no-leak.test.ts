@@ -300,7 +300,7 @@ describe("mesh report: the command, and nothing private in any output", () => {
     expect(Object.keys(out).sort()).toEqual([
       "case", "currency", "detail", "feeBelowOneCent", "feeCents", "feePercent", "feeUsd", "generatedAt", "headline", "keepUsd",
       "kind", "ledgerVerified", "mesh", "monthLine", "monthToDate", "notifications", "ok", "oneLine", "paidProviderUsd",
-      "period", "requests", "savedUsd", "schema", "theo", "unpricedRequests", "withoutMeshUsd",
+      "period", "requests", "savedUsd", "schema", "since", "theo", "unpricedRequests", "withoutMeshUsd",
     ]);
     expect(out).toMatchObject({
       schema: "mesh-report/1",

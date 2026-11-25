@@ -145,8 +145,12 @@ list are not in the cost lines; the report says how many there were.
 **The cases.** Saved nothing: "Mesh saved you $0.00 this week, so you owe
 nothing." Mesh cost more than it saved: the report says how much, that it
 counts against Mesh's fee, and that nothing is owed. A fee under one cent: the
-saving is stated and nothing is owed for it. No requests: "Mesh saw no requests
-last week, so it is not connected. Fix: mesh setup". A ledger whose hash chain
+saving is stated and nothing is owed for it. No requests, and none since
+either: "Mesh saw no requests last week, so it is not connected. Fix: mesh
+setup". No requests that week but requests after it: "Mesh was not running yet
+last week (16 to 22 Nov). This week so far: mesh report --this-week" (or, for a
+quiet week between busy ones, "Mesh saw no requests last week, but it has seen
+requests since."); the second line names the report that has them. A ledger whose hash chain
 does not verify: no figure at all, "Run: mesh verify", and the command exits 1
 (the same with `--json`); every other case exits 0.
 
@@ -160,7 +164,10 @@ far. No lever is named in these lines.
 
 **`--json`.** One object: `schema`, `ok`, `mesh { version, build }`, `kind`
 (`week` or `month`), `case` (`saved`, `saved_nothing`, `cost_more`,
-`no_requests`, `not_verified`), `period { kind, id, startDate, endDate,
+`no_requests`, `no_requests_then`, `not_verified`), `since` (null except for
+`no_requests_then`: `{ first, span, command }`, where `first` is true when
+nothing is recorded before the span either and `command` is the report that
+has the later requests), `period { kind, id, startDate, endDate,
 timeZone, startsAt, endsBefore, finished, relative, label }`, `currency`,
 `ledgerVerified`, `requests`, `paidProviderUsd`, `withoutMeshUsd`, `savedUsd`,
 `feePercent`, `feeCents`, `feeUsd`, `feeBelowOneCent`, `keepUsd`,

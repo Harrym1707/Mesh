@@ -283,7 +283,25 @@ export function monthPeriod(period: string, now: Date): ReportPeriod {
 // The figures: the bill's own arithmetic over one span
 // ---------------------------------------------------------------------------
 
-export type ReportCase = "saved" | "saved_nothing" | "cost_more" | "no_requests" | "not_verified";
+/**
+ * What the span came to. Two of them mean "no requests in the span":
+ *
+ *   no_requests       none in the span and none after it: Mesh is not connected
+ *   no_requests_then  none in the span, but the ledger has requests AFTER it:
+ *                     not a connection problem. Either Mesh was not running
+ *                     yet (`since.first`), or the span was a quiet one.
+ */
+export type ReportCase = "saved" | "saved_nothing" | "cost_more" | "no_requests" | "no_requests_then" | "not_verified";
+
+/** Where the requests are, when the reported span has none but a later one does. */
+export type ReportSince = {
+  /** Nothing is recorded before the span either: Mesh was not running yet. False for a quiet span between busy ones. */
+  first: boolean;
+  /** The nearest span to now that has requests after the reported one. */
+  span: "this_week" | "last_week" | "week" | "this_month" | "month";
+  /** The report that shows it. */
+  command: string;
+};
 
 export type ReportLever = {
   lever: string;
@@ -383,6 +401,8 @@ export type VerifiedReport = ReportCommon & {
   keepUsd: number;
   /** Requests on models not in the price list: not in the cost lines. */
   unpricedRequests: number;
+  /** Set only for the case "no_requests_then": where the later requests are. Otherwise null. */
+  since: ReportSince | null;
   monthToDate: MonthToDate;
   detail: ReportDetail;
 };
@@ -400,6 +420,7 @@ export type UnverifiedReport = ReportCommon & {
   feeBelowOneCent: null;
   keepUsd: null;
   unpricedRequests: null;
+  since: null;
   monthToDate: null;
   detail: null;
 };
@@ -597,6 +618,34 @@ function detailNotes(period: ReportPeriod, feePercent: number, totals: Totals): 
   return notes;
 }
 
+/**
+ * For a span with no requests: are there requests after it, and which report
+ * shows them? Null when there are none after it (the "not connected" case).
+ */
+function requestsSince(
+  kind: "week" | "month",
+  period: ReportPeriod,
+  counted: readonly BillableEvent[],
+  now: Date,
+  place: (event: BillableEvent) => -1 | 0 | 1,
+): ReportSince | null {
+  const later = counted.filter((event) => place(event) > 0);
+  if (later.length === 0) return null;
+  const first = !counted.some((event) => place(event) < 0);
+  if (kind === "month") {
+    const current = now.toISOString().slice(0, 7);
+    if (later.some((event) => event.invoicePeriod === current)) return { first, span: "this_month", command: "mesh report --month" };
+    const earliest = later.map((event) => event.invoicePeriod).sort()[0]!;
+    return { first, span: "month", command: `mesh report --month ${earliest}` };
+  }
+  const instants = later.map(eventInstant);
+  const thisWeek = weekPeriod("this", now, period.timeZone);
+  if (instants.some((at) => at >= Date.parse(thisWeek.startsAt))) return { first, span: "this_week", command: "mesh report --this-week" };
+  const lastWeek = weekPeriod("last", now, period.timeZone);
+  if (instants.some((at) => at >= Date.parse(lastWeek.startsAt))) return { first, span: "last_week", command: "mesh report" };
+  return { first, span: "week", command: `mesh report --week ${localDate(Math.min(...instants), period.timeZone)}` };
+}
+
 /** Records about Theo that a report may read. Injected so the builders stay pure. */
 export type ReportExtras = { theo?: TheoRecords };
 
@@ -605,9 +654,11 @@ function buildReport(
   period: ReportPeriod,
   spools: readonly SpoolInput[],
   now: Date,
-  inSpan: (event: BillableEvent) => boolean,
+  /** Where an event sits relative to the span: before it (-1), in it (0) or after it (1). */
+  place: (event: BillableEvent) => -1 | 0 | 1,
   extras: ReportExtras,
 ): Report {
+  const inSpan = (event: BillableEvent): boolean => place(event) === 0;
   const common = {
     kind,
     period,
@@ -631,6 +682,7 @@ function buildReport(
       feeBelowOneCent: null,
       keepUsd: null,
       unpricedRequests: null,
+      since: null,
       monthToDate: null,
       detail: null,
     };
@@ -643,8 +695,12 @@ function buildReport(
   const feeUsd = cents / 100;
   // The case follows the figure as it is printed, to the cent.
   const shownCents = Math.round(savedUsd * 100);
+  // No requests in the span is "not connected" only when there are none after
+  // it either. Requests after it mean Mesh is seeing traffic: it was not
+  // running yet in this span, or the span was simply a quiet one.
+  const since = totals.requests === 0 ? requestsSince(kind, period, counted, now, place) : null;
   const reportCase: VerifiedReport["case"] = totals.requests === 0
-    ? "no_requests"
+    ? (since === null ? "no_requests" : "no_requests_then")
     : shownCents > 0 ? "saved" : shownCents < 0 ? "cost_more" : "saved_nothing";
   const levers = [...totals.levers.values()].sort(byName);
   return {
@@ -664,6 +720,7 @@ function buildReport(
     feeBelowOneCent: reportCase === "saved" && cents === 0,
     keepUsd: savedUsd - feeUsd,
     unpricedRequests: totals.unpriced,
+    since,
     monthToDate: monthToDateOf(counted, now),
     detail: {
       levers,
@@ -699,7 +756,7 @@ export function buildWeeklyReport(input: WeeklyReportInput): Report {
   const endMs = Date.parse(period.endsBefore);
   return buildReport("week", period, input.spools, input.now, (event) => {
     const at = eventInstant(event);
-    return at >= startMs && at < endMs;
+    return at < startMs ? -1 : at < endMs ? 0 : 1;
   }, input);
 }
 
@@ -715,7 +772,8 @@ export function buildMonthReport(input: MonthReportInput): Report {
   const id = input.period ?? input.now.toISOString().slice(0, 7);
   if (!isPeriod(id)) throw new Error("--month must be a calendar month written YYYY-MM, for example 2026-11.");
   const period = monthPeriod(id, input.now);
-  return buildReport("month", period, input.spools, input.now, (event) => event.invoicePeriod === id, input);
+  return buildReport("month", period, input.spools, input.now, (event) =>
+    event.invoicePeriod === id ? 0 : event.invoicePeriod < id ? -1 : 1, input);
 }
 
 // ---------------------------------------------------------------------------
@@ -793,6 +851,12 @@ export function reportHeadline(report: Report): string[] {
       ? [`Mesh saw no requests ${named}, so it is not connected.`, "Fix: mesh setup"]
       : [`Mesh has seen no requests ${named}.`, "If you have used your tools since then, it is not connected. Fix: mesh setup"];
   }
+  if (report.case === "no_requests_then") {
+    return [
+      report.since!.first ? `Mesh was not running yet ${named}.` : `Mesh saw no requests ${named}, but it has seen requests since.`,
+      reportSinceLine(report.since!),
+    ];
+  }
   const tail = [`${requestsText(report.requests)}, ledger verified.`, ...unpricedLine(report)];
   const paid = `You paid your provider ${money(report.paidProviderUsd)}.`;
   if (report.case === "saved_nothing") {
@@ -824,6 +888,18 @@ export function reportHeadline(report: Report): string[] {
     `You keep ${money(report.keepUsd)}.`,
     ...tail,
   ];
+}
+
+/** "This week so far: mesh report --this-week": where the requests are, and the report that shows them. */
+export function reportSinceLine(since: ReportSince): string {
+  const label = {
+    this_week: "This week so far",
+    last_week: "Last week",
+    week: "The first week with requests",
+    this_month: "This month so far",
+    month: "The first month with requests",
+  }[since.span];
+  return `${label}: ${since.command}`;
 }
 
 /** "This month so far" in one line, or undefined when there is no figure to give. */
@@ -869,6 +945,10 @@ export function reportOneLine(report: Report, options: OneLineOptions = {}): str
   if (report.case === "no_requests") {
     return `Mesh saw no requests ${when}, so it is not connected. Fix: mesh setup${fixTail}`;
   }
+  if (report.case === "no_requests_then") {
+    const what = report.since!.first ? `Mesh was not running yet ${when}.` : `Mesh saw no requests ${when}, but it has seen requests since.`;
+    return `${what} ${reportSinceLine(report.since!)}${fixTail}`;
+  }
   // A proposal waiting for a yes is worth one clause. It is never a figure.
   const theo = report.theo !== null && report.theo.waitingProposals > 0 ? " Theo found more: mesh theo --proposals." : "";
   const end = `${theo} Details: ${details}`;
@@ -884,10 +964,11 @@ export function reportOneLine(report: Report, options: OneLineOptions = {}): str
 /** Where the rest is. For a finished month, the statement too. */
 export function reportPointers(report: Report, options: { detailShown?: boolean } = {}): string[] {
   const lines: string[] = [];
-  if (report.kind === "month" && report.period.finished && report.ledgerVerified && report.case !== "no_requests") {
+  const empty = report.case === "no_requests" || report.case === "no_requests_then";
+  if (report.kind === "month" && report.period.finished && report.ledgerVerified && !empty) {
     lines.push(`Your statement: mesh statement --period ${report.period.id}`);
   }
-  if (options.detailShown !== true && report.ledgerVerified && report.case !== "no_requests") {
+  if (options.detailShown !== true && report.ledgerVerified && !empty) {
     lines.push(report.kind === "month" ? `Details: mesh report --month ${report.period.id} --detail` : "Details: mesh report --detail");
   }
   return lines;

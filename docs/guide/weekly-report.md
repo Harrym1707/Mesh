@@ -53,7 +53,13 @@ The report says so, plainly.
   states the saving and says nothing is owed for it.
 - **No requests.** "Mesh saw no requests last week, so it is not connected.
   Fix: mesh setup". Mesh is installed but your tools are not sending their
-  requests through it.
+  requests through it. The report only says this when it has seen no requests
+  since that week either.
+- **Not running yet.** If your first requests came after the week being
+  reported, the report says "Mesh was not running yet last week" and names
+  the report that has them: "This week so far: mesh report --this-week". A
+  quiet week between busy ones reads "Mesh saw no requests last week, but it
+  has seen requests since." Neither is a connection problem.
 - **The ledger could not be verified.** "Mesh could not verify your ledger last
   week, so there is no figure. Run: mesh verify". Mesh shows no number it
   cannot stand behind.

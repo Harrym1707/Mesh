@@ -3,6 +3,9 @@
  * is in-process and pure: the clock and the time zone are passed in, and no
  * test reads the real ~/.mesh.
  */
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { feeCents, chainLedgerRecord, type BillableEvent, type LedgerLever, type LedgerRecord } from "../../core/src/savings-ledger.js";
@@ -23,6 +26,9 @@ import {
   type Report,
   type VerifiedReport,
 } from "./report.js";
+import { collectReport } from "./report-command.js";
+import { worthAnnouncing } from "./report-delivery.js";
+import { renderReportHtml } from "./report-html.js";
 import { buildStatement, type SpoolInput } from "./statement.js";
 
 let counter = 0;
@@ -182,13 +188,122 @@ describe("the weekly report: each case, in plain words", () => {
     }
   });
 
+  it("no requests last week but requests since: Mesh was not running yet, never 'not connected'", () => {
+    // An install whose first traffic is this week (Monday 23 Nov), reported on that Monday.
+    const firstTraffic = [event("2026-11-23T09:15:00.000Z", { paid: 20, saved: 5.76 })];
+    const report = verified(buildWeeklyReport({ spools: [spool(firstTraffic)], now: NOW, timeZone: LONDON, theo: { state: "missing" } }));
+    expect(report.case).toBe("no_requests_then");
+    expect(report.requests).toBe(0);
+    expect(report.since).toEqual({ first: true, span: "this_week", command: "mesh report --this-week" });
+    expect(report.theo).toBeNull();
+    expect(reportHeadline(report)).toEqual([
+      "Mesh was not running yet last week (16 to 22 Nov).",
+      "This week so far: mesh report --this-week",
+    ]);
+    expect(reportOneLine(report)).toBe("Mesh was not running yet last week. This week so far: mesh report --this-week");
+    expect(reportOneLine(report, { detailsCommand: "mesh report --open" })).toBe(
+      "Mesh was not running yet last week. This week so far: mesh report --this-week. Report: mesh report --open",
+    );
+    // The month line under it is true, and now agrees with what is above it.
+    expect(reportMonthLine(report)).toBe("This month so far (November): saved $5.76, fee so far $0.05.");
+    const text = renderReport(report, { detail: true });
+    const html = renderReportHtml(report);
+    for (const output of [text, html, reportOneLine(report)]) {
+      expect(output).not.toContain("not connected");
+      expect(output).not.toContain("mesh setup");
+    }
+    expect(text).not.toContain("Details: mesh report --detail");
+    expect(html).toContain("Mesh was not running yet this week.");
+    expect(html).toContain("mesh report --this-week");
+    // The command it points at shows the requests.
+    const thisWeek = verified(buildWeeklyReport({ spools: [spool(firstTraffic)], now: NOW, timeZone: LONDON, week: "this" }));
+    expect(thisWeek.case).toBe("saved");
+    expect(thisWeek.requests).toBe(1);
+  });
+
+  it("a quiet week between busy ones: no requests, but requests since, so not 'not connected' and not 'not running yet'", () => {
+    const events = [event("2026-11-03T09:00:00.000Z", { paid: 5, saved: 1 }), event("2026-11-23T09:15:00.000Z", { paid: 20, saved: 2 })];
+    const report = verified(buildWeeklyReport({ spools: [spool(events)], now: NOW, timeZone: LONDON }));
+    expect(report.case).toBe("no_requests_then");
+    expect(report.since).toEqual({ first: false, span: "this_week", command: "mesh report --this-week" });
+    expect(reportHeadline(report)).toEqual([
+      "Mesh saw no requests last week (16 to 22 Nov), but it has seen requests since.",
+      "This week so far: mesh report --this-week",
+    ]);
+    expect(reportOneLine(report)).toBe("Mesh saw no requests last week, but it has seen requests since. This week so far: mesh report --this-week");
+    const html = renderReportHtml(report);
+    expect(html).toContain("It has seen requests since.");
+    expect(html).not.toContain("not connected");
+  });
+
+  it("an older empty week points at the week that has the requests; an empty month at the month", () => {
+    // Asked on 23 Nov about the week of 2 Nov; the first requests came in the week of 9 Nov.
+    const events = [event("2026-11-11T09:00:00.000Z", { paid: 5, saved: 1 })];
+    const older = verified(buildWeeklyReport({ spools: [spool(events)], now: NOW, timeZone: LONDON, week: { date: "2026-11-04" } }));
+    expect(older.case).toBe("no_requests_then");
+    expect(older.since).toEqual({ first: true, span: "week", command: "mesh report --week 2026-11-11" });
+    expect(reportHeadline(older)).toEqual([
+      "Mesh was not running yet in the week of 2 to 8 Nov.",
+      "The first week with requests: mesh report --week 2026-11-11",
+    ]);
+    // The week just gone has them: the plain command shows it.
+    const lastWeek = [event("2026-11-18T09:00:00.000Z", { paid: 5, saved: 1 })];
+    const before = verified(buildWeeklyReport({ spools: [spool(lastWeek)], now: NOW, timeZone: LONDON, week: { date: "2026-11-11" } }));
+    expect(before.since).toEqual({ first: true, span: "last_week", command: "mesh report" });
+    expect(reportHeadline(before)[1]).toBe("Last week: mesh report");
+
+    const october = verified(buildMonthReport({ spools: [spool(lastWeek)], now: NOW, period: "2026-10" }));
+    expect(october.case).toBe("no_requests_then");
+    expect(october.since).toEqual({ first: true, span: "this_month", command: "mesh report --month" });
+    expect(reportHeadline(october)).toEqual(["Mesh was not running yet last month (October 2026).", "This month so far: mesh report --month"]);
+    const september = verified(buildMonthReport({ spools: [spool([event("2026-10-05T09:00:00.000Z", { paid: 5, saved: 1 })])], now: NOW, period: "2026-09" }));
+    expect(september.since).toEqual({ first: true, span: "month", command: "mesh report --month 2026-10" });
+    expect(reportHeadline(september)[1]).toBe("The first month with requests: mesh report --month 2026-10");
+  });
+
+  it("no requests and none since stays 'not connected', and a weekly notification for a week before the install is still not sent", () => {
+    // Requests long before, nothing in the week and nothing after it.
+    const stale = verified(buildWeeklyReport({ spools: [spool([event("2026-11-03T09:00:00.000Z", { paid: 5, saved: 1 })])], now: NOW, timeZone: LONDON }));
+    expect(stale.case).toBe("no_requests");
+    expect(stale.since).toBeNull();
+    expect(reportOneLine(stale)).toBe("Mesh saw no requests last week, so it is not connected. Fix: mesh setup");
+    // "Not running yet" for a week that ended before Mesh was first seen here is not worth a notification.
+    const fresh = verified(buildWeeklyReport({ spools: [spool([event("2026-11-23T09:15:00.000Z", { paid: 20, saved: 5.76 })])], now: NOW, timeZone: LONDON }));
+    expect(worthAnnouncing(fresh, { schema: "mesh-report-state/1", notifications: "on", firstSeenAt: "2026-11-23T09:00:00.000Z" })).toBe(false);
+    expect(worthAnnouncing(fresh, { schema: "mesh-report-state/1", notifications: "on", firstSeenAt: "2026-11-18T09:00:00.000Z" })).toBe(true);
+  });
+
+  it("the JSON carries the case and where the requests are", () => {
+    const home = mkdtempSync(join(tmpdir(), "mesh-report-since-"));
+    try {
+      const ledger = join(home, "ledger");
+      mkdirSync(ledger, { recursive: true });
+      const records = spool([event("2026-11-23T09:15:00.000Z", { paid: 20, saved: 5.76 })]).records;
+      writeFileSync(join(ledger, "app-anthropic.jsonl"), records.map((record) => JSON.stringify(record)).join("\n") + "\n");
+      const result = collectReport({ meshHome: home, now: NOW, timeZone: LONDON });
+      expect(result).toMatchObject({
+        schema: "mesh-report/1",
+        ok: true,
+        case: "no_requests_then",
+        requests: 0,
+        since: { first: true, span: "this_week", command: "mesh report --this-week" },
+        headline: ["Mesh was not running yet last week (16 to 22 Nov).", "This week so far: mesh report --this-week"],
+        oneLine: "Mesh was not running yet last week. This week so far: mesh report --this-week",
+        monthLine: "This month so far (November): saved $5.76, fee so far $0.05.",
+      });
+      expect(collectReport({ meshHome: home, now: NOW, timeZone: LONDON, week: "this" }).since).toBeNull();
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   it("not verified: no money figure anywhere, and the command to run", () => {
     const records = spool(busyDay("2026-11-18", 3, 412.10, 86.20)).records.map((record) => structuredClone(record));
     (records[0]!.event.levers[0] as { savedUsd: number }).savedUsd = 999; // edited without re-chaining
     const report = buildWeeklyReport({ spools: [{ name: "x.jsonl", records }], now: NOW, timeZone: LONDON, theo: { state: "missing" } });
     expect(report.case).toBe("not_verified");
     expect(report.ledgerVerified).toBe(false);
-    for (const field of ["requests", "paidProviderUsd", "withoutMeshUsd", "savedUsd", "feeCents", "feeUsd", "keepUsd", "monthToDate", "detail", "theo"] as const) {
+    for (const field of ["requests", "paidProviderUsd", "withoutMeshUsd", "savedUsd", "feeCents", "feeUsd", "keepUsd", "since", "monthToDate", "detail", "theo"] as const) {
       expect(report[field], field).toBeNull();
     }
     expect(reportHeadline(report)).toEqual([
