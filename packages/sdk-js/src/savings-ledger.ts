@@ -5,6 +5,7 @@ import { publishedModelPrices } from "../../core/dist/src/model-prices.js";
 import {
   chainLedgerRecord,
   priceLedgerUsage,
+  promptHeadUsdPerToken,
   type BillableEvent,
   type LedgerExecutionMode,
   type LedgerGateVerdict,
@@ -25,6 +26,9 @@ import { LedgerMirror } from "./ledger-mirror.js";
  *   measured figures, plus the recorded `estimatedReduction` counts for
  *   estimated-baseline ones. An estimate is always labelled (`basis`) on the
  *   lever and on the invoice line item, never passed off as a measurement.
+ *   Tool-definition levers are valued at the rate the front of the prompt was
+ *   billed (the cache-read rate on a warm request) on no more tokens than
+ *   MESH's own counter saw removed, and say so in the lever's `detail`.
  * - executionMode comes from the RESPONSE service_tier, never the requested
  *   one, so a flex request that fell back to standard earns zero tier savings.
  * - Provider-cache economics bill only on cache_control MESH itself placed
@@ -45,6 +49,13 @@ const EXECUTION_TIER_LEVERS = new Set(["execution-tier-flex"]);
 const CACHE_TTL_LEVERS = new Map<string, "5m" | "1h">([["cache-ttl-5m", "5m"], ["cache-ttl-1h", "1h"]]);
 const MEASURED_COMPOSITE_LEVER = "token-reduction-measured";
 const EXACT_CACHE_LEVER = "exact-response-cache";
+/**
+ * Levers that only ever remove tokens from the tool definitions, which sit at
+ * the very front of the prompt. Their saving is valued at the rate the front
+ * of the prompt was actually billed (see `promptHeadUsdPerToken`), not at the
+ * blended input rate, which overstates it whenever the prompt is cached.
+ */
+const PROMPT_HEAD_LEVERS = new Set(["tool-schema-compaction", "tool-schema-description-trim", "unused-tool-removal"]);
 
 function executionModeOf(responseServiceTier: string | undefined): LedgerExecutionMode {
   if (responseServiceTier === "flex") return "flex";
@@ -97,9 +108,9 @@ export function billableEventFromRequest(
   const executionMode = executionModeOf(event.responseServiceTier);
   const usage = usageOf(event);
 
-  const pricing = usage === undefined
-    ? { pricingStatus: "unpriced" as const, reason: "The event carries no complete, valid provider-verbatim usage." }
-    : priceLedgerUsage(catalogue, {
+  const pricingInput = usage === undefined
+    ? undefined
+    : {
         provider,
         model: event.model,
         at: event.timestamp.slice(0, 10),
@@ -107,7 +118,10 @@ export function billableEventFromRequest(
         usage,
         meshPlacedCacheControl,
         ...(meshPlacedTtl === undefined ? {} : { meshPlacedTtl }),
-      });
+      };
+  const pricing = pricingInput === undefined
+    ? { pricingStatus: "unpriced" as const, reason: "The event carries no complete, valid provider-verbatim usage." }
+    : priceLedgerUsage(catalogue, pricingInput);
   const priced = pricing.pricingStatus === "priced" ? pricing : undefined;
 
   const levers: LedgerLever[] = [];
@@ -176,17 +190,36 @@ export function billableEventFromRequest(
   const removedFraction = estimatedBefore > 0 ? estimatedRemoved / estimatedBefore : 0;
   const estimateUsable = baselineUsd === undefined && priced !== undefined && usage !== undefined &&
     usage.inputTokens > 0 && estimatedRemoved > 0 && removedFraction > 0 && removedFraction < 0.95;
-  const estimatedSavedUsdTotal = estimateUsable
-    ? (usage!.inputTokens / (1 - removedFraction) - usage!.inputTokens) * (priced!.inputUsd / usage!.inputTokens)
+  //
+  // Tool-definition levers are the exception, because where their tokens sat
+  // is known: at the front of the prompt, which a cached request reads at the
+  // cache-read rate. They are valued at that rate, and on the smaller of
+  // MESH's own count and the ratio-anchored count, so the claim never exceeds
+  // what the provider would have charged for those tokens.
+  const scaledTokensRemoved = estimateUsable
+    ? usage!.inputTokens / (1 - removedFraction) - usage!.inputTokens
     : 0;
+  const blendedUsdPerToken = estimateUsable ? priced!.inputUsd / usage!.inputTokens : 0;
+  const headUsdPerToken = estimateUsable && pricingInput !== undefined
+    ? promptHeadUsdPerToken(catalogue, pricingInput)
+    : undefined;
   for (const change of tokenChanges) {
-    const share = estimateUsable && change.estimatedTokensSaved > 0
-      ? estimatedSavedUsdTotal * (change.estimatedTokensSaved / estimatedRemoved)
-      : undefined;
+    const billable = estimateUsable && change.estimatedTokensSaved > 0;
+    const scaledTokens = billable ? scaledTokensRemoved * (change.estimatedTokensSaved / estimatedRemoved) : 0;
+    const atPromptHead = billable && headUsdPerToken !== undefined && PROMPT_HEAD_LEVERS.has(change.lever);
+    const headTokens = Math.min(change.estimatedTokensSaved, scaledTokens);
+    const share = !billable
+      ? undefined
+      : atPromptHead
+        ? headTokens * headUsdPerToken!
+        : scaledTokens * blendedUsdPerToken;
     levers.push({
       leverId: change.lever,
       kind: change.lossless ? "lossless" : "lossy",
       ...(share === undefined ? {} : { savedUsd: share, basis: "estimated-baseline" as const }),
+      ...(atPromptHead
+        ? { detail: `${Math.round(headTokens)} tool-definition tokens at the rate the front of the prompt was billed` }
+        : {}),
       ...(config.gateVerdicts?.[change.lever] === undefined
         ? {}
         : { gateVerdict: config.gateVerdicts[change.lever] }),

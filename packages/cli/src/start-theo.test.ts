@@ -111,6 +111,27 @@ describe("mesh start — Theo runs alongside the proxy", () => {
     expect(output()).not.toContain("OBSERVE:");
   });
 
+  // Found on a real machine on 2026-11-26: after Theo's first cycle the policy
+  // file is a bundle (a default plus per-route overrides), and every later
+  // start, in the released 0.2.5 too, died with "policy.levers is not iterable".
+  it("starts again after Theo has rewritten the policy file as a bundle", { timeout: 40_000 }, async () => {
+    const at = "2026-11-25T21:32:37.054Z";
+    const policy = {
+      schemaVersion: 1, user: "local", version: 1, qualityCeilingPercent: 2, updatedAt: at,
+      levers: [{ lever: "tool-schema-compaction", class: "lossless" }],
+    };
+    mkdirSync(join(home, ".mesh"), { recursive: true });
+    writeFileSync(
+      join(home, ".mesh", "theo-policy.json"),
+      `${JSON.stringify({ schemaVersion: 1, user: "local", default: policy, updatedAt: at }, null, 2)}\n`,
+    );
+    provider = await stubProvider();
+    const { output } = start(["--anthropic-base", provider.url, "--no-theo"]);
+
+    expect(await waitFor(() => /proxy\s+http:\/\/127\.0\.0\.1:\d+/.test(output()))).toBe(true);
+    expect(output()).not.toContain("is not iterable");
+  });
+
   it("--no-theo runs the proxy only, and says so", { timeout: 40_000 }, async () => {
     provider = await stubProvider();
     const { output } = start(["--anthropic-base", provider.url, "--theo-interval", "1s", "--no-theo"]);

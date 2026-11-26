@@ -274,6 +274,42 @@ describe("estimated-baseline billing for token-reduction levers", () => {
     expect(invoice.lineItems.every((line) => line.basis === "estimated-baseline")).toBe(true);
   });
 
+  // The real request of 2026-11-25: Claude Code through MESH on Sonnet 5.5
+  // (2 USD/M input, 0.10 cache read, 4 one-hour cache write). MESH's counter
+  // saw 837 of 45,782 tokens removed from the tool definitions; the provider
+  // billed 50,796 input tokens, 48,304 of them from the cache. Against an
+  // unreduced control the provider's own counts showed 806 tokens, 0.000081
+  // USD warm. The blended rate used to claim 0.000183 USD.
+  const claudeCodeEvent = (usage: Partial<MeshRequestEvent>) => requestEvent({
+    provider: "anthropic", model: "claude-sonnet-5-5", timestamp: "2026-11-25T21:32:51.000Z",
+    inputTokens: 50_796, outputTokens: 4, uncachedInputTokens: 2_492,
+    ...usage,
+    reduction: {
+      estimatedTokensBefore: 45_782, estimatedTokensAfter: 44_945, estimatedTokensSaved: 837,
+      estimatedLosslessTokensSaved: 837, skipped: false,
+      changes: [{ lever: "tool-schema-compaction", lossless: true, estimatedTokensSaved: 837, detail: "" }],
+    },
+  });
+  const compaction = (usage: Partial<MeshRequestEvent>) =>
+    billableEventFromRequest(claudeCodeEvent(usage), { path: "unused", provider: "anthropic" }, publishedModelPrices, version)
+      .levers.find((lever) => lever.leverId === "tool-schema-compaction");
+
+  it("values removed tool-definition tokens at the cache-read rate on a warm request", () => {
+    const lever = compaction({ cachedInputTokens: 48_304, cacheWriteInputTokens: 0 });
+    expect(lever?.savedUsd).toBeCloseTo(837 * 0.10 / 1_000_000, 12);
+    expect(lever?.basis).toBe("estimated-baseline");
+    expect(lever?.detail).toBe("837 tool-definition tokens at the rate the front of the prompt was billed");
+  });
+
+  it("values them at the write rate on a cold request and the fresh rate with no cache", () => {
+    const cold = compaction({
+      cachedInputTokens: 0, cacheWriteInputTokens: 48_304, cacheWrite5mInputTokens: 0, cacheWrite1hInputTokens: 48_304,
+    });
+    expect(cold?.savedUsd).toBeCloseTo(837 * 4 / 1_000_000, 12);
+    const uncached = compaction({ cachedInputTokens: 0, cacheWriteInputTokens: 0, uncachedInputTokens: 50_796 });
+    expect(uncached?.savedUsd).toBeCloseTo(837 * 2 / 1_000_000, 12);
+  });
+
   it("keeps a lossy lever's estimated share unbilled until a replay gate approves it", () => {
     const unapproved = billableEventFromRequest(reducedEvent(false), { path: "unused" }, publishedModelPrices, version);
     expect(recomputeInvoice([unapproved]).netVerifiedSavingsUsd).toBeCloseTo(1.5, 10);
