@@ -231,10 +231,8 @@ function canonicalSegments(value) {
 }
 function containsSegments(id, key) {
   if (key.length === 0 || key.length > id.length) return false;
-  for (let offset = 0; offset + key.length <= id.length; offset += 1) {
-    if (key.every((segment, index) => id[offset + index] === segment)) return true;
-  }
-  return false;
+  const offset = id.length - key.length;
+  return key.every((segment, index) => id[offset + index] === segment);
 }
 function resolveModelId(catalogue, provider, rawModelId) {
   const known = [...new Set(catalogue.entries.filter((entry3) => entry3.provider === provider).map((entry3) => entry3.model))];
@@ -1159,11 +1157,8 @@ function canonicalSegments2(value) {
 function containsSegments2(id, key) {
   if (key.length === 0 || key.length > id.length)
     return false;
-  for (let offset = 0; offset + key.length <= id.length; offset += 1) {
-    if (key.every((segment, index) => id[offset + index] === segment))
-      return true;
-  }
-  return false;
+  const offset = id.length - key.length;
+  return key.every((segment, index) => id[offset + index] === segment);
 }
 function resolveModelId2(catalogue, provider, rawModelId) {
   const known = [...new Set(catalogue.entries.filter((entry3) => entry3.provider === provider).map((entry3) => entry3.model))];
@@ -1238,7 +1233,7 @@ function entry(provider, model, provenance, bands, mode = "standard", effectiveF
 function anthropicCacheableMinimumTokens(modelId) {
   return /haiku/i.test(modelId) ? 2048 : 1024;
 }
-var ANTHROPIC, OPENAI, ANTHROPIC_BATCH, DEEPSEEK, OBSERVED_FROM, anthropic, openai, deepseek, aliases, publishedModelPrices;
+var ANTHROPIC, OPENAI, ANTHROPIC_BATCH, ANTHROPIC_2026_11_25, ANTHROPIC_BATCH_2026_11_25, DEEPSEEK, OBSERVED_FROM, anthropic, openai, deepseek, aliases, publishedModelPrices;
 var init_model_prices = __esm({
   "packages/core/dist/src/model-prices.js"() {
     "use strict";
@@ -1257,6 +1252,16 @@ var init_model_prices = __esm({
       source: "https://claude.com/pricing",
       capturedOn: "2026-10-27",
       note: `Batch processing = 50% of standard, per the page's definitive "Save 50% with batch processing". Derived by halving the dated standard rates; cache-write premiums under batch are not published and are omitted (priced unpriced, never guessed).`
+    };
+    ANTHROPIC_2026_11_25 = {
+      source: "https://platform.claude.com/docs/en/about-claude/pricing",
+      capturedOn: "2026-11-25",
+      note: "Model pricing table: base input, 5m cache writes, 1h cache writes, cache hits and refreshes, output. Retired models are listed because the page still prices them for other cloud platforms."
+    };
+    ANTHROPIC_BATCH_2026_11_25 = {
+      source: "https://platform.claude.com/docs/en/about-claude/pricing",
+      capturedOn: "2026-11-25",
+      note: "Batch processing table: batch input and batch output as listed. Cache rates under batch are not listed per model and are omitted (priced unpriced, never guessed)."
     };
     DEEPSEEK = {
       source: "https://api-docs.deepseek.com/quick_start/pricing",
@@ -1293,7 +1298,111 @@ var init_model_prices = __esm({
       entry("anthropic", "Haiku 5.5", ANTHROPIC_BATCH, [
         { maxInputTokens: 1e5, input: 0.05, output: 0.25, cachedInput: 5e-3 },
         { input: 0.25, output: 1.25, cachedInput: 0.025 }
-      ], "batch", "2026-10-27")
+      ], "batch", "2026-10-27"),
+      // Every other model on the pricing page (ANTHROPIC_2026_11_25 provenance).
+      entry("anthropic", "Fable 5.2", ANTHROPIC_2026_11_25, [
+        { input: 8, output: 40, cachedInput: 0.2, cacheWriteInput: 10, cacheWrite1hInput: 16 }
+      ], "standard", "2026-11-25"),
+      entry("anthropic", "Mythos 5.2", ANTHROPIC_2026_11_25, [
+        { input: 8, output: 40, cachedInput: 0.2, cacheWriteInput: 10, cacheWrite1hInput: 16 }
+      ], "standard", "2026-11-25"),
+      entry("anthropic", "Mythos 5.1", ANTHROPIC_2026_11_25, [
+        { input: 10, output: 50, cachedInput: 0.25, cacheWriteInput: 12.5, cacheWrite1hInput: 20 }
+      ], "standard", "2026-11-25"),
+      entry("anthropic", "Fable 5", ANTHROPIC_2026_11_25, [
+        { input: 10, output: 50, cachedInput: 1, cacheWriteInput: 12.5, cacheWrite1hInput: 20 }
+      ], "standard", "2026-11-25"),
+      entry("anthropic", "Mythos 5", ANTHROPIC_2026_11_25, [
+        { input: 10, output: 50, cachedInput: 1, cacheWriteInput: 12.5, cacheWrite1hInput: 20 }
+      ], "standard", "2026-11-25"),
+      entry("anthropic", "Opus 5", ANTHROPIC_2026_11_25, [
+        { input: 5, output: 25, cachedInput: 0.5, cacheWriteInput: 6.25, cacheWrite1hInput: 10 }
+      ], "standard", "2026-11-25"),
+      entry("anthropic", "Opus 4.8", ANTHROPIC_2026_11_25, [
+        { input: 5, output: 25, cachedInput: 0.5, cacheWriteInput: 6.25, cacheWrite1hInput: 10 }
+      ], "standard", "2026-11-25"),
+      entry("anthropic", "Opus 4.7", ANTHROPIC_2026_11_25, [
+        { input: 5, output: 25, cachedInput: 0.5, cacheWriteInput: 6.25, cacheWrite1hInput: 10 }
+      ], "standard", "2026-11-25"),
+      entry("anthropic", "Opus 4.6", ANTHROPIC_2026_11_25, [
+        { input: 5, output: 25, cachedInput: 0.5, cacheWriteInput: 6.25, cacheWrite1hInput: 10 }
+      ], "standard", "2026-11-25"),
+      entry("anthropic", "Opus 4.5", ANTHROPIC_2026_11_25, [
+        { input: 5, output: 25, cachedInput: 0.5, cacheWriteInput: 6.25, cacheWrite1hInput: 10 }
+      ], "standard", "2026-11-25"),
+      entry("anthropic", "Opus 4.1", ANTHROPIC_2026_11_25, [
+        { input: 15, output: 75, cachedInput: 1.5, cacheWriteInput: 18.75, cacheWrite1hInput: 30 }
+      ], "standard", "2026-11-25"),
+      entry("anthropic", "Opus 4", ANTHROPIC_2026_11_25, [
+        { input: 15, output: 75, cachedInput: 1.5, cacheWriteInput: 18.75, cacheWrite1hInput: 30 }
+      ], "standard", "2026-11-25"),
+      entry("anthropic", "Sonnet 5", ANTHROPIC_2026_11_25, [
+        { input: 2, output: 10, cachedInput: 0.2, cacheWriteInput: 2.5, cacheWrite1hInput: 4 }
+      ], "standard", "2026-11-25"),
+      entry("anthropic", "Sonnet 4.6", ANTHROPIC_2026_11_25, [
+        { input: 3, output: 15, cachedInput: 0.3, cacheWriteInput: 3.75, cacheWrite1hInput: 6 }
+      ], "standard", "2026-11-25"),
+      entry("anthropic", "Sonnet 4.5", ANTHROPIC_2026_11_25, [
+        { input: 3, output: 15, cachedInput: 0.3, cacheWriteInput: 3.75, cacheWrite1hInput: 6 }
+      ], "standard", "2026-11-25"),
+      entry("anthropic", "Sonnet 4", ANTHROPIC_2026_11_25, [
+        { input: 3, output: 15, cachedInput: 0.3, cacheWriteInput: 3.75, cacheWrite1hInput: 6 }
+      ], "standard", "2026-11-25"),
+      entry("anthropic", "Haiku 4.5", ANTHROPIC_2026_11_25, [
+        { input: 1, output: 5, cachedInput: 0.1, cacheWriteInput: 1.25, cacheWrite1hInput: 2 }
+      ], "standard", "2026-11-25"),
+      // Their batch rates, as listed in the page's batch processing table.
+      entry("anthropic", "Fable 5.2", ANTHROPIC_BATCH_2026_11_25, [
+        { input: 4, output: 20 }
+      ], "batch", "2026-11-25"),
+      entry("anthropic", "Mythos 5.2", ANTHROPIC_BATCH_2026_11_25, [
+        { input: 4, output: 20 }
+      ], "batch", "2026-11-25"),
+      entry("anthropic", "Mythos 5.1", ANTHROPIC_BATCH_2026_11_25, [
+        { input: 5, output: 25 }
+      ], "batch", "2026-11-25"),
+      entry("anthropic", "Fable 5", ANTHROPIC_BATCH_2026_11_25, [
+        { input: 5, output: 25 }
+      ], "batch", "2026-11-25"),
+      entry("anthropic", "Mythos 5", ANTHROPIC_BATCH_2026_11_25, [
+        { input: 5, output: 25 }
+      ], "batch", "2026-11-25"),
+      entry("anthropic", "Opus 5", ANTHROPIC_BATCH_2026_11_25, [
+        { input: 2.5, output: 12.5 }
+      ], "batch", "2026-11-25"),
+      entry("anthropic", "Opus 4.8", ANTHROPIC_BATCH_2026_11_25, [
+        { input: 2.5, output: 12.5 }
+      ], "batch", "2026-11-25"),
+      entry("anthropic", "Opus 4.7", ANTHROPIC_BATCH_2026_11_25, [
+        { input: 2.5, output: 12.5 }
+      ], "batch", "2026-11-25"),
+      entry("anthropic", "Opus 4.6", ANTHROPIC_BATCH_2026_11_25, [
+        { input: 2.5, output: 12.5 }
+      ], "batch", "2026-11-25"),
+      entry("anthropic", "Opus 4.5", ANTHROPIC_BATCH_2026_11_25, [
+        { input: 2.5, output: 12.5 }
+      ], "batch", "2026-11-25"),
+      entry("anthropic", "Opus 4.1", ANTHROPIC_BATCH_2026_11_25, [
+        { input: 7.5, output: 37.5 }
+      ], "batch", "2026-11-25"),
+      entry("anthropic", "Opus 4", ANTHROPIC_BATCH_2026_11_25, [
+        { input: 7.5, output: 37.5 }
+      ], "batch", "2026-11-25"),
+      entry("anthropic", "Sonnet 5", ANTHROPIC_BATCH_2026_11_25, [
+        { input: 1, output: 5 }
+      ], "batch", "2026-11-25"),
+      entry("anthropic", "Sonnet 4.6", ANTHROPIC_BATCH_2026_11_25, [
+        { input: 1.5, output: 7.5 }
+      ], "batch", "2026-11-25"),
+      entry("anthropic", "Sonnet 4.5", ANTHROPIC_BATCH_2026_11_25, [
+        { input: 1.5, output: 7.5 }
+      ], "batch", "2026-11-25"),
+      entry("anthropic", "Sonnet 4", ANTHROPIC_BATCH_2026_11_25, [
+        { input: 1.5, output: 7.5 }
+      ], "batch", "2026-11-25"),
+      entry("anthropic", "Haiku 4.5", ANTHROPIC_BATCH_2026_11_25, [
+        { input: 0.5, output: 2.5 }
+      ], "batch", "2026-11-25")
     ];
     openai = [
       entry("openai", "gpt-6-astra", OPENAI, [{ input: 10, output: 50, cachedInput: 1 }]),
@@ -1712,6 +1821,23 @@ function compactJsonToolResults(input, countTokens, changes) {
   });
   return next;
 }
+function carriesCacheMarker(value) {
+  return (JSON.stringify(value ?? null) ?? "").includes('"cache_control"');
+}
+function cachedHistoryReason(raw, config, systemVolatileTail) {
+  if (raw.cache_control !== void 0 && raw.cache_control !== null) {
+    return "the caller uses automatic prompt caching, which covers the conversation's history";
+  }
+  if (carriesCacheMarker(raw.messages) || carriesCacheMarker(raw.input)) {
+    return "the caller placed a cache breakpoint inside the conversation";
+  }
+  const stampOn = config.cacheTtl === "5m" || config.cacheTtl === "1h";
+  const model = typeof raw.model === "string" ? raw.model.toLowerCase() : "";
+  if (stampOn && model.includes("claude") && Array.isArray(raw.messages) && raw.messages.length >= 2 && systemVolatileTail.length === 0 && !carriesCacheMarker(raw.system) && !carriesCacheMarker(raw.tools)) {
+    return "MESH's cache stamp places a breakpoint on this conversation's newest message";
+  }
+  return void 0;
+}
 function compactStaleHistory(input, options, countTokens, changes) {
   const minimumTurns = options.minimumTurns ?? 3;
   const keepRecentTurns = options.keepRecentTurns ?? 2;
@@ -2106,11 +2232,27 @@ function reduceRequestWithCounter(request, config, countTokens) {
     }
     if (config.historyCompaction) {
       const options = isPlainObject2(config.historyCompaction) ? config.historyCompaction : {};
-      if (Array.isArray(next.input)) {
-        next.input = compactStaleHistory(next.input, options, countTokens, changes);
-      }
-      if (Array.isArray(next.messages)) {
-        next.messages = compactStaleHistory(next.messages, options, countTokens, changes);
+      const cachedReason = options.allowUnderCache === true ? void 0 : cachedHistoryReason(request, config, systemVolatileTail);
+      if (cachedReason !== void 0) {
+        const wouldChange = [];
+        if (Array.isArray(next.input)) compactStaleHistory(next.input, options, countTokens, wouldChange);
+        if (Array.isArray(next.messages)) compactStaleHistory(next.messages, options, countTokens, wouldChange);
+        if (wouldChange.length > 0) {
+          changes.push({
+            lever: "stale-history-compaction-suppressed",
+            lossless: true,
+            // Nothing was changed; this records WHY history was left alone.
+            estimatedTokensSaved: 0,
+            detail: `History compaction withheld: ${cachedReason}. Rewriting turns the provider already holds in its prompt cache turns reads at a tenth of the input rate into writes at 1.25x, which raises the bill while lowering the token count.`
+          });
+        }
+      } else {
+        if (Array.isArray(next.input)) {
+          next.input = compactStaleHistory(next.input, options, countTokens, changes);
+        }
+        if (Array.isArray(next.messages)) {
+          next.messages = compactStaleHistory(next.messages, options, countTokens, changes);
+        }
       }
     }
     if (config.crossTurnMemoryDedup) {
@@ -2741,6 +2883,214 @@ var init_blind_features = __esm({
   }
 });
 
+// packages/sdk-js/src/conversation-policy-pins.ts
+import { createHmac as createHmac2, randomBytes } from "node:crypto";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+function isPlainObject6(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function dataOf(config) {
+  const out = {};
+  for (const key of DATA_KEYS2) {
+    const value = config[key];
+    if (value !== void 0) out[key] = structuredClone(value);
+  }
+  return out;
+}
+function withoutWithdrawnLossy(pinned, current) {
+  let next;
+  const edit = () => next ??= { ...pinned };
+  for (const key of LOSSY_KEYS) {
+    if (enabled(pinned[key]) && !enabled(current[key])) delete edit()[key];
+  }
+  if (trimsDescriptions(pinned.toolSchemas) && !trimsDescriptions(current.toolSchemas)) {
+    edit().toolSchemas = current.toolSchemas === false ? false : true;
+  }
+  return next ?? pinned;
+}
+function withoutCacheMarkers(value, depth = 0) {
+  if (depth > 64 || typeof value !== "object" || value === null) return value;
+  if (Array.isArray(value)) return value.map((item) => withoutCacheMarkers(item, depth + 1));
+  const out = {};
+  for (const [key, inner] of Object.entries(value)) {
+    if (key === "cache_control") continue;
+    out[key] = depth === 0 && key === "content" && typeof inner === "string" ? [{ type: "text", text: inner }] : withoutCacheMarkers(inner, depth + 1);
+  }
+  return out;
+}
+var DATA_KEYS2, UNTOUCHED_POLICY, LOSSY_KEYS, enabled, trimsDescriptions, ConversationPolicyPins;
+var init_conversation_policy_pins = __esm({
+  "packages/sdk-js/src/conversation-policy-pins.ts"() {
+    "use strict";
+    DATA_KEYS2 = [
+      "toolSchemas",
+      "dropTools",
+      "duplicateContext",
+      "repairCachePrefix",
+      "historyCompaction",
+      "crossTurnMemoryDedup",
+      "freshToolResultCap",
+      "toolResultJson",
+      "maxOutputTokens",
+      "outputEffort",
+      "executionTier",
+      "cacheTtl"
+    ];
+    UNTOUCHED_POLICY = { toolSchemas: false, duplicateContext: false };
+    LOSSY_KEYS = [
+      "dropTools",
+      "historyCompaction",
+      "crossTurnMemoryDedup",
+      "freshToolResultCap",
+      "maxOutputTokens",
+      "outputEffort"
+    ];
+    enabled = (value) => value !== void 0 && value !== false && value !== null && !(Array.isArray(value) && value.length === 0);
+    trimsDescriptions = (value) => isPlainObject6(value) && (value.descriptions === "truncate" || value.descriptions === "drop");
+    ConversationPolicyPins = class {
+      entries = /* @__PURE__ */ new Map();
+      cacheLifetimeMs;
+      maxConversations;
+      key;
+      persistPath;
+      lastSavedMs = 0;
+      dirty = false;
+      constructor(options = {}) {
+        this.cacheLifetimeMs = options.cacheLifetimeMs ?? 36e5;
+        this.maxConversations = options.maxConversations ?? 5e3;
+        if (!Number.isFinite(this.cacheLifetimeMs) || this.cacheLifetimeMs < 0) throw new Error("cacheLifetimeMs must be zero or more.");
+        if (!Number.isInteger(this.maxConversations) || this.maxConversations < 1) throw new Error("maxConversations must be a positive integer.");
+        this.key = options.hmacKey ?? randomBytes(32).toString("hex");
+        this.persistPath = options.hmacKey !== void 0 ? options.persistPath : void 0;
+        this.load();
+      }
+      /** How many conversations are remembered. */
+      get size() {
+        return this.entries.size;
+      }
+      /**
+       * The policy this request gets. `current` is the policy in force now; the
+       * result carries its callbacks and guards with the pinned data fields.
+       */
+      resolve(request, current, nowMs = Date.now()) {
+        const conversation = this.conversationOf(request);
+        if (conversation === void 0) return { config: current, decision: "unpinned" };
+        let decision;
+        let entry3 = this.entries.get(conversation.key);
+        if (entry3 !== void 0 && (!conversation.inFlight || (entry3.untouched ? conversation.messageCount < entry3.messagesAtStart : conversation.messageCount <= entry3.messagesAtStart))) {
+          this.entries.delete(conversation.key);
+          entry3 = void 0;
+        }
+        if (entry3 !== void 0) {
+          const idle = nowMs - entry3.lastSeenMs > this.cacheLifetimeMs;
+          const untouchedExpired = entry3.untouched && nowMs - entry3.firstSeenMs > this.cacheLifetimeMs;
+          if (idle || untouchedExpired) {
+            entry3.policy = dataOf(current);
+            entry3.untouched = false;
+            entry3.firstSeenMs = nowMs;
+            decision = "refreshed";
+            this.dirty = true;
+          } else {
+            const kept = entry3.untouched ? entry3.policy : withoutWithdrawnLossy(entry3.policy, current);
+            decision = entry3.untouched ? "untouched" : kept === entry3.policy ? "kept" : "kept-lossy-withdrawn";
+            if (kept !== entry3.policy) {
+              entry3.policy = kept;
+              this.dirty = true;
+            }
+          }
+          entry3.lastSeenMs = nowMs;
+          this.entries.delete(conversation.key);
+          this.entries.set(conversation.key, entry3);
+        } else {
+          const untouched = conversation.inFlight && conversation.callerCaches;
+          entry3 = {
+            policy: untouched ? { ...UNTOUCHED_POLICY } : dataOf(current),
+            firstSeenMs: nowMs,
+            lastSeenMs: nowMs,
+            untouched,
+            messagesAtStart: conversation.messageCount
+          };
+          decision = untouched ? "untouched" : "started";
+          this.entries.set(conversation.key, entry3);
+          while (this.entries.size > this.maxConversations) {
+            const oldest = this.entries.keys().next().value;
+            if (oldest === void 0) break;
+            this.entries.delete(oldest);
+          }
+          this.dirty = true;
+        }
+        this.save(nowMs);
+        const config = {};
+        for (const [key, value] of Object.entries(current)) {
+          if (!DATA_KEYS2.includes(key)) config[key] = value;
+        }
+        Object.assign(config, structuredClone(entry3.policy));
+        return { config, decision };
+      }
+      /** Write the pins out now (the proxy calls this on shutdown). Never throws. */
+      flush(nowMs = Date.now()) {
+        this.lastSavedMs = 0;
+        this.save(nowMs);
+      }
+      conversationOf(request) {
+        if (!isPlainObject6(request)) return void 0;
+        const messages = Array.isArray(request.messages) ? request.messages : Array.isArray(request.input) ? request.input : void 0;
+        if (messages === void 0 || messages.length === 0) return void 0;
+        const model = typeof request.model === "string" ? request.model : "";
+        let first;
+        try {
+          first = JSON.stringify(withoutCacheMarkers(messages[0])) ?? "";
+        } catch {
+          return void 0;
+        }
+        const key = createHmac2("sha256", this.key).update(model).update("\n").update(first).digest("hex").slice(0, 32);
+        const inFlight = messages.some((message) => isPlainObject6(message) && (message.role === "assistant" || message.type === "function_call" || message.type === "function_call_output"));
+        let callerCaches = false;
+        try {
+          callerCaches = (JSON.stringify(request) ?? "").includes('"cache_control"');
+        } catch {
+          callerCaches = false;
+        }
+        return { key, inFlight, callerCaches, messageCount: messages.length };
+      }
+      load() {
+        if (this.persistPath === void 0) return;
+        try {
+          const stored = JSON.parse(readFileSync(this.persistPath, "utf8"));
+          if (stored.version !== 1 || !Array.isArray(stored.pins)) return;
+          for (const item of stored.pins) {
+            if (!Array.isArray(item) || typeof item[0] !== "string" || !isPlainObject6(item[1])) continue;
+            const entry3 = item[1];
+            if (!isPlainObject6(entry3.policy) || typeof entry3.firstSeenMs !== "number" || typeof entry3.lastSeenMs !== "number") continue;
+            this.entries.set(item[0], {
+              policy: entry3.policy,
+              firstSeenMs: entry3.firstSeenMs,
+              lastSeenMs: entry3.lastSeenMs,
+              untouched: entry3.untouched === true,
+              messagesAtStart: typeof entry3.messagesAtStart === "number" ? entry3.messagesAtStart : 1
+            });
+          }
+        } catch {
+        }
+      }
+      save(nowMs) {
+        if (this.persistPath === void 0 || !this.dirty) return;
+        if (nowMs - this.lastSavedMs < 2e3) return;
+        try {
+          const pins = [...this.entries].filter(([, entry3]) => nowMs - entry3.lastSeenMs <= this.cacheLifetimeMs);
+          mkdirSync(dirname(this.persistPath), { recursive: true, mode: 448 });
+          writeFileSync(this.persistPath, `${JSON.stringify({ version: 1, pins })}
+`, { mode: 384 });
+          this.lastSavedMs = nowMs;
+          this.dirty = false;
+        } catch {
+        }
+      }
+    };
+  }
+});
+
 // packages/core/dist/src/savings-ledger.js
 import { createHash as createHash6 } from "node:crypto";
 function ledgerEventHash2(seq, prevHash, event) {
@@ -2806,6 +3156,26 @@ function priceLedgerUsage2(catalogue, input) {
     ...input.executionMode === "standard" ? {} : { tierSavedUsd: standardWithCache.costUsd - actual.costUsd },
     ...hasCacheTraffic ? input.meshPlacedCacheControl ? { cacheAttributedUsd: cacheDeltaUsd } : { providerCacheAlreadyOwnedUsd: cacheDeltaUsd } : {}
   };
+}
+function promptHeadUsdPerToken(catalogue, input) {
+  const resolution = resolveModelId2(catalogue, input.provider, input.model);
+  if (resolution.status === "unresolved")
+    return void 0;
+  const lookup = priceUsage2(catalogue, { provider: input.provider, model: resolution.model, at: input.at, mode: input.executionMode }, { inputTokens: input.usage.inputTokens, outputTokens: 0 });
+  if (lookup.status === "unpriced")
+    return void 0;
+  const { usage } = input;
+  let perMillion;
+  if (usage.cachedInputTokens > 0) {
+    perMillion = lookup.price.cachedInputPerMillion;
+  } else if (usage.cacheWriteInputTokens > 0) {
+    const splitReported = usage.cacheWrite5mInputTokens !== void 0 || usage.cacheWrite1hInputTokens !== void 0;
+    const write1h = splitReported ? usage.cacheWrite1hInputTokens ?? 0 : input.meshPlacedCacheControl && input.meshPlacedTtl !== "5m" ? usage.cacheWriteInputTokens : 0;
+    perMillion = write1h === usage.cacheWriteInputTokens ? lookup.price.cacheWrite1hInputPerMillion : lookup.price.cacheWriteInputPerMillion;
+  } else {
+    perMillion = lookup.price.inputPerMillion;
+  }
+  return perMillion === void 0 ? void 0 : perMillion / 1e6;
 }
 var LEDGER_GENESIS_HASH2;
 var init_savings_ledger2 = __esm({
@@ -2909,8 +3279,8 @@ var init_ledger_mirror = __esm({
 });
 
 // packages/sdk-js/src/savings-ledger.ts
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { appendFileSync, existsSync, mkdirSync as mkdirSync2, readFileSync as readFileSync2 } from "node:fs";
+import { dirname as dirname2 } from "node:path";
 function executionModeOf(responseServiceTier2) {
   if (responseServiceTier2 === "flex") return "flex";
   if (responseServiceTier2 === "batch") return "batch";
@@ -2944,7 +3314,7 @@ function billableEventFromRequest(event, config, catalogue, pinnedCatalogueVersi
   const meshPlacedTtl = ttlChange === void 0 ? void 0 : CACHE_TTL_LEVERS.get(ttlChange.lever);
   const executionMode = executionModeOf(event.responseServiceTier);
   const usage = usageOf(event);
-  const pricing = usage === void 0 ? { pricingStatus: "unpriced", reason: "The event carries no complete, valid provider-verbatim usage." } : priceLedgerUsage2(catalogue, {
+  const pricingInput = usage === void 0 ? void 0 : {
     provider,
     model: event.model,
     at: event.timestamp.slice(0, 10),
@@ -2952,7 +3322,8 @@ function billableEventFromRequest(event, config, catalogue, pinnedCatalogueVersi
     usage,
     meshPlacedCacheControl,
     ...meshPlacedTtl === void 0 ? {} : { meshPlacedTtl }
-  });
+  };
+  const pricing = pricingInput === void 0 ? { pricingStatus: "unpriced", reason: "The event carries no complete, valid provider-verbatim usage." } : priceLedgerUsage2(catalogue, pricingInput);
   const priced = pricing.pricingStatus === "priced" ? pricing : void 0;
   const levers = [];
   const excluded = {};
@@ -2993,13 +3364,20 @@ function billableEventFromRequest(event, config, catalogue, pinnedCatalogueVersi
   const estimatedRemoved = tokenChanges.reduce((sum, change) => sum + (Number.isFinite(change.estimatedTokensSaved) && change.estimatedTokensSaved > 0 ? change.estimatedTokensSaved : 0), 0);
   const removedFraction = estimatedBefore > 0 ? estimatedRemoved / estimatedBefore : 0;
   const estimateUsable = baselineUsd === void 0 && priced !== void 0 && usage !== void 0 && usage.inputTokens > 0 && estimatedRemoved > 0 && removedFraction > 0 && removedFraction < 0.95;
-  const estimatedSavedUsdTotal = estimateUsable ? (usage.inputTokens / (1 - removedFraction) - usage.inputTokens) * (priced.inputUsd / usage.inputTokens) : 0;
+  const scaledTokensRemoved = estimateUsable ? usage.inputTokens / (1 - removedFraction) - usage.inputTokens : 0;
+  const blendedUsdPerToken = estimateUsable ? priced.inputUsd / usage.inputTokens : 0;
+  const headUsdPerToken = estimateUsable && pricingInput !== void 0 ? promptHeadUsdPerToken(catalogue, pricingInput) : void 0;
   for (const change of tokenChanges) {
-    const share = estimateUsable && change.estimatedTokensSaved > 0 ? estimatedSavedUsdTotal * (change.estimatedTokensSaved / estimatedRemoved) : void 0;
+    const billable = estimateUsable && change.estimatedTokensSaved > 0;
+    const scaledTokens = billable ? scaledTokensRemoved * (change.estimatedTokensSaved / estimatedRemoved) : 0;
+    const atPromptHead = billable && headUsdPerToken !== void 0 && PROMPT_HEAD_LEVERS.has(change.lever);
+    const headTokens = Math.min(change.estimatedTokensSaved, scaledTokens);
+    const share = !billable ? void 0 : atPromptHead ? headTokens * headUsdPerToken : scaledTokens * blendedUsdPerToken;
     levers.push({
       leverId: change.lever,
       kind: change.lossless ? "lossless" : "lossy",
       ...share === void 0 ? {} : { savedUsd: share, basis: "estimated-baseline" },
+      ...atPromptHead ? { detail: `${Math.round(headTokens)} tool-definition tokens at the rate the front of the prompt was billed` } : {},
       ...config.gateVerdicts?.[change.lever] === void 0 ? {} : { gateVerdict: config.gateVerdicts[change.lever] }
     });
   }
@@ -3067,7 +3445,7 @@ function billableEventFromRequest(event, config, catalogue, pinnedCatalogueVersi
 function resumeChainTail(path) {
   try {
     if (!existsSync(path)) return { disabled: false };
-    const lines = readFileSync(path, "utf8").split("\n").filter((line) => line.trim() !== "");
+    const lines = readFileSync2(path, "utf8").split("\n").filter((line) => line.trim() !== "");
     if (lines.length === 0) return { disabled: false };
     const tail = JSON.parse(lines[lines.length - 1]);
     if (typeof tail.seq !== "number" || typeof tail.eventHash !== "string") return { disabled: true };
@@ -3094,7 +3472,7 @@ function createSavingsLedger(config) {
         const effective = context?.gateVerdicts === void 0 ? config : { ...config, gateVerdicts: { ...config.gateVerdicts ?? {}, ...context.gateVerdicts } };
         const billable = billableEventFromRequest(event, effective, catalogue, pinnedCatalogueVersion);
         const record = chainLedgerRecord(billable, previous);
-        mkdirSync(dirname(config.path), { recursive: true, mode: 448 });
+        mkdirSync2(dirname2(config.path), { recursive: true, mode: 448 });
         appendFileSync(config.path, `${JSON.stringify(record)}
 `, { encoding: "utf8", mode: 384 });
         previous = record;
@@ -3105,7 +3483,7 @@ function createSavingsLedger(config) {
     }
   };
 }
-var EXECUTION_TIER_LEVERS, CACHE_TTL_LEVERS, MEASURED_COMPOSITE_LEVER, EXACT_CACHE_LEVER;
+var EXECUTION_TIER_LEVERS, CACHE_TTL_LEVERS, MEASURED_COMPOSITE_LEVER, EXACT_CACHE_LEVER, PROMPT_HEAD_LEVERS;
 var init_savings_ledger3 = __esm({
   "packages/sdk-js/src/savings-ledger.ts"() {
     "use strict";
@@ -3117,6 +3495,7 @@ var init_savings_ledger3 = __esm({
     CACHE_TTL_LEVERS = /* @__PURE__ */ new Map([["cache-ttl-5m", "5m"], ["cache-ttl-1h", "1h"]]);
     MEASURED_COMPOSITE_LEVER = "token-reduction-measured";
     EXACT_CACHE_LEVER = "exact-response-cache";
+    PROMPT_HEAD_LEVERS = /* @__PURE__ */ new Set(["tool-schema-compaction", "tool-schema-description-trim", "unused-tool-removal"]);
   }
 });
 
@@ -3124,8 +3503,8 @@ var init_savings_ledger3 = __esm({
 import { createServer } from "node:http";
 import { Readable } from "node:stream";
 import { createHash as createHash7, randomUUID } from "node:crypto";
-import { appendFileSync as appendFileSync2, existsSync as existsSync2, mkdirSync as mkdirSync2, statSync } from "node:fs";
-import { dirname as dirname2, join } from "node:path";
+import { appendFileSync as appendFileSync2, existsSync as existsSync2, mkdirSync as mkdirSync3, statSync } from "node:fs";
+import { dirname as dirname3, join } from "node:path";
 function forwardHeaders(req, provider) {
   const out = {};
   for (const [name, value] of Object.entries(req.headers)) {
@@ -3238,12 +3617,22 @@ function startMeshProxy(options) {
   const reductionOption = options.tokenReduction;
   const resolveBaseReduction = typeof reductionOption === "function" ? reductionOption : () => reductionOption ?? LOSSLESS_DEFAULT;
   let volatilityGuard;
-  const currentReduction = (modelId) => {
+  const policyPins = options.conversationPolicyPins === false ? void 0 : new ConversationPolicyPins(options.blindFeaturesKey === void 0 ? {} : {
+    hmacKey: options.blindFeaturesKey,
+    persistPath: join(options.ledgerDirectory, "conversation-pins.json")
+  });
+  const currentReduction = (modelId, request) => {
     let base;
     try {
       base = resolveBaseReduction(modelId) ?? LOSSLESS_DEFAULT;
     } catch {
       base = LOSSLESS_DEFAULT;
+    }
+    if (policyPins !== void 0 && request !== void 0) {
+      try {
+        base = policyPins.resolve(request, base).config;
+      } catch {
+      }
     }
     if (base.cacheTtl !== void 0 && base.cacheVolatilityGuard === void 0) {
       volatilityGuard ??= new CachePrefixVolatilityGuard();
@@ -3285,7 +3674,7 @@ ${provider}`;
   const blindFeaturesKey = options.blindFeaturesKey;
   const writeBlindFeatures = (applicationId, provider, record) => {
     const safeApp = applicationId.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 64) || "proxy";
-    mkdirSync2(options.ledgerDirectory, { recursive: true, mode: 448 });
+    mkdirSync3(options.ledgerDirectory, { recursive: true, mode: 448 });
     appendFileSync2(join(options.ledgerDirectory, `${safeApp}-${provider}.features.jsonl`), `${JSON.stringify(record)}
 `, { mode: 384 });
   };
@@ -3308,7 +3697,7 @@ ${provider}`;
 `;
       const lineBytes = Buffer.byteLength(line);
       if (capturedBytes + lineBytes > captureMaxBytes) return;
-      mkdirSync2(dirname2(requestCapture.path), { recursive: true, mode: 448 });
+      mkdirSync3(dirname3(requestCapture.path), { recursive: true, mode: 448 });
       appendFileSync2(requestCapture.path, line, { mode: 384 });
       capturedRequests += 1;
       capturedBytes += lineBytes;
@@ -3435,7 +3824,7 @@ ${provider}`;
     const readable = typeof body === "object" && body !== null && !Array.isArray(body);
     if (!readable) body = void 0;
     const requestModelId = typeof body?.model === "string" ? body.model : void 0;
-    const { request: reducedRequest, summary } = reduceRequest(body, currentReduction(requestModelId));
+    const { request: reducedRequest, summary } = reduceRequest(body, currentReduction(requestModelId, body));
     let requestGateVerdicts;
     try {
       requestGateVerdicts = options.gateVerdicts?.(requestModelId);
@@ -3638,7 +4027,10 @@ ${provider}`;
       resolve5({
         port,
         url: `http://127.0.0.1:${port}`,
-        close: () => new Promise((done, fail) => server.close((err) => err ? fail(err) : done()))
+        close: () => new Promise((done, fail) => {
+          policyPins?.flush();
+          server.close((err) => err ? fail(err) : done());
+        })
       });
     });
   });
@@ -3653,6 +4045,7 @@ var init_proxy = __esm({
     init_cache_volatility_guard();
     init_reduce_request();
     init_blind_features();
+    init_conversation_policy_pins();
     init_savings_ledger3();
     LOSSLESS_DEFAULT = {
       toolSchemas: true,
@@ -4268,7 +4661,7 @@ function entry2(provider, model, provenance, bands, mode = "standard", effective
     }))
   };
 }
-var ANTHROPIC2, OPENAI2, ANTHROPIC_BATCH2, DEEPSEEK2, OBSERVED_FROM2, anthropic2, openai2, deepseek2, aliases2, publishedModelPrices2;
+var ANTHROPIC2, OPENAI2, ANTHROPIC_BATCH2, ANTHROPIC_2026_11_252, ANTHROPIC_BATCH_2026_11_252, DEEPSEEK2, OBSERVED_FROM2, anthropic2, openai2, deepseek2, aliases2, publishedModelPrices2;
 var init_model_prices2 = __esm({
   "packages/core/src/model-prices.ts"() {
     "use strict";
@@ -4287,6 +4680,16 @@ var init_model_prices2 = __esm({
       source: "https://claude.com/pricing",
       capturedOn: "2026-10-27",
       note: `Batch processing = 50% of standard, per the page's definitive "Save 50% with batch processing". Derived by halving the dated standard rates; cache-write premiums under batch are not published and are omitted (priced unpriced, never guessed).`
+    };
+    ANTHROPIC_2026_11_252 = {
+      source: "https://platform.claude.com/docs/en/about-claude/pricing",
+      capturedOn: "2026-11-25",
+      note: "Model pricing table: base input, 5m cache writes, 1h cache writes, cache hits and refreshes, output. Retired models are listed because the page still prices them for other cloud platforms."
+    };
+    ANTHROPIC_BATCH_2026_11_252 = {
+      source: "https://platform.claude.com/docs/en/about-claude/pricing",
+      capturedOn: "2026-11-25",
+      note: "Batch processing table: batch input and batch output as listed. Cache rates under batch are not listed per model and are omitted (priced unpriced, never guessed)."
     };
     DEEPSEEK2 = {
       source: "https://api-docs.deepseek.com/quick_start/pricing",
@@ -4323,7 +4726,111 @@ var init_model_prices2 = __esm({
       entry2("anthropic", "Haiku 5.5", ANTHROPIC_BATCH2, [
         { maxInputTokens: 1e5, input: 0.05, output: 0.25, cachedInput: 5e-3 },
         { input: 0.25, output: 1.25, cachedInput: 0.025 }
-      ], "batch", "2026-10-27")
+      ], "batch", "2026-10-27"),
+      // Every other model on the pricing page (ANTHROPIC_2026_11_25 provenance).
+      entry2("anthropic", "Fable 5.2", ANTHROPIC_2026_11_252, [
+        { input: 8, output: 40, cachedInput: 0.2, cacheWriteInput: 10, cacheWrite1hInput: 16 }
+      ], "standard", "2026-11-25"),
+      entry2("anthropic", "Mythos 5.2", ANTHROPIC_2026_11_252, [
+        { input: 8, output: 40, cachedInput: 0.2, cacheWriteInput: 10, cacheWrite1hInput: 16 }
+      ], "standard", "2026-11-25"),
+      entry2("anthropic", "Mythos 5.1", ANTHROPIC_2026_11_252, [
+        { input: 10, output: 50, cachedInput: 0.25, cacheWriteInput: 12.5, cacheWrite1hInput: 20 }
+      ], "standard", "2026-11-25"),
+      entry2("anthropic", "Fable 5", ANTHROPIC_2026_11_252, [
+        { input: 10, output: 50, cachedInput: 1, cacheWriteInput: 12.5, cacheWrite1hInput: 20 }
+      ], "standard", "2026-11-25"),
+      entry2("anthropic", "Mythos 5", ANTHROPIC_2026_11_252, [
+        { input: 10, output: 50, cachedInput: 1, cacheWriteInput: 12.5, cacheWrite1hInput: 20 }
+      ], "standard", "2026-11-25"),
+      entry2("anthropic", "Opus 5", ANTHROPIC_2026_11_252, [
+        { input: 5, output: 25, cachedInput: 0.5, cacheWriteInput: 6.25, cacheWrite1hInput: 10 }
+      ], "standard", "2026-11-25"),
+      entry2("anthropic", "Opus 4.8", ANTHROPIC_2026_11_252, [
+        { input: 5, output: 25, cachedInput: 0.5, cacheWriteInput: 6.25, cacheWrite1hInput: 10 }
+      ], "standard", "2026-11-25"),
+      entry2("anthropic", "Opus 4.7", ANTHROPIC_2026_11_252, [
+        { input: 5, output: 25, cachedInput: 0.5, cacheWriteInput: 6.25, cacheWrite1hInput: 10 }
+      ], "standard", "2026-11-25"),
+      entry2("anthropic", "Opus 4.6", ANTHROPIC_2026_11_252, [
+        { input: 5, output: 25, cachedInput: 0.5, cacheWriteInput: 6.25, cacheWrite1hInput: 10 }
+      ], "standard", "2026-11-25"),
+      entry2("anthropic", "Opus 4.5", ANTHROPIC_2026_11_252, [
+        { input: 5, output: 25, cachedInput: 0.5, cacheWriteInput: 6.25, cacheWrite1hInput: 10 }
+      ], "standard", "2026-11-25"),
+      entry2("anthropic", "Opus 4.1", ANTHROPIC_2026_11_252, [
+        { input: 15, output: 75, cachedInput: 1.5, cacheWriteInput: 18.75, cacheWrite1hInput: 30 }
+      ], "standard", "2026-11-25"),
+      entry2("anthropic", "Opus 4", ANTHROPIC_2026_11_252, [
+        { input: 15, output: 75, cachedInput: 1.5, cacheWriteInput: 18.75, cacheWrite1hInput: 30 }
+      ], "standard", "2026-11-25"),
+      entry2("anthropic", "Sonnet 5", ANTHROPIC_2026_11_252, [
+        { input: 2, output: 10, cachedInput: 0.2, cacheWriteInput: 2.5, cacheWrite1hInput: 4 }
+      ], "standard", "2026-11-25"),
+      entry2("anthropic", "Sonnet 4.6", ANTHROPIC_2026_11_252, [
+        { input: 3, output: 15, cachedInput: 0.3, cacheWriteInput: 3.75, cacheWrite1hInput: 6 }
+      ], "standard", "2026-11-25"),
+      entry2("anthropic", "Sonnet 4.5", ANTHROPIC_2026_11_252, [
+        { input: 3, output: 15, cachedInput: 0.3, cacheWriteInput: 3.75, cacheWrite1hInput: 6 }
+      ], "standard", "2026-11-25"),
+      entry2("anthropic", "Sonnet 4", ANTHROPIC_2026_11_252, [
+        { input: 3, output: 15, cachedInput: 0.3, cacheWriteInput: 3.75, cacheWrite1hInput: 6 }
+      ], "standard", "2026-11-25"),
+      entry2("anthropic", "Haiku 4.5", ANTHROPIC_2026_11_252, [
+        { input: 1, output: 5, cachedInput: 0.1, cacheWriteInput: 1.25, cacheWrite1hInput: 2 }
+      ], "standard", "2026-11-25"),
+      // Their batch rates, as listed in the page's batch processing table.
+      entry2("anthropic", "Fable 5.2", ANTHROPIC_BATCH_2026_11_252, [
+        { input: 4, output: 20 }
+      ], "batch", "2026-11-25"),
+      entry2("anthropic", "Mythos 5.2", ANTHROPIC_BATCH_2026_11_252, [
+        { input: 4, output: 20 }
+      ], "batch", "2026-11-25"),
+      entry2("anthropic", "Mythos 5.1", ANTHROPIC_BATCH_2026_11_252, [
+        { input: 5, output: 25 }
+      ], "batch", "2026-11-25"),
+      entry2("anthropic", "Fable 5", ANTHROPIC_BATCH_2026_11_252, [
+        { input: 5, output: 25 }
+      ], "batch", "2026-11-25"),
+      entry2("anthropic", "Mythos 5", ANTHROPIC_BATCH_2026_11_252, [
+        { input: 5, output: 25 }
+      ], "batch", "2026-11-25"),
+      entry2("anthropic", "Opus 5", ANTHROPIC_BATCH_2026_11_252, [
+        { input: 2.5, output: 12.5 }
+      ], "batch", "2026-11-25"),
+      entry2("anthropic", "Opus 4.8", ANTHROPIC_BATCH_2026_11_252, [
+        { input: 2.5, output: 12.5 }
+      ], "batch", "2026-11-25"),
+      entry2("anthropic", "Opus 4.7", ANTHROPIC_BATCH_2026_11_252, [
+        { input: 2.5, output: 12.5 }
+      ], "batch", "2026-11-25"),
+      entry2("anthropic", "Opus 4.6", ANTHROPIC_BATCH_2026_11_252, [
+        { input: 2.5, output: 12.5 }
+      ], "batch", "2026-11-25"),
+      entry2("anthropic", "Opus 4.5", ANTHROPIC_BATCH_2026_11_252, [
+        { input: 2.5, output: 12.5 }
+      ], "batch", "2026-11-25"),
+      entry2("anthropic", "Opus 4.1", ANTHROPIC_BATCH_2026_11_252, [
+        { input: 7.5, output: 37.5 }
+      ], "batch", "2026-11-25"),
+      entry2("anthropic", "Opus 4", ANTHROPIC_BATCH_2026_11_252, [
+        { input: 7.5, output: 37.5 }
+      ], "batch", "2026-11-25"),
+      entry2("anthropic", "Sonnet 5", ANTHROPIC_BATCH_2026_11_252, [
+        { input: 1, output: 5 }
+      ], "batch", "2026-11-25"),
+      entry2("anthropic", "Sonnet 4.6", ANTHROPIC_BATCH_2026_11_252, [
+        { input: 1.5, output: 7.5 }
+      ], "batch", "2026-11-25"),
+      entry2("anthropic", "Sonnet 4.5", ANTHROPIC_BATCH_2026_11_252, [
+        { input: 1.5, output: 7.5 }
+      ], "batch", "2026-11-25"),
+      entry2("anthropic", "Sonnet 4", ANTHROPIC_BATCH_2026_11_252, [
+        { input: 1.5, output: 7.5 }
+      ], "batch", "2026-11-25"),
+      entry2("anthropic", "Haiku 4.5", ANTHROPIC_BATCH_2026_11_252, [
+        { input: 0.5, output: 2.5 }
+      ], "batch", "2026-11-25")
     ];
     openai2 = [
       entry2("openai", "gpt-6-astra", OPENAI2, [{ input: 10, output: 50, cachedInput: 1 }]),
@@ -4762,6 +5269,15 @@ var init_manual_billing_checks = __esm({
   }
 });
 
+// packages/core/src/customer-key-registry.ts
+var init_customer_key_registry = __esm({
+  "packages/core/src/customer-key-registry.ts"() {
+    "use strict";
+    init_manual_billing_checks();
+    init_price_catalogue();
+  }
+});
+
 // packages/core/src/index.ts
 var init_src = __esm({
   "packages/core/src/index.ts"() {
@@ -4803,6 +5319,7 @@ var init_src = __esm({
     init_stripe_client();
     init_billing_worker();
     init_manual_billing_checks();
+    init_customer_key_registry();
   }
 });
 
@@ -5764,6 +6281,15 @@ var init_manual_billing_checks2 = __esm({
   }
 });
 
+// packages/core/dist/src/customer-key-registry.js
+var init_customer_key_registry2 = __esm({
+  "packages/core/dist/src/customer-key-registry.js"() {
+    "use strict";
+    init_manual_billing_checks2();
+    init_price_catalogue2();
+  }
+});
+
 // packages/core/dist/src/index.js
 var init_src2 = __esm({
   "packages/core/dist/src/index.js"() {
@@ -5805,6 +6331,7 @@ var init_src2 = __esm({
     init_stripe_client2();
     init_billing_worker2();
     init_manual_billing_checks2();
+    init_customer_key_registry2();
   }
 });
 
@@ -5817,15 +6344,15 @@ var init_savings_snapshot = __esm({
 });
 
 // packages/sdk-js/src/theo-agent-store.ts
-import { mkdirSync as mkdirSync3, readFileSync as readFileSync2, writeFileSync } from "node:fs";
-import { dirname as dirname3, join as join2 } from "node:path";
+import { mkdirSync as mkdirSync4, readFileSync as readFileSync3, writeFileSync as writeFileSync2 } from "node:fs";
+import { dirname as dirname4, join as join2 } from "node:path";
 function defaultTheoMemoryPath(ledgerDir, customer) {
   const safe = customer.replace(/[^A-Za-z0-9._-]/g, "_") || "default";
   return join2(ledgerDir, "theo", `${safe}.json`);
 }
 function loadTheoMemory(path) {
   try {
-    const parsed = JSON.parse(readFileSync2(path, "utf8"));
+    const parsed = JSON.parse(readFileSync3(path, "utf8"));
     if (parsed && typeof parsed === "object" && parsed.schemaVersion === 1) return parsed;
     return null;
   } catch {
@@ -5833,8 +6360,8 @@ function loadTheoMemory(path) {
   }
 }
 function saveTheoMemory(path, memory) {
-  mkdirSync3(dirname3(path), { recursive: true });
-  writeFileSync(path, `${JSON.stringify(memory, null, 2)}
+  mkdirSync4(dirname4(path), { recursive: true });
+  writeFileSync2(path, `${JSON.stringify(memory, null, 2)}
 `, "utf8");
 }
 var init_theo_agent_store = __esm({
@@ -5982,9 +6509,9 @@ __export(theo_exports, {
   startBackgroundTheo: () => startBackgroundTheo,
   theoWatch: () => theoWatch
 });
-import { existsSync as existsSync3, mkdirSync as mkdirSync4, readFileSync as readFileSync3, readdirSync, statSync as statSync2, writeFileSync as writeFileSync2 } from "node:fs";
+import { existsSync as existsSync3, mkdirSync as mkdirSync5, readFileSync as readFileSync4, readdirSync, statSync as statSync2, writeFileSync as writeFileSync3 } from "node:fs";
 import { homedir } from "node:os";
-import { dirname as dirname4, join as join3, resolve } from "node:path";
+import { dirname as dirname5, join as join3, resolve } from "node:path";
 function parse(argv) {
   const args = { customer: "local", ledgerDir: join3(homedir(), ".mesh", "ledger"), maxSamples: 20, apply: false };
   for (let index = 0; index < argv.length; index += 1) {
@@ -6108,7 +6635,7 @@ function readFeatures(ledgerDir) {
   const files = readdirSync(ledgerDir).filter((file) => file.endsWith(".features.jsonl"));
   const features = [];
   for (const file of files) {
-    for (const line of readFileSync3(join3(ledgerDir, file), "utf8").trim().split(/\r?\n/)) {
+    for (const line of readFileSync4(join3(ledgerDir, file), "utf8").trim().split(/\r?\n/)) {
       if (line.trim() === "") continue;
       try {
         const record = JSON.parse(line);
@@ -6126,7 +6653,7 @@ function readLedgerEvents(ledgerDir) {
   const events = [];
   for (const file of files) {
     const records = [];
-    for (const line of readFileSync3(join3(ledgerDir, file), "utf8").trim().split(/\r?\n/)) {
+    for (const line of readFileSync4(join3(ledgerDir, file), "utf8").trim().split(/\r?\n/)) {
       if (line.trim() === "") continue;
       try {
         records.push(JSON.parse(line));
@@ -6174,7 +6701,7 @@ function readCapture(path, maxSamples) {
   const requests = [];
   const responses = [];
   let everyRowHasResponse = true;
-  for (const line of readFileSync3(path, "utf8").trim().split(/\r?\n/)) {
+  for (const line of readFileSync4(path, "utf8").trim().split(/\r?\n/)) {
     if (line.trim() === "") continue;
     if (requests.length >= maxSamples) break;
     let row;
@@ -6202,7 +6729,7 @@ function readGateKey(path) {
     if (process.platform !== "win32" && (stat.mode & 63) !== 0) {
       return { reason: `gate key file ${path} is group/other-readable \u2014 run \`chmod 600 ${path}\`` };
     }
-    const key = readFileSync3(path, "utf8").trim();
+    const key = readFileSync4(path, "utf8").trim();
     if (key === "") return { reason: `gate key file ${path} is empty` };
     return { key };
   } catch (error) {
@@ -6345,7 +6872,7 @@ Memory saved to ${memoryPath}`);
   if (args.apply) {
     const { policyPath, kept } = applyPolicyToProxy(result.memory.policy, args.route, args.policyPath);
     const where = args.route ? `route '${args.route}'` : "the default route";
-    say(`Applied policy to ${where} in ${policyPath} \u2014 a running proxy picks it up on its next request.`);
+    say(`Applied policy to ${where} in ${policyPath} \u2014 a running proxy applies it to conversations that start from now on.`);
     if (kept.length > 0) say(keptLeversLine(kept));
   }
   return result;
@@ -6394,7 +6921,7 @@ function runTheoDecision(args) {
   if (args.accept !== void 0) {
     const { policyPath, kept } = applyPolicyToProxy(decision.memory.policy, args.route, args.policyPath);
     const where = args.route ? `route '${args.route}'` : "the default route";
-    console.log(`Live on ${where} via ${policyPath} \u2014 a running proxy picks it up on its next request.`);
+    console.log(`Live on ${where} via ${policyPath} \u2014 a running proxy applies it to conversations that start from now on.`);
     if (kept.length > 0) console.log(keptLeversLine(kept));
   }
 }
@@ -6423,11 +6950,11 @@ async function theoWatch(options) {
 }
 function applyPolicyToProxy(policy, route, path) {
   const policyPath = path ?? join3(homedir(), ".mesh", "theo-policy.json");
-  mkdirSync4(dirname4(policyPath), { recursive: true });
+  mkdirSync5(dirname5(policyPath), { recursive: true });
   let existing;
   if (existsSync3(policyPath)) {
     try {
-      existing = asBundle(JSON.parse(readFileSync3(policyPath, "utf8")));
+      existing = asBundle(JSON.parse(readFileSync4(policyPath, "utf8")));
     } catch {
       existing = void 0;
     }
@@ -6435,7 +6962,7 @@ function applyPolicyToProxy(policy, route, path) {
   const owned = theoLeverIds();
   const kept = keptOperatorLevers(existing, policy, route, owned).map((lever) => lever.lever);
   const bundle = mergePolicyIntoBundle(existing, policy, route, (/* @__PURE__ */ new Date()).toISOString(), { theoLeverIds: owned });
-  writeFileSync2(policyPath, `${JSON.stringify(bundle, null, 2)}
+  writeFileSync3(policyPath, `${JSON.stringify(bundle, null, 2)}
 `, { mode: 384 });
   return { policyPath, kept };
 }
@@ -6536,8 +7063,8 @@ var init_theo = __esm({
                         30s, 1h) until you stop it with Ctrl-C \u2014 Theo never stops.
   --max-ticks <n>     In --watch mode, stop after n cycles (default: unlimited).
   --apply             Write Theo's decided policy to ~/.mesh/theo-policy.json,
-                        the proxy's control file. A running proxy picks it up on
-                        its next request; no restart needed.
+                        the proxy's control file. A running proxy applies it to
+                        conversations that start from then on; no restart needed.
   --proposals         List the proven levers waiting for your answer, and stop.
   --accept <lever>    Say yes to a proposal: the lever goes live in the policy
                         and Theo watches it for drift. Refused if its proof no
@@ -6559,8 +7086,16 @@ it, a proven lever is proposed (recommend/test) or applied (optimise).`;
 });
 
 // packages/cli/src/claude-wiring.ts
-import { existsSync as existsSync4, mkdirSync as mkdirSync5, readFileSync as readFileSync4, rmSync, writeFileSync as writeFileSync3 } from "node:fs";
-import { dirname as dirname5 } from "node:path";
+import { existsSync as existsSync4, mkdirSync as mkdirSync6, readFileSync as readFileSync5, rmSync, writeFileSync as writeFileSync4 } from "node:fs";
+import { dirname as dirname6 } from "node:path";
+function applyToolSearch(env) {
+  if (env[TOOL_SEARCH_KEY] !== void 0) return false;
+  env[TOOL_SEARCH_KEY] = TOOL_SEARCH_VALUE;
+  return true;
+}
+function removeToolSearch(env, meshWroteIt) {
+  if (meshWroteIt && env[TOOL_SEARCH_KEY] === TOOL_SEARCH_VALUE) delete env[TOOL_SEARCH_KEY];
+}
 function pidAlive(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
@@ -6572,13 +7107,14 @@ function pidAlive(pid) {
 }
 function readWiringState(statePath) {
   try {
-    const parsed = JSON.parse(readFileSync4(statePath, "utf8"));
+    const parsed = JSON.parse(readFileSync5(statePath, "utf8"));
     if (typeof parsed.pid !== "number" || typeof parsed.proxyUrl !== "string") return void 0;
     return {
       pid: parsed.pid,
       proxyUrl: parsed.proxyUrl,
       priorBaseUrl: typeof parsed.priorBaseUrl === "string" ? parsed.priorBaseUrl : null,
       hadFile: parsed.hadFile === true,
+      setToolSearch: parsed.setToolSearch === true,
       at: typeof parsed.at === "string" ? parsed.at : ""
     };
   } catch {
@@ -6586,24 +7122,25 @@ function readWiringState(statePath) {
   }
 }
 function readSettings(settingsPath) {
-  return JSON.parse(readFileSync4(settingsPath, "utf8"));
+  return JSON.parse(readFileSync5(settingsPath, "utf8"));
 }
 function envOf(settings) {
   return { ...settings.env ?? {} };
 }
-function undoWiring(settingsPath, proxyUrl, priorBaseUrl, hadFile) {
+function undoWiring(settingsPath, proxyUrl, priorBaseUrl, hadFile, setToolSearch) {
   if (!existsSync4(settingsPath)) return false;
   const now = readSettings(settingsPath);
   const env = envOf(now);
   if (env.ANTHROPIC_BASE_URL !== proxyUrl) return false;
   if (priorBaseUrl === null) delete env.ANTHROPIC_BASE_URL;
   else env.ANTHROPIC_BASE_URL = priorBaseUrl;
+  removeToolSearch(env, setToolSearch);
   const next = { ...now, env };
   if (Object.keys(env).length === 0) delete next.env;
   if (!hadFile && Object.keys(next).length === 0) {
     rmSync(settingsPath, { force: true });
   } else {
-    writeFileSync3(settingsPath, `${JSON.stringify(next, null, 2)}
+    writeFileSync4(settingsPath, `${JSON.stringify(next, null, 2)}
 `);
   }
   return true;
@@ -6611,7 +7148,7 @@ function undoWiring(settingsPath, proxyUrl, priorBaseUrl, hadFile) {
 function wireClaudeCode(paths, proxyUrl, options = {}) {
   const pid = options.pid ?? process.pid;
   const isAlive = options.isAlive ?? pidAlive;
-  mkdirSync5(dirname5(paths.settingsPath), { recursive: true });
+  mkdirSync6(dirname6(paths.settingsPath), { recursive: true });
   let settings = {};
   let hadFile = false;
   if (existsSync4(paths.settingsPath)) {
@@ -6624,6 +7161,7 @@ function wireClaudeCode(paths, proxyUrl, options = {}) {
   }
   const env = envOf(settings);
   let priorBaseUrl = env.ANTHROPIC_BASE_URL ?? null;
+  let inheritedToolSearch = false;
   let ownsRecord = true;
   const earlier = readWiringState(paths.statePath);
   if (earlier !== void 0) {
@@ -6632,29 +7170,32 @@ function wireClaudeCode(paths, proxyUrl, options = {}) {
     } else if (priorBaseUrl === earlier.proxyUrl) {
       priorBaseUrl = earlier.priorBaseUrl;
       hadFile = earlier.hadFile;
+      inheritedToolSearch = earlier.setToolSearch && env[TOOL_SEARCH_KEY] === TOOL_SEARCH_VALUE;
     }
   }
+  const setToolSearch = ownsRecord && (applyToolSearch(env) || inheritedToolSearch);
   if (ownsRecord) {
     const state = {
       pid,
       proxyUrl,
       priorBaseUrl,
       hadFile,
+      setToolSearch,
       at: (options.now ?? (() => (/* @__PURE__ */ new Date()).toISOString()))()
     };
-    mkdirSync5(dirname5(paths.statePath), { recursive: true });
-    writeFileSync3(paths.statePath, `${JSON.stringify(state, null, 2)}
+    mkdirSync6(dirname6(paths.statePath), { recursive: true });
+    writeFileSync4(paths.statePath, `${JSON.stringify(state, null, 2)}
 `, { mode: 384 });
   }
   env.ANTHROPIC_BASE_URL = proxyUrl;
-  writeFileSync3(paths.settingsPath, `${JSON.stringify({ ...settings, env }, null, 2)}
+  writeFileSync4(paths.settingsPath, `${JSON.stringify({ ...settings, env }, null, 2)}
 `);
   let restored = false;
   return function restore() {
     if (restored) return;
     restored = true;
     try {
-      undoWiring(paths.settingsPath, proxyUrl, priorBaseUrl, hadFile);
+      undoWiring(paths.settingsPath, proxyUrl, priorBaseUrl, hadFile, setToolSearch);
     } catch {
     }
     if (ownsRecord) {
@@ -6709,7 +7250,7 @@ async function repairWiring(paths, probe) {
   }
   if (health.status === "stranded") {
     const { state: state2 } = health;
-    undoWiring(paths.settingsPath, state2.proxyUrl, state2.priorBaseUrl, state2.hadFile);
+    undoWiring(paths.settingsPath, state2.proxyUrl, state2.priorBaseUrl, state2.hadFile, state2.setToolSearch);
     rmSync(paths.statePath, { force: true });
     return {
       changed: true,
@@ -6717,15 +7258,18 @@ async function repairWiring(paths, probe) {
     };
   }
   if (health.status === "dead-local") {
-    undoWiring(paths.settingsPath, health.baseUrl, null, true);
+    undoWiring(paths.settingsPath, health.baseUrl, null, true, false);
     return { changed: true, message: `Claude Code restored: removed ${health.baseUrl}, where nothing was listening.` };
   }
   const state = readWiringState(paths.statePath);
   if (state !== void 0 && !(probe.isAlive ?? pidAlive)(state.pid)) rmSync(paths.statePath, { force: true });
   return { changed: false, message: `Nothing to repair (${health.detail}).` };
 }
+var TOOL_SEARCH_KEY, TOOL_SEARCH_VALUE;
 var init_claude_wiring = __esm({
   "packages/cli/src/claude-wiring.ts"() {
+    TOOL_SEARCH_KEY = "ENABLE_TOOL_SEARCH";
+    TOOL_SEARCH_VALUE = "true";
   }
 });
 
@@ -6794,18 +7338,18 @@ __export(update_exports, {
   runUpdate: () => runUpdate
 });
 import { createHash as createHash9 } from "node:crypto";
-import { copyFileSync, existsSync as existsSync5, mkdirSync as mkdirSync6, readFileSync as readFileSync5, writeFileSync as writeFileSync4 } from "node:fs";
+import { copyFileSync, existsSync as existsSync5, mkdirSync as mkdirSync7, readFileSync as readFileSync6, writeFileSync as writeFileSync5 } from "node:fs";
 import { homedir as homedir2 } from "node:os";
 import { join as join4 } from "node:path";
 function read(path) {
   try {
-    return readFileSync5(path, "utf8").trim();
+    return readFileSync6(path, "utf8").trim();
   } catch {
     return null;
   }
 }
 async function pullNewerRuntime() {
-  mkdirSync6(DIR, { recursive: true });
+  mkdirSync7(DIR, { recursive: true });
   const have = existsSync5(VERSION_FILE) ? read(VERSION_FILE) : null;
   let manifest;
   try {
@@ -6827,12 +7371,12 @@ async function pullNewerRuntime() {
   if (createHash9("sha256").update(bytes).digest("hex") !== manifest.sha256) return null;
   if (existsSync5(RUNTIME)) {
     copyFileSync(RUNTIME, BACKUP);
-    if (have !== null) writeFileSync4(BACKUP_VERSION, have);
+    if (have !== null) writeFileSync5(BACKUP_VERSION, have);
     if (existsSync5(SHA_FILE)) copyFileSync(SHA_FILE, BACKUP_SHA);
   }
-  writeFileSync4(RUNTIME, bytes);
-  writeFileSync4(VERSION_FILE, manifest.version);
-  writeFileSync4(SHA_FILE, manifest.sha256);
+  writeFileSync5(RUNTIME, bytes);
+  writeFileSync5(VERSION_FILE, manifest.version);
+  writeFileSync5(SHA_FILE, manifest.sha256);
   return manifest.version;
 }
 function rollback() {
@@ -6842,7 +7386,7 @@ function rollback() {
   }
   copyFileSync(BACKUP, RUNTIME);
   const prev = read(BACKUP_VERSION) ?? "previous";
-  writeFileSync4(VERSION_FILE, prev);
+  writeFileSync5(VERSION_FILE, prev);
   if (existsSync5(BACKUP_SHA)) copyFileSync(BACKUP_SHA, SHA_FILE);
   console.log(`Rolled back to ${prev}.`);
 }
@@ -6851,7 +7395,7 @@ async function runUpdate(argv) {
     rollback();
     return;
   }
-  mkdirSync6(DIR, { recursive: true });
+  mkdirSync7(DIR, { recursive: true });
   const have = existsSync5(VERSION_FILE) ? read(VERSION_FILE) : null;
   let manifest;
   try {
@@ -6884,12 +7428,12 @@ async function runUpdate(argv) {
   }
   if (existsSync5(RUNTIME)) {
     copyFileSync(RUNTIME, BACKUP);
-    if (have !== null) writeFileSync4(BACKUP_VERSION, have);
+    if (have !== null) writeFileSync5(BACKUP_VERSION, have);
     if (existsSync5(SHA_FILE)) copyFileSync(SHA_FILE, BACKUP_SHA);
   }
-  writeFileSync4(RUNTIME, bytes);
-  writeFileSync4(VERSION_FILE, manifest.version);
-  writeFileSync4(SHA_FILE, manifest.sha256);
+  writeFileSync5(RUNTIME, bytes);
+  writeFileSync5(VERSION_FILE, manifest.version);
+  writeFileSync5(SHA_FILE, manifest.sha256);
   console.log("done.");
   console.log(`Now on ${manifest.version}. Roll back with: mesh update --rollback`);
 }
@@ -6925,14 +7469,14 @@ __export(start_exports, {
   startProxyWithPolicy: () => startProxyWithPolicy,
   summariseLedger: () => summariseLedger
 });
-import { randomBytes } from "node:crypto";
+import { randomBytes as randomBytes2 } from "node:crypto";
 import {
   existsSync as existsSync6,
-  mkdirSync as mkdirSync7,
-  readFileSync as readFileSync6,
+  mkdirSync as mkdirSync8,
+  readFileSync as readFileSync7,
   readdirSync as readdirSync2,
   statSync as statSync3,
-  writeFileSync as writeFileSync5
+  writeFileSync as writeFileSync6
 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
 import { join as join5 } from "node:path";
@@ -6944,7 +7488,7 @@ function readPolicyBundle() {
   const fallback = () => asBundle(defaultPolicy("local", (/* @__PURE__ */ new Date()).toISOString()));
   if (!existsSync6(path)) return fallback();
   try {
-    return asBundle(JSON.parse(readFileSync6(path, "utf8")));
+    return asBundle(JSON.parse(readFileSync7(path, "utf8")));
   } catch {
     return fallback();
   }
@@ -7023,9 +7567,9 @@ function parseStart(argv) {
 }
 function blindKey() {
   const path = join5(MESH_HOME, "blind.key");
-  if (existsSync6(path)) return readFileSync6(path, "utf8").trim();
-  const key = randomBytes(32).toString("hex");
-  writeFileSync5(path, key, { mode: 384 });
+  if (existsSync6(path)) return readFileSync7(path, "utf8").trim();
+  const key = randomBytes2(32).toString("hex");
+  writeFileSync6(path, key, { mode: 384 });
   return key;
 }
 function readLedger(ledgerDir) {
@@ -7036,7 +7580,7 @@ function readLedger(ledgerDir) {
   let brokenAt;
   for (const spool of spools) {
     const records = [];
-    const raw = readFileSync6(join5(ledgerDir, spool), "utf8").trim();
+    const raw = readFileSync7(join5(ledgerDir, spool), "utf8").trim();
     if (raw === "") continue;
     for (const line of raw.split(/\r?\n/)) {
       if (line.trim() === "") continue;
@@ -7092,18 +7636,20 @@ function formatInterval(ms) {
   return `${Math.round(ms / 1e3)}s`;
 }
 async function startProxyWithPolicy(port, ledgerDir, upstreams = {}, capture) {
-  mkdirSync7(MESH_HOME, { recursive: true });
-  mkdirSync7(ledgerDir, { recursive: true });
+  mkdirSync8(MESH_HOME, { recursive: true });
+  mkdirSync8(ledgerDir, { recursive: true });
   const policyPath = join5(MESH_HOME, "theo-policy.json");
-  const policy = existsSync6(policyPath) ? JSON.parse(readFileSync6(policyPath, "utf8")) : defaultPolicy("local", (/* @__PURE__ */ new Date()).toISOString());
-  if (!existsSync6(policyPath)) writeFileSync5(policyPath, `${JSON.stringify(policy, null, 2)}
+  const stored = existsSync6(policyPath) ? JSON.parse(readFileSync7(policyPath, "utf8")) : defaultPolicy("local", (/* @__PURE__ */ new Date()).toISOString());
+  if (!existsSync6(policyPath)) writeFileSync6(policyPath, `${JSON.stringify(stored, null, 2)}
 `);
-  let cached = { mtimeMs: -1, bundle: asBundle(policy) };
+  const startBundle = asBundle(stored);
+  const policy = startBundle.default;
+  let cached = { mtimeMs: -1, bundle: startBundle };
   const liveReduction = (modelId) => {
     try {
       const mtimeMs = statSync3(policyPath).mtimeMs;
       if (mtimeMs !== cached.mtimeMs) {
-        const current = JSON.parse(readFileSync6(policyPath, "utf8"));
+        const current = JSON.parse(readFileSync7(policyPath, "utf8"));
         cached = { mtimeMs, bundle: asBundle(current) };
       }
     } catch {
@@ -7271,7 +7817,9 @@ async function runStart(argv) {
     console.log(`           OpenAI-style        OPENAI_BASE_URL=${proxy.url}/v1`);
     console.log(`           Keep your own API key. Calls MESH does not reduce (embeddings, token`);
     console.log(`           counting, uploads) pass straight through to your provider.`);
-    console.log(`  claude   left alone (Claude Code's settings were not touched)`);
+    console.log(`  claude   left alone (Claude Code's settings were not touched). To send Claude Code`);
+    console.log(`           here by hand, also set ENABLE_TOOL_SEARCH=true: without it Claude Code`);
+    console.log(`           sends every tool definition in full to any address that is not Anthropic's.`);
   }
   if (args.openaiUpstream) console.log(`  upstream OpenAI-style traffic \u2192 ${args.openaiUpstream}`);
   if (args.anthropicUpstream) console.log(`  upstream Anthropic traffic \u2192 ${args.anthropicUpstream}`);
@@ -7353,7 +7901,7 @@ var init_start = __esm({
     init_cta();
     init_bill_verdict();
     init_update();
-    BUILD_COMMIT = true ? "59363e8" : process.env.MESH_BUILD_COMMIT ?? "dev";
+    BUILD_COMMIT = true ? "9ad746b" : process.env.MESH_BUILD_COMMIT ?? "dev";
     MESH_HOME = join5(homedir3(), ".mesh");
     CLAUDE_SETTINGS = join5(homedir3(), ".claude", "settings.json");
     WIRING_STATE = join5(MESH_HOME, "claude-wiring.json");
@@ -7372,9 +7920,9 @@ __export(daemon_exports, {
 });
 import { connect } from "node:net";
 import { execFileSync } from "node:child_process";
-import { chmodSync, copyFileSync as copyFileSync2, existsSync as existsSync7, mkdirSync as mkdirSync8, readFileSync as readFileSync7, rmSync as rmSync2, writeFileSync as writeFileSync6 } from "node:fs";
+import { chmodSync, copyFileSync as copyFileSync2, existsSync as existsSync7, mkdirSync as mkdirSync9, readFileSync as readFileSync8, rmSync as rmSync2, writeFileSync as writeFileSync7 } from "node:fs";
 import { homedir as homedir4, platform } from "node:os";
-import { dirname as dirname6, join as join6, resolve as resolve2 } from "node:path";
+import { dirname as dirname7, join as join6, resolve as resolve2 } from "node:path";
 function requireMac(action) {
   if (platform() !== "darwin") {
     console.error(`\`mesh ${action}\` uses macOS launchd and isn't wired for this platform yet.`);
@@ -7419,28 +7967,38 @@ function portUp(port, timeoutMs = 800) {
   });
 }
 function setClaudeBaseUrl(url) {
-  mkdirSync8(dirname6(CLAUDE_SETTINGS), { recursive: true });
+  mkdirSync9(dirname7(CLAUDE_SETTINGS), { recursive: true });
   let settings = {};
   if (existsSync7(CLAUDE_SETTINGS)) {
     try {
-      settings = JSON.parse(readFileSync7(CLAUDE_SETTINGS, "utf8"));
+      settings = JSON.parse(readFileSync8(CLAUDE_SETTINGS, "utf8"));
     } catch {
       throw new Error("~/.claude/settings.json isn't valid JSON \u2014 fix it first; MESH won't overwrite it.");
     }
   }
   const env = { ...settings.env ?? {}, ANTHROPIC_BASE_URL: url };
-  writeFileSync6(CLAUDE_SETTINGS, `${JSON.stringify({ ...settings, env }, null, 2)}
+  const before = env[TOOL_SEARCH_KEY];
+  if (applyToolSearch(env)) {
+    mkdirSync9(MESH_HOME, { recursive: true });
+    writeFileSync7(TOOL_SEARCH_MARKER, `${JSON.stringify({ setToolSearch: true, at: (/* @__PURE__ */ new Date()).toISOString() })}
+`);
+  } else if (before !== TOOL_SEARCH_VALUE) {
+    rmSync2(TOOL_SEARCH_MARKER, { force: true });
+  }
+  writeFileSync7(CLAUDE_SETTINGS, `${JSON.stringify({ ...settings, env }, null, 2)}
 `);
 }
 function clearClaudeBaseUrl() {
   if (!existsSync7(CLAUDE_SETTINGS)) return;
   try {
-    const settings = JSON.parse(readFileSync7(CLAUDE_SETTINGS, "utf8"));
+    const settings = JSON.parse(readFileSync8(CLAUDE_SETTINGS, "utf8"));
     const env = { ...settings.env ?? {} };
     delete env.ANTHROPIC_BASE_URL;
+    removeToolSearch(env, existsSync7(TOOL_SEARCH_MARKER));
+    rmSync2(TOOL_SEARCH_MARKER, { force: true });
     const next = { ...settings, env };
     if (Object.keys(env).length === 0) delete next.env;
-    writeFileSync6(CLAUDE_SETTINGS, `${JSON.stringify(next, null, 2)}
+    writeFileSync7(CLAUDE_SETTINGS, `${JSON.stringify(next, null, 2)}
 `);
   } catch {
   }
@@ -7483,14 +8041,14 @@ ${argXml}
 </dict>
 </plist>
 `;
-  mkdirSync8(dirname6(PLIST), { recursive: true });
-  writeFileSync6(PLIST, plist);
+  mkdirSync9(dirname7(PLIST), { recursive: true });
+  writeFileSync7(PLIST, plist);
 }
 async function runInstall(argv) {
   requireMac("install");
   const port = parsePort(argv);
-  mkdirSync8(join6(MESH_HOME, "bin"), { recursive: true });
-  mkdirSync8(DEFAULT_LEDGER, { recursive: true });
+  mkdirSync9(join6(MESH_HOME, "bin"), { recursive: true });
+  mkdirSync9(DEFAULT_LEDGER, { recursive: true });
   const self = resolve2(process.env.MESH_BOOTSTRAP_PATH ?? process.argv[1] ?? "");
   if (self !== STABLE_BIN) copyFileSync2(self, STABLE_BIN);
   chmodSync(STABLE_BIN, 493);
@@ -7576,10 +8134,11 @@ async function runStatus(_argv) {
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
-var LABEL, PLIST, DAEMON_LOG, STABLE_BIN, DEFAULT_LEDGER;
+var LABEL, PLIST, DAEMON_LOG, STABLE_BIN, DEFAULT_LEDGER, TOOL_SEARCH_MARKER;
 var init_daemon = __esm({
   "packages/cli/src/daemon.ts"() {
     init_start();
+    init_claude_wiring();
     init_theo_policy();
     init_cta();
     LABEL = "dev.meshtoken.mesh";
@@ -7587,6 +8146,7 @@ var init_daemon = __esm({
     DAEMON_LOG = join6(MESH_HOME, "daemon.log");
     STABLE_BIN = join6(MESH_HOME, "bin", "mesh");
     DEFAULT_LEDGER = join6(MESH_HOME, "ledger");
+    TOOL_SEARCH_MARKER = join6(MESH_HOME, "claude-tool-search.json");
   }
 });
 
@@ -7598,7 +8158,7 @@ __export(verify_exports, {
   runVerify: () => runVerify
 });
 import { createHash as createHash10 } from "node:crypto";
-import { existsSync as existsSync8, readFileSync as readFileSync8, readdirSync as readdirSync3 } from "node:fs";
+import { existsSync as existsSync8, readFileSync as readFileSync9, readdirSync as readdirSync3 } from "node:fs";
 import { homedir as homedir5 } from "node:os";
 import { join as join7 } from "node:path";
 function sampleRequest() {
@@ -7637,7 +8197,7 @@ function ledgerChecks(ledgerDir) {
   for (const spool of spools) {
     let text;
     try {
-      text = readFileSync8(join7(ledgerDir, spool), "utf8");
+      text = readFileSync9(join7(ledgerDir, spool), "utf8");
     } catch (cause) {
       failures.push(`${spool}: could not be read (${cause instanceof Error ? cause.message : String(cause)})`);
       continue;
@@ -7684,9 +8244,9 @@ async function runVerify(_argv) {
   const checks = [];
   const runtimeDir = join7(homedir5(), ".mesh", "runtime");
   const runtimeFile = join7(runtimeDir, "mesh-runtime.mjs");
-  const recordedSha = existsSync8(join7(runtimeDir, "sha256")) ? readFileSync8(join7(runtimeDir, "sha256"), "utf8").trim() : null;
+  const recordedSha = existsSync8(join7(runtimeDir, "sha256")) ? readFileSync9(join7(runtimeDir, "sha256"), "utf8").trim() : null;
   if (recordedSha !== null && existsSync8(runtimeFile)) {
-    const actual = createHash10("sha256").update(readFileSync8(runtimeFile)).digest("hex");
+    const actual = createHash10("sha256").update(readFileSync9(runtimeFile)).digest("hex");
     checks.push({
       name: "provenance",
       ok: actual === recordedSha,
@@ -7739,7 +8299,7 @@ __export(diag_exports, {
   runVersion: () => runVersion
 });
 import { execFileSync as execFileSync2 } from "node:child_process";
-import { existsSync as existsSync9, readFileSync as readFileSync9 } from "node:fs";
+import { existsSync as existsSync9, readFileSync as readFileSync10 } from "node:fs";
 import { connect as connect2 } from "node:net";
 import { platform as platform2 } from "node:os";
 import { join as join8 } from "node:path";
@@ -7783,7 +8343,7 @@ async function runDoctor(argv) {
     detail: `v${process.versions.node}${nodeOk ? "" : " (Node 22 LTS required)"}`,
     fix: nodeOk ? void 0 : "Upgrade to Node 22 LTS: https://nodejs.org"
   });
-  const runtimeVersion = existsSync9(join8(MESH_HOME, "runtime", "version")) ? readFileSync9(join8(MESH_HOME, "runtime", "version"), "utf8").trim() : null;
+  const runtimeVersion = existsSync9(join8(MESH_HOME, "runtime", "version")) ? readFileSync10(join8(MESH_HOME, "runtime", "version"), "utf8").trim() : null;
   checks.push({
     ok: true,
     name: "runtime",
@@ -7852,7 +8412,7 @@ var init_diag = __esm({
     init_start();
     init_claude_wiring();
     WIRING_PATHS = { settingsPath: CLAUDE_SETTINGS, statePath: WIRING_STATE };
-    VERSION = true ? "0.2.5" : process.env.MESH_VERSION ?? "0.0.0";
+    VERSION = true ? "0.2.6" : process.env.MESH_VERSION ?? "0.0.0";
     LAUNCHD_LABEL = "dev.meshtoken.mesh";
     nodeMajor = () => Number.parseInt(process.versions.node.split(".")[0] ?? "0", 10);
   }
@@ -7867,14 +8427,14 @@ import {
   existsSync as existsSync10,
   fsyncSync,
   linkSync,
-  mkdirSync as mkdirSync9,
+  mkdirSync as mkdirSync10,
   openSync,
-  readFileSync as readFileSync10,
+  readFileSync as readFileSync11,
   rmSync as rmSync3,
   statSync as statSync4,
   writeSync
 } from "node:fs";
-import { dirname as dirname7, join as join9 } from "node:path";
+import { dirname as dirname8, join as join9 } from "node:path";
 function statementKeyPath(meshHome) {
   return join9(meshHome, STATEMENT_KEY_DIR, STATEMENT_KEY_FILE);
 }
@@ -7888,7 +8448,7 @@ function readStatementKey(path) {
   if (!existsSync10(path)) return void 0;
   let text;
   try {
-    text = readFileSync10(path, "utf8");
+    text = readFileSync11(path, "utf8");
   } catch (error) {
     const code = error.code ?? "unreadable";
     throw new Error(`The statement key file ${path} exists but could not be read (${code}). ${HOW_TO_REPLACE}`);
@@ -7901,20 +8461,20 @@ function readStatementKey(path) {
       `The statement key file ${path} exists but is not a usable statement key: ${error.message}. ${HOW_TO_REPLACE}`
     );
   }
-  ownerOnly(dirname7(path), 448);
+  ownerOnly(dirname8(path), 448);
   ownerOnly(path, 384);
   return key;
 }
 function loadOrCreateStatementKey(path, now = /* @__PURE__ */ new Date()) {
   const existing = readStatementKey(path);
   if (existing !== void 0) return { key: existing, created: false };
-  const dir = dirname7(path);
+  const dir = dirname8(path);
   const temporary = join9(dir, `.${STATEMENT_KEY_FILE}.${process.pid}.${Date.now()}.tmp`);
   const fresh = generateStatementKey();
   let created = true;
   try {
     try {
-      mkdirSync9(dir, { recursive: true, mode: 448 });
+      mkdirSync10(dir, { recursive: true, mode: 448 });
       ownerOnly(dir, 448);
       const handle = openSync(temporary, "wx", 384);
       try {
@@ -7985,8 +8545,8 @@ __export(statement_exports, {
   usd: () => usd
 });
 import { createHash as createHash11 } from "node:crypto";
-import { existsSync as existsSync11, mkdirSync as mkdirSync10, readFileSync as readFileSync11, readdirSync as readdirSync4, writeFileSync as writeFileSync7 } from "node:fs";
-import { basename, dirname as dirname8, join as join10, resolve as resolve3 } from "node:path";
+import { existsSync as existsSync11, mkdirSync as mkdirSync11, readFileSync as readFileSync12, readdirSync as readdirSync4, writeFileSync as writeFileSync8 } from "node:fs";
+import { basename, dirname as dirname9, join as join10, resolve as resolve3 } from "node:path";
 function parseSpool(name, text) {
   const records = [];
   const lines = text.split(/\r?\n/);
@@ -8389,7 +8949,7 @@ function parse2(argv) {
 function runCheck(file) {
   let document;
   try {
-    document = JSON.parse(readFileSync11(file, "utf8"));
+    document = JSON.parse(readFileSync12(file, "utf8"));
   } catch {
     throw new Error(`${file} could not be read as a statement file.`);
   }
@@ -8464,7 +9024,7 @@ ${USAGE2}`);
       `No ledger found in ${args.ledgerDir}. Run MESH on some traffic first, or pass --ledger <dir> or the spool files.`
     );
   }
-  const spools = paths.map((path) => parseSpool(basename(path), readFileSync11(path, "utf8")));
+  const spools = paths.map((path) => parseSpool(basename(path), readFileSync12(path, "utf8")));
   const result = buildStatement({ spools, period: args.period });
   if (!result.valid) {
     if (args.json) {
@@ -8485,8 +9045,8 @@ ${USAGE2}`);
   const out = args.out ?? resolve3(`mesh-statement-${args.period}.json`);
   const file = `${JSON.stringify(statement, null, 2)}
 `;
-  mkdirSync10(dirname8(out), { recursive: true });
-  writeFileSync7(out, file);
+  mkdirSync11(dirname9(out), { recursive: true });
+  writeFileSync8(out, file);
   if (args.json) {
     process.stdout.write(file);
     return;
@@ -8958,7 +9518,7 @@ __export(compaction_exports, {
   estimateLedger: () => estimateLedger,
   runCompaction: () => runCompaction
 });
-import { writeFileSync as writeFileSync8 } from "node:fs";
+import { writeFileSync as writeFileSync9 } from "node:fs";
 import { join as join12, resolve as resolve4 } from "node:path";
 function parse3(argv) {
   const args = {
@@ -9076,7 +9636,7 @@ async function runCompaction(argv) {
   }
   const { estimates, skipped } = estimateLedger(records.map((record) => record.event), args);
   if (args.json !== void 0) {
-    writeFileSync8(args.json, `${JSON.stringify(estimates, null, 2)}
+    writeFileSync9(args.json, `${JSON.stringify(estimates, null, 2)}
 `);
   }
   if (estimates.length === 0) {
