@@ -272,10 +272,16 @@ export async function startProxyWithPolicy(
   mkdirSync(MESH_HOME, { recursive: true });
   mkdirSync(ledgerDir, { recursive: true });
   const policyPath = join(MESH_HOME, "theo-policy.json");
-  const policy = existsSync(policyPath)
-    ? (JSON.parse(readFileSync(policyPath, "utf8")) as ReturnType<typeof defaultPolicy>)
+  // The file holds either one policy (written on first run) or a bundle (what
+  // Theo writes once he has run: a default plus per-route overrides). Callers
+  // get the DEFAULT policy either way. Handing them the raw file made every
+  // start after Theo's first cycle fail with "policy.levers is not iterable".
+  const stored = existsSync(policyPath)
+    ? (JSON.parse(readFileSync(policyPath, "utf8")) as TheoPolicy | TheoPolicyBundle)
     : defaultPolicy("local", new Date().toISOString());
-  if (!existsSync(policyPath)) writeFileSync(policyPath, `${JSON.stringify(policy, null, 2)}\n`);
+  if (!existsSync(policyPath)) writeFileSync(policyPath, `${JSON.stringify(stored, null, 2)}\n`);
+  const startBundle = asBundle(stored);
+  const policy = startBundle.default;
   // Hot-reload: re-read the policy file when it changes (Theo publishes to it),
   // so proven levers take effect without restarting the proxy. mtime-cached so a
   // request never re-parses the file needlessly; the last good config is kept on
@@ -283,7 +289,7 @@ export async function startProxyWithPolicy(
   // mtime-cache the parsed BUNDLE (default + per-route overrides); the per-route
   // config for a given model id is resolved per request from the cached bundle, so
   // routing costs nothing beyond a map lookup once the file is parsed.
-  let cached = { mtimeMs: -1, bundle: asBundle(policy) };
+  let cached = { mtimeMs: -1, bundle: startBundle };
   const liveReduction = (modelId?: string): ReturnType<typeof policyToReductionConfig> => {
     try {
       const mtimeMs = statSync(policyPath).mtimeMs;
@@ -502,7 +508,9 @@ export async function runStart(argv: string[]): Promise<void> {
     console.log(`           OpenAI-style        OPENAI_BASE_URL=${proxy.url}/v1`);
     console.log(`           Keep your own API key. Calls MESH does not reduce (embeddings, token`);
     console.log(`           counting, uploads) pass straight through to your provider.`);
-    console.log(`  claude   left alone (Claude Code's settings were not touched)`);
+    console.log(`  claude   left alone (Claude Code's settings were not touched). To send Claude Code`);
+    console.log(`           here by hand, also set ENABLE_TOOL_SEARCH=true: without it Claude Code`);
+    console.log(`           sends every tool definition in full to any address that is not Anthropic's.`);
   }
   if (args.openaiUpstream) console.log(`  upstream OpenAI-style traffic → ${args.openaiUpstream}`);
   if (args.anthropicUpstream) console.log(`  upstream Anthropic traffic → ${args.anthropicUpstream}`);

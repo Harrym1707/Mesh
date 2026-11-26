@@ -39,6 +39,50 @@ describe("wireClaudeCode — point Claude Code at the proxy and always back", ()
     expect(settings()).toEqual({ theme: "dark", env: { FOO: "bar", ANTHROPIC_BASE_URL: "https://gateway.example" } });
   });
 
+  // Claude Code switches tool search off behind any address that is not
+  // Anthropic's, and then sends every tool definition in full.
+  it("turns tool search on while wired and takes it out again on restore", () => {
+    writeSettings({ theme: "dark", env: { FOO: "bar" } });
+    const restore = wireClaudeCode(paths, PROXY, { pid: 100 });
+    expect(settings().env).toEqual({ FOO: "bar", ANTHROPIC_BASE_URL: PROXY, ENABLE_TOOL_SEARCH: "true" });
+    expect(readWiringState(paths.statePath)).toMatchObject({ setToolSearch: true });
+    restore();
+    expect(settings()).toEqual({ theme: "dark", env: { FOO: "bar" } });
+  });
+
+  it("never changes or removes a tool-search value the user chose", () => {
+    for (const chosen of ["false", "auto:5", "true"]) {
+      writeSettings({ env: { ENABLE_TOOL_SEARCH: chosen } });
+      const restore = wireClaudeCode(paths, PROXY, { pid: 100 });
+      expect(settings().env.ENABLE_TOOL_SEARCH).toBe(chosen);
+      expect(readWiringState(paths.statePath)).toMatchObject({ setToolSearch: false });
+      restore();
+      expect(settings()).toEqual({ env: { ENABLE_TOOL_SEARCH: chosen } });
+    }
+  });
+
+  it("leaves a tool-search value the user changed while wired", () => {
+    const restore = wireClaudeCode(paths, PROXY, { pid: 100 });
+    writeSettings({ env: { ANTHROPIC_BASE_URL: PROXY, ENABLE_TOOL_SEARCH: "false" } });
+    restore();
+    expect(settings()).toEqual({ env: { ENABLE_TOOL_SEARCH: "false" } });
+  });
+
+  it("after a hard kill, the next session still removes the tool-search value the dead one wrote", () => {
+    wireClaudeCode(paths, "http://127.0.0.1:1111", { pid: 100 }); // killed: never restored
+    const restore = wireClaudeCode(paths, "http://127.0.0.1:2222", { pid: 200, isAlive: DEAD });
+    expect(settings().env.ENABLE_TOOL_SEARCH).toBe("true");
+    restore();
+    expect(existsSync(paths.settingsPath)).toBe(false);
+  });
+
+  it("a stranded session's tool-search value is removed by repair", async () => {
+    writeSettings({ theme: "dark" });
+    wireClaudeCode(paths, PROXY, { pid: 100 }); // killed: never restored
+    await repairWiring(paths, { ...portDown, isAlive: DEAD });
+    expect(settings()).toEqual({ theme: "dark" });
+  });
+
   it("restore is safe to call twice and leaves a value the user set meanwhile", () => {
     writeSettings({ theme: "dark" });
     const restore = wireClaudeCode(paths, PROXY, { pid: 100 });

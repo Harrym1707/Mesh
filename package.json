@@ -37,6 +37,7 @@
     "benchmark:captures": "node --import tsx evals/run-capture-benchmark.ts",
     "typecheck:evals": "tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --strict --skipLibCheck evals/benchmark.ts evals/contextual-router.ts evals/run-benchmark.ts evals/run-contextual-benchmark.ts evals/run-capture-benchmark.ts evals/benchmark.test.ts evals/reference-routers.ts evals/run-router-comparison.ts evals/reference-routers.test.ts evals/agent-fixture.ts evals/run-replay-gate-freshcap.ts evals/run-replay-gate-freshcap.test.ts",
     "test": "vitest run",
+    "real-bill": "node --import tsx scripts/real-bill-test.ts",
     "test:watch": "vitest",
     "lint": "eslint .",
     "typecheck": "tsc -b --pretty false",

@@ -16,6 +16,7 @@ import { homedir, platform } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
 import { BUILD_COMMIT, CLAUDE_SETTINGS, DEFAULT_PORT, MESH_HOME, readPolicy, summariseLedger } from "./start.js";
+import { applyToolSearch, removeToolSearch, TOOL_SEARCH_KEY, TOOL_SEARCH_VALUE } from "./claude-wiring.js";
 import { policyCoverage } from "../../sdk-js/src/theo-policy.js";
 import { MESH_SIGNUP_URL } from "../../sdk-js/src/cta.js";
 
@@ -24,6 +25,8 @@ const PLIST = join(homedir(), "Library", "LaunchAgents", `${LABEL}.plist`);
 const DAEMON_LOG = join(MESH_HOME, "daemon.log");
 const STABLE_BIN = join(MESH_HOME, "bin", "mesh");
 const DEFAULT_LEDGER = join(MESH_HOME, "ledger");
+/** Present while the ENABLE_TOOL_SEARCH in Claude Code's settings is one MESH wrote. */
+const TOOL_SEARCH_MARKER = join(MESH_HOME, "claude-tool-search.json");
 
 function requireMac(action: string): void {
   if (platform() !== "darwin") {
@@ -71,6 +74,15 @@ function setClaudeBaseUrl(url: string): void {
     catch { throw new Error("~/.claude/settings.json isn't valid JSON — fix it first; MESH won't overwrite it."); }
   }
   const env = { ...((settings.env as Record<string, string>) ?? {}), ANTHROPIC_BASE_URL: url };
+  // Keep Claude Code's tool search on behind the proxy (see claude-wiring.ts).
+  // The marker is written first, so the value can always be traced back to MESH.
+  const before = env[TOOL_SEARCH_KEY];
+  if (applyToolSearch(env)) {
+    mkdirSync(MESH_HOME, { recursive: true });
+    writeFileSync(TOOL_SEARCH_MARKER, `${JSON.stringify({ setToolSearch: true, at: new Date().toISOString() })}\n`);
+  } else if (before !== TOOL_SEARCH_VALUE) {
+    rmSync(TOOL_SEARCH_MARKER, { force: true }); // the user chose their own value since
+  }
   writeFileSync(CLAUDE_SETTINGS, `${JSON.stringify({ ...settings, env }, null, 2)}\n`);
 }
 
@@ -80,6 +92,8 @@ function clearClaudeBaseUrl(): void {
     const settings = JSON.parse(readFileSync(CLAUDE_SETTINGS, "utf8")) as Record<string, unknown>;
     const env = { ...((settings.env as Record<string, string>) ?? {}) };
     delete env.ANTHROPIC_BASE_URL;
+    removeToolSearch(env, existsSync(TOOL_SEARCH_MARKER));
+    rmSync(TOOL_SEARCH_MARKER, { force: true });
     const next: Record<string, unknown> = { ...settings, env };
     if (Object.keys(env).length === 0) delete next.env;
     writeFileSync(CLAUDE_SETTINGS, `${JSON.stringify(next, null, 2)}\n`);

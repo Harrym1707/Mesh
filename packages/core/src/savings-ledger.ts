@@ -346,6 +346,53 @@ export function priceLedgerUsage(catalogue: PriceCatalogue, input: LedgerPricing
   };
 }
 
+/**
+ * What one token at the very FRONT of the prompt was billed at on this
+ * request, in USD. Tool definitions are the first thing in a prompt, and a
+ * provider's prompt cache always covers a prefix, so:
+ *
+ *   - any cache read on the request means the front was read from the cache
+ *     (the cache-read rate);
+ *   - otherwise any cache write means the front was written (the 1h write rate
+ *     only when every write was a 1h write, else the cheaper default rate);
+ *   - otherwise it was fresh input.
+ *
+ * This is the rate a token removed from the tool definitions would have cost.
+ * The realized blended input rate overstates it on a cached request, because
+ * the blend includes the fresh tail at the full rate: measured on 2026-11-25,
+ * a warm Claude Code request claimed 0.000183 USD by the blend where the
+ * provider's own counts against an unreduced control showed 0.000081 USD.
+ * Undefined whenever the request itself is unpriced.
+ */
+export function promptHeadUsdPerToken(catalogue: PriceCatalogue, input: LedgerPricingInput): number | undefined {
+  const resolution = resolveModelId(catalogue, input.provider, input.model);
+  if (resolution.status === "unresolved") return undefined;
+  const lookup = priceUsage(
+    catalogue,
+    { provider: input.provider, model: resolution.model, at: input.at, mode: input.executionMode },
+    { inputTokens: input.usage.inputTokens, outputTokens: 0 },
+  );
+  if (lookup.status === "unpriced") return undefined;
+  const { usage } = input;
+  let perMillion: number | undefined;
+  if (usage.cachedInputTokens > 0) {
+    perMillion = lookup.price.cachedInputPerMillion;
+  } else if (usage.cacheWriteInputTokens > 0) {
+    const splitReported = usage.cacheWrite5mInputTokens !== undefined || usage.cacheWrite1hInputTokens !== undefined;
+    const write1h = splitReported
+      ? (usage.cacheWrite1hInputTokens ?? 0)
+      : input.meshPlacedCacheControl && input.meshPlacedTtl !== "5m"
+        ? usage.cacheWriteInputTokens
+        : 0;
+    perMillion = write1h === usage.cacheWriteInputTokens
+      ? lookup.price.cacheWrite1hInputPerMillion
+      : lookup.price.cacheWriteInputPerMillion;
+  } else {
+    perMillion = lookup.price.inputPerMillion;
+  }
+  return perMillion === undefined ? undefined : perMillion / 1_000_000;
+}
+
 export type LedgerPricingAudit =
   | { status: "verified" }
   | { status: "catalogue_version_mismatch"; eventVersion?: string; catalogueVersion: string }
