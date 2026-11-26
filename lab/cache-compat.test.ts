@@ -127,9 +127,10 @@ describe.skipIf(!corpusAvailable())("cache compatibility of every lever", () => 
     for (const row of onStamp.rows.filter((entry) => entry.acted)) expect(row.billChangePercent, row.session).toBeGreaterThan(0);
   });
 
-  it("CHECK B: levers do change bytes the caller cached, the same way every turn - a one-off re-write if switched on mid-conversation", () => {
-    // Recorded so the cost is known, not hidden: switching these on halfway
-    // through a cached conversation re-writes its prefix once.
+  it("CHECK B: levers do change bytes the caller cached, the same way every turn - applied to the very next request, that is a one-off re-write", () => {
+    // Recorded so the cost is known, not hidden: a lever applied to the next
+    // request of a cached conversation re-writes its prefix once. This
+    // unpinned "on mid-way" cost is what conversation pinning removes (below).
     for (const id of ["tool-schema-compaction", "tool-result-json-compaction", "tool-schema-description-trim"]) {
       expect(verdict(id).callerPrefixTouchedIn.length, id).toBeGreaterThan(0);
       expect(verdict(id).worstMidSessionBillChangePercent, id).toBeLessThan(-10);
@@ -138,5 +139,31 @@ describe.skipIf(!corpusAvailable())("cache compatibility of every lever", () => 
     // The stamp and the gated compaction never touch them.
     expect(verdict("cache-ttl-5m").callerPrefixTouchedIn).toEqual([]);
     expect(verdict("stale-history-compaction").callerPrefixTouchedIn).toEqual([]);
+  });
+
+  it("PINNING: a lever published mid-conversation costs a cached conversation nothing, because it keeps the policy it started with", () => {
+    for (const id of SHIPPED) {
+      expect(verdict(id).worstMidSessionPinnedBillChangePercent, id).toBeGreaterThanOrEqual(-0.05);
+      for (const row of verdict(id).rows) {
+        expect(row.midSessionPinnedBillChangePercent, `${id} on ${row.session}`).toBeGreaterThanOrEqual(-0.05);
+      }
+    }
+    // The levers that cost a re-write when applied to the next request cost nothing pinned.
+    for (const id of ["tool-schema-compaction", "tool-result-json-compaction", "tool-schema-description-trim"]) {
+      expect(verdict(id).worstMidSessionBillChangePercent, id).toBeLessThan(-10);
+      expect(Math.abs(verdict(id).worstMidSessionPinnedBillChangePercent), id).toBeLessThan(0.05);
+    }
+  });
+
+  it("PINNING, the exception: a LOSSY lever withdrawn mid-conversation is dropped at once, and that costs a re-write", () => {
+    // Theo withdraws a lossy lever when quality drifts. "Never degrade" outranks
+    // one cache re-write, so the pin does not hold it; the cost is recorded here.
+    const trim = verdict("tool-schema-description-trim");
+    expect(trim.worstWithdrawnMidSessionBillChangePercent).toBeDefined();
+    expect(trim.worstWithdrawnMidSessionBillChangePercent!).toBeLessThan(-10);
+    // Lossless levers are never withdrawn early: the column does not exist for them.
+    for (const id of ["tool-schema-compaction", "duplicate-context-removal", "cache-prefix-repair", "tool-result-json-compaction", "cache-ttl-5m"]) {
+      expect(verdict(id).worstWithdrawnMidSessionBillChangePercent, id).toBeUndefined();
+    }
   });
 });

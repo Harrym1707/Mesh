@@ -12,6 +12,7 @@ import { responseText } from "./replay-gate.js";
 import { CachePrefixVolatilityGuard } from "./cache-volatility-guard.js";
 import { reduceRequest, type MeshTokenReductionConfig } from "./reduce-request.js";
 import { extractBlindFeatures } from "./blind-features.js";
+import { ConversationPolicyPins } from "./conversation-policy-pins.js";
 import { createSavingsLedger, type SavingsLedger } from "./savings-ledger.js";
 import type { MeshRequestEvent } from "./types.js";
 
@@ -92,6 +93,17 @@ export type MeshProxyOptions = {
    * `mesh theo --gate <path>` reads it.
    */
   requestCapture?: { path: string; limit?: number; maxBytes?: number };
+  /**
+   * A conversation keeps the reduction policy it started with, so a policy
+   * that changes while it is in flight cannot change the bytes of a prefix
+   * the provider is caching (see conversation-policy-pins.ts). On by
+   * default. `false` restores the old behaviour, where a changed policy
+   * applies to the very next request of every conversation. With
+   * `blindFeaturesKey` set the pins are kept across restarts in
+   * `<ledgerDirectory>/conversation-pins.json` (keyed hashes and lever
+   * settings only, never content).
+   */
+  conversationPolicyPins?: boolean;
 };
 
 export type MeshProxy = {
@@ -317,12 +329,27 @@ export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
       ? reductionOption
       : () => reductionOption ?? LOSSLESS_DEFAULT;
   let volatilityGuard: CachePrefixVolatilityGuard | undefined;
-  const currentReduction = (modelId?: string): MeshTokenReductionConfig => {
+  // A conversation in flight keeps the policy it started with: a policy that
+  // changes under it would re-write the prefix its provider is caching.
+  const policyPins = options.conversationPolicyPins === false
+    ? undefined
+    : new ConversationPolicyPins(options.blindFeaturesKey === undefined ? {} : {
+      hmacKey: options.blindFeaturesKey,
+      persistPath: join(options.ledgerDirectory, "conversation-pins.json"),
+    });
+  const currentReduction = (modelId?: string, request?: unknown): MeshTokenReductionConfig => {
     let base: MeshTokenReductionConfig;
     try {
       base = resolveBaseReduction(modelId) ?? LOSSLESS_DEFAULT;
     } catch {
       base = LOSSLESS_DEFAULT; // a bad policy file must never break the request path
+    }
+    if (policyPins !== undefined && request !== undefined) {
+      try {
+        base = policyPins.resolve(request, base).config;
+      } catch {
+        // Pinning is a saving, never a dependency: on any failure the current policy applies.
+      }
     }
     if (base.cacheTtl !== undefined && base.cacheVolatilityGuard === undefined) {
       volatilityGuard ??= new CachePrefixVolatilityGuard();
@@ -566,7 +593,7 @@ export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
     // currentReduction() resolves the latest policy (hot-reload) per request,
     // selecting the route by the request's model id for per-route policies.
     const requestModelId = typeof body?.model === "string" ? body.model : undefined;
-    const { request: reducedRequest, summary } = reduceRequest(body, currentReduction(requestModelId));
+    const { request: reducedRequest, summary } = reduceRequest(body, currentReduction(requestModelId, body));
     // The proofs behind the lossy levers just applied, for the ledger. A failing
     // getter costs the billing of those levers, never the request.
     let requestGateVerdicts: Record<string, { ref: string; verdict: "approved" | "rejected" }> | undefined;
@@ -811,8 +838,10 @@ export function startMeshProxy(options: MeshProxyOptions): Promise<MeshProxy> {
       resolve({
         port,
         url: `http://127.0.0.1:${port}`,
-        close: () => new Promise<void>((done, fail) =>
-          server.close((err) => (err ? fail(err) : done()))),
+        close: () => new Promise<void>((done, fail) => {
+          policyPins?.flush(); // so a restart finds the conversations in flight
+          server.close((err) => (err ? fail(err) : done()));
+        }),
       });
     });
   });

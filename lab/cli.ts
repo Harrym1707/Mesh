@@ -407,7 +407,7 @@ switch (command) {
     console.log("A  prefix stable: every reduced turn is still an exact prefix of the next, where the provider caches.");
     console.log("B  caller bytes: sessions where the lever changes bytes inside a prefix the caller cached.");
     console.log("C  bill: change in billed input cost on cached conversations; + is cheaper, - is DEARER.\n");
-    console.log(`${"lever".padEnd(40)}${"acted".padStart(6)}  ${"A stable".padEnd(9)}${"B touched".padStart(10)}${"C worst".padStart(9)}${"C best".padStart(8)}${"on mid-way".padStart(12)}`);
+    console.log(`${"lever".padEnd(40)}${"acted".padStart(6)}  ${"A stable".padEnd(9)}${"B touched".padStart(10)}${"C worst".padStart(9)}${"C best".padStart(8)}${"on mid-way".padStart(12)}${"pinned".padStart(9)}${"withdrawn".padStart(11)}`);
     let failed = false;
     for (const verdict of qualifyCacheCompat()) {
       const forced = verdict.lever.endsWith(":forced");
@@ -418,11 +418,15 @@ switch (command) {
         `${String(verdict.callerPrefixTouchedIn.length).padStart(10)}` +
         `${signed(verdict.worstCallerCachedBillChangePercent).padStart(9)}${signed(verdict.bestCallerCachedBillChangePercent).padStart(8)}` +
         `${signed(verdict.worstMidSessionBillChangePercent).padStart(12)}` +
+        `${signed(verdict.worstMidSessionPinnedBillChangePercent).padStart(9)}` +
+        `${(verdict.worstWithdrawnMidSessionBillChangePercent === undefined ? "" : signed(verdict.worstWithdrawnMidSessionBillChangePercent)).padStart(11)}` +
         `${verdict.default ? "   default" : ""}${forced ? "   gate overridden, for comparison" : ""}`,
       );
     }
     console.log("\n\"on mid-way\": the worst change when the lever is switched on halfway through a cached conversation.");
     console.log("A lever that changes cached bytes the same way every turn costs one re-write there and nothing when on from the start.");
+    console.log("\"pinned\": the same change as the proxy handles it. A conversation keeps the policy it started with, so it costs nothing.");
+    console.log("\"withdrawn\": a lossy lever removed halfway (a rollback). That is applied at once, and the re-write is accepted.");
     if (failed) {
       console.log("\nFAILED: a lever as shipped breaks a cached prefix.");
       process.exitCode = 1;

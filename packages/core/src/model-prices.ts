@@ -47,6 +47,27 @@ const ANTHROPIC_BATCH = {
     "under batch are not published and are omitted (priced unpriced, never guessed).",
 } as const;
 
+// The rest of the Claude models Anthropic serves or still prices, read from the
+// model pricing and batch processing tables on Anthropic's pricing page on
+// 2026-11-25. They were missing: a request on claude-fable-5-2 or
+// claude-haiku-4-5-20251001 (what Claude Code's `haiku` alias sent that day)
+// resolved to nothing, so it was recorded unpriced and could never show a saving.
+// Each row is the page's own figure; nothing here is derived from a multiplier.
+// Dated from the day they were read, so earlier traffic stays unpriced.
+const ANTHROPIC_2026_11_25 = {
+  source: "https://platform.claude.com/docs/en/about-claude/pricing",
+  capturedOn: "2026-11-25",
+  note: "Model pricing table: base input, 5m cache writes, 1h cache writes, cache hits and refreshes, " +
+    "output. Retired models are listed because the page still prices them for other cloud platforms.",
+} as const;
+
+const ANTHROPIC_BATCH_2026_11_25 = {
+  source: "https://platform.claude.com/docs/en/about-claude/pricing",
+  capturedOn: "2026-11-25",
+  note: "Batch processing table: batch input and batch output as listed. Cache rates under batch " +
+    "are not listed per model and are omitted (priced unpriced, never guessed).",
+} as const;
+
 // DeepSeek publishes TIME-OF-DAY pricing: off-peak rates are half the peak
 // rates, with peak hours 01:00-04:00 and 06:00-10:00 UTC Mon-Fri (excluding
 // Chinese public holidays), everything else off-peak. The catalogue has no
@@ -129,6 +150,112 @@ const anthropic: ModelPriceEntry[] = [
     { maxInputTokens: 100_000, input: 0.05, output: 0.25, cachedInput: 0.005 },
     { input: 0.25, output: 1.25, cachedInput: 0.025 },
   ], "batch", "2026-10-27"),
+
+  // Every other model on the pricing page (ANTHROPIC_2026_11_25 provenance).
+  entry("anthropic", "Fable 5.2", ANTHROPIC_2026_11_25, [
+    { input: 8, output: 40, cachedInput: 0.2, cacheWriteInput: 10, cacheWrite1hInput: 16 },
+  ], "standard", "2026-11-25"),
+  entry("anthropic", "Mythos 5.2", ANTHROPIC_2026_11_25, [
+    { input: 8, output: 40, cachedInput: 0.2, cacheWriteInput: 10, cacheWrite1hInput: 16 },
+  ], "standard", "2026-11-25"),
+  entry("anthropic", "Mythos 5.1", ANTHROPIC_2026_11_25, [
+    { input: 10, output: 50, cachedInput: 0.25, cacheWriteInput: 12.5, cacheWrite1hInput: 20 },
+  ], "standard", "2026-11-25"),
+  entry("anthropic", "Fable 5", ANTHROPIC_2026_11_25, [
+    { input: 10, output: 50, cachedInput: 1, cacheWriteInput: 12.5, cacheWrite1hInput: 20 },
+  ], "standard", "2026-11-25"),
+  entry("anthropic", "Mythos 5", ANTHROPIC_2026_11_25, [
+    { input: 10, output: 50, cachedInput: 1, cacheWriteInput: 12.5, cacheWrite1hInput: 20 },
+  ], "standard", "2026-11-25"),
+  entry("anthropic", "Opus 5", ANTHROPIC_2026_11_25, [
+    { input: 5, output: 25, cachedInput: 0.5, cacheWriteInput: 6.25, cacheWrite1hInput: 10 },
+  ], "standard", "2026-11-25"),
+  entry("anthropic", "Opus 4.8", ANTHROPIC_2026_11_25, [
+    { input: 5, output: 25, cachedInput: 0.5, cacheWriteInput: 6.25, cacheWrite1hInput: 10 },
+  ], "standard", "2026-11-25"),
+  entry("anthropic", "Opus 4.7", ANTHROPIC_2026_11_25, [
+    { input: 5, output: 25, cachedInput: 0.5, cacheWriteInput: 6.25, cacheWrite1hInput: 10 },
+  ], "standard", "2026-11-25"),
+  entry("anthropic", "Opus 4.6", ANTHROPIC_2026_11_25, [
+    { input: 5, output: 25, cachedInput: 0.5, cacheWriteInput: 6.25, cacheWrite1hInput: 10 },
+  ], "standard", "2026-11-25"),
+  entry("anthropic", "Opus 4.5", ANTHROPIC_2026_11_25, [
+    { input: 5, output: 25, cachedInput: 0.5, cacheWriteInput: 6.25, cacheWrite1hInput: 10 },
+  ], "standard", "2026-11-25"),
+  entry("anthropic", "Opus 4.1", ANTHROPIC_2026_11_25, [
+    { input: 15, output: 75, cachedInput: 1.5, cacheWriteInput: 18.75, cacheWrite1hInput: 30 },
+  ], "standard", "2026-11-25"),
+  entry("anthropic", "Opus 4", ANTHROPIC_2026_11_25, [
+    { input: 15, output: 75, cachedInput: 1.5, cacheWriteInput: 18.75, cacheWrite1hInput: 30 },
+  ], "standard", "2026-11-25"),
+  entry("anthropic", "Sonnet 5", ANTHROPIC_2026_11_25, [
+    { input: 2, output: 10, cachedInput: 0.2, cacheWriteInput: 2.5, cacheWrite1hInput: 4 },
+  ], "standard", "2026-11-25"),
+  entry("anthropic", "Sonnet 4.6", ANTHROPIC_2026_11_25, [
+    { input: 3, output: 15, cachedInput: 0.3, cacheWriteInput: 3.75, cacheWrite1hInput: 6 },
+  ], "standard", "2026-11-25"),
+  entry("anthropic", "Sonnet 4.5", ANTHROPIC_2026_11_25, [
+    { input: 3, output: 15, cachedInput: 0.3, cacheWriteInput: 3.75, cacheWrite1hInput: 6 },
+  ], "standard", "2026-11-25"),
+  entry("anthropic", "Sonnet 4", ANTHROPIC_2026_11_25, [
+    { input: 3, output: 15, cachedInput: 0.3, cacheWriteInput: 3.75, cacheWrite1hInput: 6 },
+  ], "standard", "2026-11-25"),
+  entry("anthropic", "Haiku 4.5", ANTHROPIC_2026_11_25, [
+    { input: 1, output: 5, cachedInput: 0.1, cacheWriteInput: 1.25, cacheWrite1hInput: 2 },
+  ], "standard", "2026-11-25"),
+
+  // Their batch rates, as listed in the page's batch processing table.
+  entry("anthropic", "Fable 5.2", ANTHROPIC_BATCH_2026_11_25, [
+    { input: 4, output: 20 },
+  ], "batch", "2026-11-25"),
+  entry("anthropic", "Mythos 5.2", ANTHROPIC_BATCH_2026_11_25, [
+    { input: 4, output: 20 },
+  ], "batch", "2026-11-25"),
+  entry("anthropic", "Mythos 5.1", ANTHROPIC_BATCH_2026_11_25, [
+    { input: 5, output: 25 },
+  ], "batch", "2026-11-25"),
+  entry("anthropic", "Fable 5", ANTHROPIC_BATCH_2026_11_25, [
+    { input: 5, output: 25 },
+  ], "batch", "2026-11-25"),
+  entry("anthropic", "Mythos 5", ANTHROPIC_BATCH_2026_11_25, [
+    { input: 5, output: 25 },
+  ], "batch", "2026-11-25"),
+  entry("anthropic", "Opus 5", ANTHROPIC_BATCH_2026_11_25, [
+    { input: 2.5, output: 12.5 },
+  ], "batch", "2026-11-25"),
+  entry("anthropic", "Opus 4.8", ANTHROPIC_BATCH_2026_11_25, [
+    { input: 2.5, output: 12.5 },
+  ], "batch", "2026-11-25"),
+  entry("anthropic", "Opus 4.7", ANTHROPIC_BATCH_2026_11_25, [
+    { input: 2.5, output: 12.5 },
+  ], "batch", "2026-11-25"),
+  entry("anthropic", "Opus 4.6", ANTHROPIC_BATCH_2026_11_25, [
+    { input: 2.5, output: 12.5 },
+  ], "batch", "2026-11-25"),
+  entry("anthropic", "Opus 4.5", ANTHROPIC_BATCH_2026_11_25, [
+    { input: 2.5, output: 12.5 },
+  ], "batch", "2026-11-25"),
+  entry("anthropic", "Opus 4.1", ANTHROPIC_BATCH_2026_11_25, [
+    { input: 7.5, output: 37.5 },
+  ], "batch", "2026-11-25"),
+  entry("anthropic", "Opus 4", ANTHROPIC_BATCH_2026_11_25, [
+    { input: 7.5, output: 37.5 },
+  ], "batch", "2026-11-25"),
+  entry("anthropic", "Sonnet 5", ANTHROPIC_BATCH_2026_11_25, [
+    { input: 1, output: 5 },
+  ], "batch", "2026-11-25"),
+  entry("anthropic", "Sonnet 4.6", ANTHROPIC_BATCH_2026_11_25, [
+    { input: 1.5, output: 7.5 },
+  ], "batch", "2026-11-25"),
+  entry("anthropic", "Sonnet 4.5", ANTHROPIC_BATCH_2026_11_25, [
+    { input: 1.5, output: 7.5 },
+  ], "batch", "2026-11-25"),
+  entry("anthropic", "Sonnet 4", ANTHROPIC_BATCH_2026_11_25, [
+    { input: 1.5, output: 7.5 },
+  ], "batch", "2026-11-25"),
+  entry("anthropic", "Haiku 4.5", ANTHROPIC_BATCH_2026_11_25, [
+    { input: 0.5, output: 2.5 },
+  ], "batch", "2026-11-25"),
 ];
 
 const openai: ModelPriceEntry[] = [

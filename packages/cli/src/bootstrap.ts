@@ -10,12 +10,12 @@
  * It contains none of the product's code — just this launcher — so the download
  * stays tiny and the runtime is fetched and verified, never shipped blind.
  */
-import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { exitLike, runForeground } from "./run-child.js";
 
 const BASE = (process.env.MESH_BASE_URL ?? "https://www.mesh-technology.com").replace(/\/$/, "");
 const DIR = join(homedir(), ".mesh", "runtime");
@@ -90,12 +90,12 @@ async function main(): Promise<void> {
   await ensureRuntime();
   // Run the cached runtime, telling it which file bootstrapped it so
   // `mesh install` can register the (self-updating) bootstrap with launchd.
-  const result = spawnSync(process.execPath, [RUNTIME, ...process.argv.slice(2)], {
-    stdio: "inherit",
-    env: { ...process.env, MESH_BOOTSTRAP_PATH: fileURLToPath(import.meta.url) },
+  // Stay with it and pass stop signals on, so stopping `mesh` stops the runtime.
+  const end = await runForeground(process.execPath, [RUNTIME, ...process.argv.slice(2)], {
+    ...process.env,
+    MESH_BOOTSTRAP_PATH: fileURLToPath(import.meta.url),
   });
-  if (result.error) { console.error(String(result.error)); process.exit(1); }
-  process.exit(result.status ?? 0);
+  exitLike(end);
 }
 
 main().catch((error: unknown) => { console.error(String(error)); process.exit(1); });
