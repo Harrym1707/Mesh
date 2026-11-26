@@ -6,7 +6,9 @@
  *                          and runs the runtime, and self-updates.
  *   pkg/mesh-runtime       the client runtime (proxy + reducer + ledger + Theo),
  *                          scoped: no `analyse`, so billing/router/observability
- *                          code never ships. Stamped with the git commit.
+ *                          code never ships. Stamped with the git commit. It
+ *                          carries the bootstrap's text, so an install that
+ *                          updates its runtime gets the current bootstrap too.
  *   pkg/mesh-version.json  { version, sha256, runtime } — the update manifest
  *                          the bootstrap checks and verifies against.
  *
@@ -18,7 +20,8 @@
  * `mesh-runtime verify`.
  */
 import { execSync } from "node:child_process";
-import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -59,15 +62,22 @@ function bundle(entry: string, outfile: string, define: Record<string, string> =
 rmSync(outDir, { recursive: true, force: true });
 mkdirSync(outDir, { recursive: true });
 
-// 1. The runtime (scoped client entry), stamped with the commit.
-const runtimeFile = path.join(outDir, "mesh-runtime");
-bundle("mesh-runtime.ts", runtimeFile, { __MESH_BUILD_COMMIT__: JSON.stringify(commit), __MESH_VERSION__: JSON.stringify(version) });
-const runtimeBytes = readFileSync(runtimeFile);
-const runtimeSha = createHash("sha256").update(runtimeBytes).digest("hex");
-
-// 2. The bootstrap (the tiny download).
+// 1. The bootstrap (the tiny download). Built first because the runtime
+//    carries its text: an update only ever replaces the runtime, so the runtime
+//    is what brings an already-installed launcher up to date (launcher-renewal.ts).
 const bootstrapFile = path.join(outDir, "mesh");
 bundle("bootstrap.ts", bootstrapFile);
+const bootstrapSource = readFileSync(bootstrapFile, "utf8");
+
+// 2. The runtime (scoped client entry), stamped with the commit.
+const runtimeFile = path.join(outDir, "mesh-runtime");
+bundle("mesh-runtime.ts", runtimeFile, {
+  __MESH_BUILD_COMMIT__: JSON.stringify(commit),
+  __MESH_VERSION__: JSON.stringify(version),
+  __MESH_BOOTSTRAP_SOURCE__: JSON.stringify(bootstrapSource),
+});
+const runtimeBytes = readFileSync(runtimeFile);
+const runtimeSha = createHash("sha256").update(runtimeBytes).digest("hex");
 
 // 3. The update manifest the bootstrap verifies against.
 writeFileSync(
@@ -144,6 +154,26 @@ if (!statementHelp.includes("Usage: mesh statement") || !statementHelp.includes(
   process.exit(1);
 }
 
+// An install that already exists must get this build's launcher: start the
+// runtime the way an older launcher would, from an install folder in an empty
+// home, and the launcher file there must come out identical to the one built.
+{
+  const home = mkdtempSync(path.join(tmpdir(), "mesh-build-launcher-"));
+  const installed = path.join(home, ".mesh", "bin", "mesh");
+  mkdirSync(path.dirname(installed), { recursive: true });
+  writeFileSync(installed, "#!/usr/bin/env node\n// an older launcher\n", { mode: 0o755 });
+  execSync(`node ${JSON.stringify(runtimeFile)} version`, {
+    cwd: root,
+    env: { ...process.env, HOME: home, MESH_BOOTSTRAP_PATH: installed },
+  });
+  const renewed = readFileSync(installed, "utf8") === bootstrapSource && (statSync(installed).mode & 0o111) !== 0;
+  rmSync(home, { recursive: true, force: true });
+  if (!renewed) {
+    console.error("Smoke test FAILED — the runtime did not renew an older installed launcher.");
+    process.exit(1);
+  }
+}
+
 const kb = (n: number): string => `${(n / 1024).toFixed(0)}KB`;
 console.log(`built CLI artifacts  (build ${commit}, v${version})`);
 console.log(`  mesh (bootstrap)   ${kb(readFileSync(bootstrapFile).length)}  → the download`);
@@ -152,4 +182,5 @@ console.log(`  mesh-version.json  update manifest`);
 console.log(`  smoke test: mesh-runtime verify — All checks passed`);
 console.log(`  smoke test: mesh-runtime theo --help — command present`);
 console.log(`  smoke test: mesh-runtime statement --help — command present`);
+console.log(`  smoke test: an older installed launcher is renewed by the runtime`);
 console.log(`  publish npm with:  (cd ${path.relative(root, outDir)} && npm publish --access public)`);
