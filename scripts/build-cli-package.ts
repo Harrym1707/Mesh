@@ -164,9 +164,12 @@ if (!statementHelp.includes("Usage: mesh statement") || !statementHelp.includes(
   writeFileSync(installed, "#!/usr/bin/env node\n// an older launcher\n", { mode: 0o755 });
   execSync(`node ${JSON.stringify(runtimeFile)} version`, {
     cwd: root,
-    env: { ...process.env, HOME: home, MESH_BOOTSTRAP_PATH: installed },
+    // The home folder comes from HOME on macOS and Linux, USERPROFILE on Windows.
+    env: { ...process.env, HOME: home, USERPROFILE: home, MESH_BOOTSTRAP_PATH: installed },
   });
-  const renewed = readFileSync(installed, "utf8") === bootstrapSource && (statSync(installed).mode & 0o111) !== 0;
+  // Windows has no executable bit to check.
+  const executable = process.platform === "win32" || (statSync(installed).mode & 0o111) !== 0;
+  const renewed = readFileSync(installed, "utf8") === bootstrapSource && executable;
   rmSync(home, { recursive: true, force: true });
   if (!renewed) {
     console.error("Smoke test FAILED — the runtime did not renew an older installed launcher.");

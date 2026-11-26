@@ -21,7 +21,7 @@ describe("renewLauncher — an update reaches the launcher too", () => {
   it("replaces an out-of-date installed launcher and keeps it executable", () => {
     expect(renewLauncher({ source: NEW, startedBy: installed, installedPath: installed })).toBe("renewed");
     expect(readFileSync(installed, "utf8")).toBe(NEW);
-    expect(statSync(installed).mode & 0o111).not.toBe(0);
+    if (process.platform !== "win32") expect(statSync(installed).mode & 0o111).not.toBe(0);
     // Nothing is left beside it.
     expect(readdirSync(dirname(installed))).toEqual(["mesh"]);
   });
