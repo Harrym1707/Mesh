@@ -9,6 +9,8 @@
  * This is what scripts/build-cli-package.ts bundles into /mesh-runtime; the
  * small /mesh bootstrap fetches, caches, verifies and execs it.
  */
+import { renewInstalledLauncher } from "./launcher-renewal.js";
+
 const TOP_USAGE = `mesh — cut your LLM bill, verified on your own usage.
 
 Usage: mesh <command> [options]
@@ -42,6 +44,9 @@ Usage: mesh <command> [options]
 Run "mesh <command> --help" for command options.`;
 
 async function main(): Promise<void> {
+  // An update replaces this runtime but not the launcher that started it, so
+  // the runtime brings an out-of-date launcher in step (launcher-renewal.ts).
+  renewInstalledLauncher();
   const sub = process.argv[2];
   if (sub === "start") {
     await (await import("./start.js")).runStart(process.argv.slice(3));
