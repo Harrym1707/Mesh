@@ -84,6 +84,8 @@ describe("mesh start — ~/.claude/settings.json merge + revert", () => {
     expect(running.env!.ANTHROPIC_BASE_URL).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
     expect(running.env!.FOO).toBe("bar");
     expect(running.theme).toBe("dark");
+    // Claude Code drops tool search behind a proxy unless told otherwise.
+    expect(running.env!.ENABLE_TOOL_SEARCH).toBe("true");
 
     // Ctrl+C: start must revert its own key and leave everything else alone.
     const exited = new Promise<void>((resolve) => child!.once("exit", () => resolve()));
@@ -92,6 +94,7 @@ describe("mesh start — ~/.claude/settings.json merge + revert", () => {
 
     const reverted = readSettings(home);
     expect(reverted.env?.ANTHROPIC_BASE_URL).toBeUndefined();
+    expect(reverted.env?.ENABLE_TOOL_SEARCH).toBeUndefined();
     expect(reverted.env?.FOO).toBe("bar");
     expect(reverted.theme).toBe("dark");
   });
