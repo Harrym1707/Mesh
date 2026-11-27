@@ -20,14 +20,14 @@ is TypeScript/JavaScript today. It covers Claude (Anthropic), OpenAI, and any
 OpenAI-compatible endpoint.
 
 **My agents run 24/7 — what does MESH actually do for always-on workloads?**
-Long-lived agents re-send their whole history every turn, so they re-buy
-their own memory forever — on real agent traffic, each output token gets
-re-read ~27 more times downstream. MESH keeps that history on the provider's
+Long-lived agents re-send their whole history every turn, so they pay for
+their own memory again on every call. MESH keeps that history on the provider's
 cached rate (with guards that refuse placements that would lose money),
 digests stale context byte-stably, caps oversized tool results behind a
 quality gate, flags byte-identical retries, and meters output re-emission on
-your statement. The measured always-on shapes are our strongest bands: see
-[savings by segment](segments.md).
+your statement. We have no live measurement on an always-on agent yet. The one
+live number we have is 18.2% net savings on a mixed 30-request basket
+(claude-sonnet-5-5, run 2026-10-26); see [savings by segment](segments.md).
 
 **Can MESH break my app?**
 The default levers are lossless: compacted schemas decode identically, removed
