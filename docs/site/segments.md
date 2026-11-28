@@ -59,12 +59,13 @@ interactive agent 70%, ask for their per-task evidence.
 
 An agent that never stops — an ops monitor, an autonomous worker, a
 multi-agent team running around the clock — re-buys its own memory on every
-single turn, forever. On real agent traffic we measured, each output token an
-agent emits is re-read roughly 27 more times as later turns re-send the
-history, and a well-cached agent's bill is ~52% cache reads. Two of our
-measured matrix shapes ARE always-on patterns: multi-agent teams at **−55.6%
-cost** and autonomous long-horizon agents at **−40.0%** (lossless levers plus
-the cache stamp, breakpoint-exact provider rules, simulator-measured).
+single turn, forever. Every output token an agent emits is re-sent as input
+on every later turn, so the history can become the biggest line on its bill. Mesh's
+levers target exactly that: lossless history clean-up and breakpoint-exact
+cache placement. We have no live measurement on an always-on agent yet. The
+only live number we have is 18.2% on a mixed 30-request basket
+(LIVE, claude-sonnet-5-5, run 2026-10-26; see docs/NUMBERS.md); simulator figures
+for agent workloads are listed with their labels in the evidence page.
 
 **The always-on trap is cadence.** A busy loop (calls under five minutes
 apart) keeps the provider's 5-minute cache warm for free — every read

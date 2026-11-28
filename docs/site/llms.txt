@@ -1,23 +1,25 @@
 # MESH
 
-> LLM cost reduction for Claude (Anthropic), OpenAI and OpenAI-compatible
-> APIs, billed as a percentage of verified savings. Integration is one URL
-> (proxy mode) or one line (SDK). Savings are measured per completed task
-> with quality held, from the provider's own reported usage, and every
-> invoice is recomputable by the customer from a hash-chained event ledger.
-> Figures are per traffic segment (one number would be wrong for most
-> customers), simulator-measured at providers' published prices: multi-turn
-> Claude cache-only 37.9% vs the same prompt-reduction stack without caching
-> (both arms clean 38/40); the 57.3% full-stack comparison loses 5 pp clean
-> tasks against raw uncached baseline and fails the -2 pp quality limit, so it
-> is not a qualified win. Other figures: async/batch 57.7% net, one-shot templated 45.5-72.8%,
-> interactive agents 25.9-34.3%, already-optimised stacks 0-5% with an
-> explicit do-not-pay-us verdict. The fee is 1% of verified savings,
-> monthly, nothing else; a month that saved nothing bills nothing. The latest real-traffic export (30 requests on
-> claude-sonnet-5-5, 2026-10-26) measured 18.2% of live spend billed as
-> verified savings across five agents, hash-chained spools committed to the
-> repo (evals/live-exports-2026-10-26/), with the cache volatility guard
-> earning live on the agent shape it previously lost money on.
+> Mesh is a local proxy that lowers what requests to Anthropic (Claude) and
+> OpenAI-compatible APIs cost, for teams whose products call an LLM API
+> constantly (agents, coding, support, RAG, multi-agent systems). It records
+> every request in a hash-chained ledger on your own machine, and charges 1%
+> of verified savings, monthly, nothing else; a month that saved nothing
+> bills nothing. You can recompute any invoice yourself with `mesh verify`.
+> Mesh has no customers yet and has not run on any customer's traffic.
+>
+> Every figure below is from docs/NUMBERS.md (last reconciled 2026-10-27).
+> LIVE = real API calls: 18.2% net savings on one mixed 30-request basket
+> (claude-sonnet-5-5, run 2026-10-26, $0.0365 saved of $0.2010 spent); it is
+> one small run, not a measurement of any customer's bill, and Mesh has not
+> yet measured its effect on a real provider bill. SIMULATOR = modelled at
+> providers' published prices, not proven on a real bill: async/batch 57.7%
+> net, one-shot templated 45.5% and 72.8%, sparse interactive 34.3%, busy
+> interactive 25.9-29.4%, multi-turn Claude cache lever alone 37.9%. The 57.3%
+> full-stack simulator comparison loses 5 pp of clean tasks against a raw
+> uncached baseline and fails the -2 pp quality limit, so it is not a
+> qualified win. Already-optimised stacks: 0-5%, and the verdict is "do not
+> pay us". Which levers were switched on for each figure is on evidence.html.
 
 ## Install
 Open to everyone, no signup. Install with one command on macOS, Linux or WSL:
@@ -32,11 +34,10 @@ is recomputable with verifyLedgerChain and recomputeInvoice from that package. Q
 existing LiteLLM/Helicone/Langfuse export without routing any traffic:
 `npx -y -p @harrym1707/sdk mesh-quote your-export.jsonl --format litellm`.
 
-Always-on / 24-7 agents are the strongest measured shapes (multi-agent teams
--55.6% cost, autonomous long-horizon agents -40.0%, simulator-measured at
-breakpoint-exact provider rules): long-lived agents re-send their history
-every turn, and MESH keeps it on the cached rate with guards, digests stale
-context, caps oversized tool results, and meters output re-emission waste.
+Long-lived agents re-send their history every turn; Mesh keeps it on the
+provider's cached rate with guards, and caps oversized tool results. How much
+that is worth depends on the workload (see the per-segment page); the
+pilot runbook gives a quote from your own logs without routing any traffic.
 
 ## Docs
 - [Get started in five minutes](start.html)
